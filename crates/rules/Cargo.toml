@@ -1,0 +1,9 @@
+[package]
+name = "rules"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Pathfinder Remaster procedures for Genesis combat"
+
+[dependencies]

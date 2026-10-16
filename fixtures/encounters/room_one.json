@@ -1,0 +1,15 @@
+{
+  "id": "room_one",
+  "room": "../rooms/small_room.json",
+  "rng_seed": 115,
+  "trigger": { "x": 6, "y": 4, "radius_feet": 10 },
+  "party": [
+    { "creature": "../creatures/fighter_l1.json", "name": "Sera Voss", "x": 2, "y": 2 },
+    { "creature": "../creatures/fighter_l1.json", "name": "Bram Holt", "x": 3, "y": 2 },
+    { "creature": "../creatures/fighter_l1.json", "name": "Quill Ames", "x": 2, "y": 3 },
+    { "creature": "../creatures/fighter_l1.json", "name": "Doss Kade", "x": 3, "y": 3 }
+  ],
+  "enemies": [
+    { "creature": "../creatures/enemy_mvp.json", "name": "Hall Guard", "x": 9, "y": 4 }
+  ]
+}

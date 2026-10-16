@@ -1,0 +1,15 @@
+{
+  "id": "fighter_l1",
+  "name": "Fighter",
+  "level": 1,
+  "hit_points": 20,
+  "armor_class": 18,
+  "perception": 5,
+  "speed_feet": 25,
+  "strike": {
+    "name": "longsword",
+    "attack_bonus": 7,
+    "damage": { "dice": 1, "faces": 8, "bonus": 4 },
+    "reach_feet": 5
+  }
+}

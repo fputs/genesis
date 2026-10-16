@@ -12,6 +12,18 @@ This repository ships the engine, editor, and authoring tooling. Campaign narrat
 - [Project context](docs/project-context.md)
 - [Research corpus](docs/research/README.md)
 
+## Run
+
+Rust 1.99.1 (`rust-toolchain.toml`). See [TESTER.md](TESTER.md) for the walkthrough and system packages.
+
+```
+cargo test
+cargo run -p game
+cargo run -p game -- --headless
+```
+
+The game loads `fixtures/encounters/room_one.json`: explore the room, then a turn-based fight with Move and Strike.
+
 ## Status
 
-Pre-implementation: principles, research, and MVP architecture are checked in. Implementation follows `docs/mvp-architecture.md`.
+Slice 1 is in the workspace crates `rules`, `content`, and `game`. Architecture: [docs/mvp-architecture.md](docs/mvp-architecture.md).
