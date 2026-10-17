@@ -3,9 +3,9 @@
 use bevy::prelude::*;
 use content::{load_encounter, EncounterFixture, Feature, Spawn};
 use rules::{
-    advance_if_turn_done, declare_action, end_turn, legal_actions, start_encounter, Action,
-    ClassFeature, CombatantId, CreatureTemplate, DamageFormula, Encounter, Event, Grid, GridPos,
-    Outcome, Side, StrikeTemplate,
+    advance_if_turn_done, declare_action, end_turn, legal_actions, reactors_for_left_square,
+    start_encounter, Action, ClassFeature, CombatantId, CreatureTemplate, DamageFormula, Encounter,
+    Event, Grid, GridPos, Outcome, Side, StrikeTemplate,
 };
 
 use crate::world::{cell_in_trigger, cell_to_world, member_world, snap_to_grid, world_to_cell};
@@ -112,6 +112,7 @@ impl Plugin for SessionPlugin {
             .init_resource::<PendingOrder>()
             .init_resource::<EndTurnRequest>()
             .init_resource::<EnemyClock>()
+            .init_resource::<EnemyTurnOrigin>()
             .init_resource::<HudBump>()
             .add_systems(Startup, load_session)
             .add_systems(
@@ -285,6 +286,7 @@ fn combat_tick(
     mut pending: ResMut<PendingOrder>,
     mut end_turn_request: ResMut<EndTurnRequest>,
     mut clock: ResMut<EnemyClock>,
+    mut turn_origin: ResMut<EnemyTurnOrigin>,
     mut next: ResMut<NextState<GameMode>>,
     mut hud: ResMut<HudBump>,
 ) {
@@ -319,10 +321,11 @@ fn combat_tick(
                     }
                 }
             } else if side == Some(Side::Enemy) {
+                let left_square = left_square_this_turn(&encounter, active, &mut turn_origin);
                 clock.0.tick(time.delta());
                 if clock.0.finished() {
                     clock.0.reset();
-                    if let Some(action) = enemy_action(&encounter, active) {
+                    if let Some(action) = enemy_action(&encounter, active, left_square) {
                         if let Ok(resolved) =
                             declare_action(&mut encounter, active, action, &mut session.rng)
                         {
@@ -345,8 +348,8 @@ fn combat_tick(
     for event in &events {
         session.log.push(describe(&encounter, event));
     }
-    if session.log.len() > 6 {
-        let drain = session.log.len() - 6;
+    if session.log.len() > 12 {
+        let drain = session.log.len() - 12;
         session.log.drain(0..drain);
     }
     if !events.is_empty() || session.modal.is_some() {
@@ -374,8 +377,46 @@ fn combat_tick(
     session.encounter = Some(encounter);
 }
 
-fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
+#[derive(Clone, Copy)]
+struct TurnOrigin {
+    actor: CombatantId,
+    round: u32,
+    square: GridPos,
+}
+
+#[derive(Resource, Default)]
+struct EnemyTurnOrigin(Option<TurnOrigin>);
+
+fn left_square_this_turn(
+    encounter: &Encounter,
+    id: CombatantId,
+    origin: &mut EnemyTurnOrigin,
+) -> bool {
+    let Some(actor) = encounter.combatant(id) else {
+        return false;
+    };
+    let round = encounter.round();
+    if let Some(start) = origin.0 {
+        if start.actor == id && start.round == round {
+            return actor.position != start.square;
+        }
+    }
+    origin.0 = Some(TurnOrigin {
+        actor: id,
+        round,
+        square: actor.position,
+    });
+    false
+}
+
+/// Leave a threatened square once per turn, then Strike or close.
+fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Option<Action> {
     let legal = legal_actions(encounter, id);
+    if !left_square {
+        if let Some(action) = stride_out_of_reach(encounter, id, &legal) {
+            return Some(action);
+        }
+    }
     let mut strikes: Vec<CombatantId> = legal
         .iter()
         .filter_map(|action| match action {
@@ -424,6 +465,49 @@ fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         })
         .min_by_key(|(dist, destination)| (*dist, destination.x, destination.y))
         .map(|(_, destination)| Action::Stride { destination })
+}
+
+fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action]) -> Option<Action> {
+    let (square, side) = {
+        let actor = encounter.combatant(id)?;
+        (actor.position, actor.side)
+    };
+    let reactors = reactors_for_left_square(encounter, id, square);
+    if reactors.is_empty() {
+        return None;
+    }
+    let reaches: Vec<(GridPos, u32)> = reactors
+        .iter()
+        .filter_map(|reactor| {
+            let combatant = encounter.combatant(*reactor)?;
+            Some((combatant.position, combatant.strike.reach_feet))
+        })
+        .collect();
+    let opponents: Vec<GridPos> = encounter
+        .combatants()
+        .filter(|combatant| combatant.side != side && combatant.is_conscious())
+        .map(|combatant| combatant.position)
+        .collect();
+    legal
+        .iter()
+        .filter_map(|action| match *action {
+            Action::Stride { destination } => Some(destination),
+            Action::Step { .. } | Action::Strike { .. } => None,
+        })
+        .filter(|destination| {
+            reaches
+                .iter()
+                .all(|(pos, reach)| rules::minimum_feet(*destination, *pos) > *reach)
+        })
+        .min_by_key(|destination| {
+            let dist = opponents
+                .iter()
+                .map(|pos| rules::minimum_feet(*destination, *pos))
+                .min()
+                .unwrap_or(u32::MAX);
+            (dist, destination.x, destination.y)
+        })
+        .map(|destination| Action::Stride { destination })
 }
 
 fn describe(encounter: &Encounter, event: &Event) -> String {
@@ -777,5 +861,134 @@ mod tests {
             }
         }
         assert!(acted, "a party member should resolve Stride or Strike");
+    }
+
+    #[test]
+    fn guard_in_a_fighters_reach_strides_outside_that_reach() {
+        let fighter = |name: &str, features: Vec<ClassFeature>| CreatureTemplate {
+            name: name.into(),
+            level: 1,
+            hit_points: 20,
+            armor_class: 18,
+            perception: 5,
+            speed_feet: 25,
+            strike: StrikeTemplate {
+                name: "longsword".into(),
+                attack_bonus: 7,
+                damage: DamageFormula {
+                    dice: 1,
+                    faces: 8,
+                    bonus: 4,
+                },
+                reach_feet: 5,
+            },
+            side: Side::Party,
+            features,
+        };
+        let party = [
+            fighter("Sera Voss", vec![ClassFeature::ReactiveStrike]),
+            fighter("Bram Holt", vec![ClassFeature::ReactiveStrike]),
+            fighter("Quill Ames", vec![]),
+            fighter("Doss Kade", vec![]),
+        ];
+        let guard_template = CreatureTemplate {
+            name: "Hall Guard".into(),
+            level: 1,
+            hit_points: 18,
+            armor_class: 14,
+            perception: 3,
+            speed_feet: 25,
+            strike: StrikeTemplate {
+                name: "spear".into(),
+                attack_bonus: 6,
+                damage: DamageFormula {
+                    dice: 1,
+                    faces: 6,
+                    bonus: 2,
+                },
+                reach_feet: 5,
+            },
+            side: Side::Enemy,
+            features: Vec::new(),
+        };
+        let mut dice = rules::ScriptedDice::new([1, 1, 1, 1, 1]);
+        let mut encounter = start_encounter(
+            &party,
+            &[guard_template],
+            &[
+                GridPos::new(3, 3),
+                GridPos::new(4, 3),
+                GridPos::new(0, 0),
+                GridPos::new(0, 7),
+            ],
+            &[GridPos::new(3, 2)],
+            Grid::new(8, 8, []),
+            &mut dice,
+        )
+        .unwrap();
+        let guard = CombatantId(4);
+        while encounter.active() != Some(guard) {
+            end_turn(&mut encounter).unwrap();
+        }
+
+        let square = encounter.combatant(guard).unwrap().position;
+        let reactors = reactors_for_left_square(&encounter, guard, square);
+        assert_eq!(reactors, vec![CombatantId(0), CombatantId(1)]);
+
+        let action = enemy_action(&encounter, guard, false).expect("a legal action");
+        let Action::Stride { destination } = action else {
+            panic!("expected Stride, got {action:?}");
+        };
+        assert!(
+            reactors.iter().all(|reactor| {
+                let combatant = encounter.combatant(*reactor).unwrap();
+                rules::minimum_feet(combatant.position, destination) > combatant.strike.reach_feet
+            }),
+            "destination {destination:?} is still inside a reactor's reach"
+        );
+
+        let side = encounter.combatant(guard).unwrap().side;
+        let opponents: Vec<GridPos> = encounter
+            .combatants()
+            .filter(|combatant| combatant.side != side && combatant.is_conscious())
+            .map(|combatant| combatant.position)
+            .collect();
+        let nearest = |pos: GridPos| {
+            opponents
+                .iter()
+                .map(|opponent| rules::minimum_feet(pos, *opponent))
+                .min()
+                .unwrap_or(u32::MAX)
+        };
+        let chosen = nearest(destination);
+        for other in legal_actions(&encounter, guard) {
+            let Action::Stride {
+                destination: candidate,
+            } = other
+            else {
+                continue;
+            };
+            let outside = reactors.iter().all(|reactor| {
+                let combatant = encounter.combatant(*reactor).unwrap();
+                rules::minimum_feet(combatant.position, candidate) > combatant.strike.reach_feet
+            });
+            if !outside {
+                continue;
+            }
+            let dist = nearest(candidate);
+            assert!(
+                (dist, candidate.x, candidate.y) >= (chosen, destination.x, destination.y),
+                "closer square {candidate:?} was skipped for {destination:?}"
+            );
+        }
+
+        assert!(matches!(
+            enemy_action(&encounter, guard, true),
+            Some(Action::Strike { .. })
+        ));
+        assert!(matches!(
+            closing_action(&encounter, guard),
+            Some(Action::Strike { .. })
+        ));
     }
 }
