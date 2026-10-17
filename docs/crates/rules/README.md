@@ -9,7 +9,8 @@ Callers inject dice through `Dice`. `SeededDice` is the gameplay stream. `Script
 - `prepare_combatant` copies a `CreatureTemplate` through an empty synthetics pass into derived stats (HP, Armor Class, Perception, Speed, Strike).
 - `start_encounter` requires four party templates, places everyone on a `Grid` of 5-foot squares, and rolls Perception initiative.
 - `legal_actions` lists `Action::Stride { destination }`, `Action::Step { destination }`, and `Action::Strike { target }` for the active combatant.
-- `declare_action` spends one action. A Stride moves up to Speed. A Step moves 5 feet when Speed is at least 10, and it does not change the strike count. A Strike rolls against Armor Class and applies multiple attack penalty −5 / −10 on later Strikes that turn.
+- `declare_action` spends one action. A Stride moves up to Speed. A Step moves 5 feet when Speed is at least 10, and it does not change the strike count. A Strike rolls against Armor Class and applies multiple attack penalty −5 / −10 on later Strikes that turn. None of those actions spends a reaction.
+- `reaction_ready` reports the flag on a combatant. `start_encounter` sets it for every conscious creature, and the start of that creature's turn sets it again. `spend_reaction` clears it and returns `Illegal::NoReaction` when it is already clear.
 - `advance_if_turn_done` / `end_turn` walk the initiative order. A creature at 0 HP is skipped and a party member stays in one of the four slots.
 - The encounter ends in `Victory` when every enemy is at 0 HP, or `Defeat` when every party slot is at 0 HP.
 
@@ -17,4 +18,4 @@ Callers inject dice through `Dice`. `SeededDice` is the gameplay stream. `Script
 
 ## Fidelity notes
 
-Dying checks, initiative ties that need a GM, Step on difficult terrain, and the basic actions this fight does not run are recorded in `docs/research/fidelity-ledger.md`.
+Dying checks, initiative ties that need a GM, Step on difficult terrain, the basic actions this fight does not run, and reaction rules this iteration does not run are recorded in `docs/research/fidelity-ledger.md`.

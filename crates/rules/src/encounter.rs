@@ -32,6 +32,7 @@ pub struct Combatant {
     pub position: GridPos,
     pub initiative_roll: u8,
     pub initiative_total: i32,
+    pub reaction_ready: bool,
 }
 
 impl Combatant {
@@ -131,6 +132,7 @@ pub enum Illegal {
     NotYourTurn,
     NotLegal,
     UnknownCombatant,
+    NoReaction,
 }
 
 impl fmt::Display for Illegal {
@@ -140,6 +142,7 @@ impl fmt::Display for Illegal {
             Illegal::NotYourTurn => write!(f, "that combatant is not the active one"),
             Illegal::NotLegal => write!(f, "that action is not legal"),
             Illegal::UnknownCombatant => write!(f, "unknown combatant"),
+            Illegal::NoReaction => write!(f, "that reaction is already spent"),
         }
     }
 }
@@ -192,6 +195,25 @@ impl Encounter {
 
     pub fn strikes_this_turn(&self) -> u8 {
         self.strikes_this_turn
+    }
+
+    /// Whether `id` still has a reaction. `None` when `id` is not in this encounter.
+    pub fn reaction_ready(&self, id: CombatantId) -> Option<bool> {
+        self.combatants
+            .get(&id)
+            .map(|combatant| combatant.reaction_ready)
+    }
+
+    /// Spends `id`'s reaction. A second spend before that creature's next turn returns [`Illegal::NoReaction`].
+    pub fn spend_reaction(&mut self, id: CombatantId) -> Result<(), Illegal> {
+        let Some(combatant) = self.combatants.get_mut(&id) else {
+            return Err(Illegal::UnknownCombatant);
+        };
+        if !combatant.reaction_ready {
+            return Err(Illegal::NoReaction);
+        }
+        combatant.reaction_ready = false;
+        Ok(())
     }
 
     pub fn outcome(&self) -> Option<Outcome> {
@@ -342,6 +364,7 @@ fn insert_combatant(
             position: pos,
             initiative_roll: natural,
             initiative_total: total,
+            reaction_ready: true,
         },
     );
     Ok(())
@@ -666,6 +689,7 @@ fn advance_to_next(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
             }
             encounter.actions_remaining = 3;
             encounter.strikes_this_turn = 0;
+            encounter.combatants.get_mut(&id).unwrap().reaction_ready = true;
             events.push(Event::TurnStarted {
                 id,
                 round: encounter.round,

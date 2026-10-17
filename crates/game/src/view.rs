@@ -513,7 +513,7 @@ fn sync_hud(
                 position_type: PositionType::Absolute,
                 right: Val::Px(16.0),
                 top: Val::Px(16.0),
-                width: Val::Px(440.0),
+                width: Val::Px(620.0),
                 padding: UiRect::all(Val::Px(10.0)),
                 border: UiRect::all(Val::Px(1.0)),
                 flex_direction: FlexDirection::Column,
@@ -534,14 +534,19 @@ fn sync_hud(
                 if let Some(encounter) = &session.encounter {
                     let actions = encounter.actions_remaining();
                     let round = encounter.round();
-                    let who = encounter
-                        .active()
+                    let active = encounter.active();
+                    let who = active
                         .and_then(|id| encounter.combatant(id))
                         .map(|c| c.name.as_str())
                         .unwrap_or("—");
+                    let reaction = match active.and_then(|id| encounter.reaction_ready(id)) {
+                        Some(true) => "  ·  Reaction ready",
+                        Some(false) => "  ·  Reaction spent",
+                        None => "",
+                    };
                     text(
                         panel,
-                        &format!("Round {round}  ·  {who}  ·  {actions} actions"),
+                        &format!("Round {round}  ·  {who}  ·  {actions} actions{reaction}"),
                         16.0,
                         INK,
                     );

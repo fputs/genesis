@@ -56,7 +56,7 @@ What you should see:
 
 ### Combat
 
-The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, and actions remaining.
+The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, actions remaining, and `Reaction ready`.
 
 - On the guard's turn, wait. The guard Strides or Strikes on its own, about half a second per action. The guard does not Step.
 - On a player turn, press **M**. Gold squares are legal Strides (one action, up to Speed 25). Click one. The log records `strides to`, the square, and the feet spent.
