@@ -1,13 +1,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// One square address in a fixture room.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub x: i32,
     pub y: i32,
+}
+
+/// Surface of one square. Walls stay in the room rows; this is only the floor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Floor {
+    Stone,
+    Grass,
+    Dirt,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -51,6 +60,7 @@ pub struct Spawn {
 }
 
 /// Walkable map. `#` in the source rows becomes a blocked cell. `.` is open. Each cell is 5 feet.
+/// `floors` is row-major: index `y * width + x`, one floor per square.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Room {
     pub id: String,
@@ -58,6 +68,7 @@ pub struct Room {
     pub width: i32,
     pub height: i32,
     pub blocked: Vec<Cell>,
+    pub floors: Vec<Floor>,
 }
 
 impl Room {
@@ -67,6 +78,31 @@ impl Room {
 
     pub fn walkable(&self, x: i32, y: i32) -> bool {
         self.in_bounds(x, y) && !self.blocked.iter().any(|cell| cell.x == x && cell.y == y)
+    }
+
+    /// Floor at `(x, y)`, or `None` when the square is outside the grid.
+    pub fn floor(&self, x: i32, y: i32) -> Option<Floor> {
+        let index = self.index(x, y)?;
+        self.floors.get(index).copied()
+    }
+
+    /// Paints `(x, y)`. Returns false when the square is outside the grid.
+    pub fn set_floor(&mut self, x: i32, y: i32, floor: Floor) -> bool {
+        let Some(index) = self.index(x, y) else {
+            return false;
+        };
+        if index >= self.floors.len() {
+            return false;
+        }
+        self.floors[index] = floor;
+        true
+    }
+
+    fn index(&self, x: i32, y: i32) -> Option<usize> {
+        if !self.in_bounds(x, y) {
+            return None;
+        }
+        Some((y * self.width + x) as usize)
     }
 }
 
@@ -96,6 +132,10 @@ pub enum LoadError {
         path: PathBuf,
         source: std::io::Error,
     },
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     Json {
         path: PathBuf,
         source: serde_json::Error,
@@ -109,6 +149,7 @@ impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LoadError::Io { path, source } => write!(f, "reading {}: {source}", path.display()),
+            LoadError::Write { path, source } => write!(f, "writing {}: {source}", path.display()),
             LoadError::Json { path, source } => write!(f, "parsing {}: {source}", path.display()),
             LoadError::Invalid { reasons } => write!(f, "{}", reasons.join("; ")),
         }
@@ -118,7 +159,7 @@ impl std::fmt::Display for LoadError {
 impl std::error::Error for LoadError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            LoadError::Io { source, .. } => Some(source),
+            LoadError::Io { source, .. } | LoadError::Write { source, .. } => Some(source),
             LoadError::Json { source, .. } => Some(source),
             LoadError::Invalid { .. } => None,
         }
@@ -151,6 +192,9 @@ struct RoomFile {
     id: String,
     cell_feet: u32,
     rows: Vec<String>,
+    /// Omitted floors are stone. Present rows are parsed here, then stored row-major on [`Room`].
+    #[serde(default)]
+    floors: Option<Vec<Vec<Floor>>>,
 }
 
 /// Loads an encounter JSON file and the creature and room files it points at.
@@ -297,13 +341,166 @@ fn room_from_file(file: RoomFile) -> Result<Room, String> {
             }
         }
     }
+    let height = file.rows.len();
+    let floors = floors_from_file(&file.id, width, height, file.floors)?;
     Ok(Room {
         id: file.id,
         cell_feet: file.cell_feet,
         width: width as i32,
-        height: file.rows.len() as i32,
+        height: height as i32,
         blocked,
+        floors,
     })
+}
+
+fn floors_from_file(
+    id: &str,
+    width: usize,
+    height: usize,
+    floors: Option<Vec<Vec<Floor>>>,
+) -> Result<Vec<Floor>, String> {
+    let Some(rows) = floors else {
+        return Ok(vec![Floor::Stone; width * height]);
+    };
+    if rows.len() != height {
+        return Err(format!(
+            "room {id} has {} floor rows; the map has {height}",
+            rows.len()
+        ));
+    }
+    let mut flat = Vec::with_capacity(width * height);
+    for (y, row) in rows.into_iter().enumerate() {
+        if row.len() != width {
+            return Err(format!(
+                "room {id} floor row {y} has length {}, expected {width}",
+                row.len()
+            ));
+        }
+        flat.extend(row);
+    }
+    Ok(flat)
+}
+
+/// Loads one room file. Paths are the file itself; encounter files are not read.
+pub fn load_room(path: &Path) -> Result<Room, LoadError> {
+    let file: RoomFile = read_json(path)?;
+    room_from_file(file).map_err(|reason| LoadError::Invalid {
+        reasons: vec![reason],
+    })
+}
+
+/// Writes `room` as JSON. `rows` keep blocked squares. `floors` is one row per map row.
+pub fn save_room(path: &Path, room: &Room) -> Result<(), LoadError> {
+    let mut reasons = Vec::new();
+    if room.id.trim().is_empty() {
+        reasons.push("room id is empty".into());
+    }
+    if room.cell_feet != 5 {
+        reasons.push(format!(
+            "room {} uses {}-foot cells; squares are 5 feet",
+            room.id, room.cell_feet
+        ));
+    }
+    if room.width <= 0 || room.height <= 0 {
+        reasons.push(format!(
+            "room {} is {}×{}; both axes must be positive",
+            room.id, room.width, room.height
+        ));
+    }
+    let expected = (room.width.max(0) as usize).saturating_mul(room.height.max(0) as usize);
+    if room.floors.len() != expected {
+        reasons.push(format!(
+            "room {} has {} floors; a {}×{} grid has {expected}",
+            room.id,
+            room.floors.len(),
+            room.width,
+            room.height
+        ));
+    }
+    for cell in &room.blocked {
+        if !room.in_bounds(cell.x, cell.y) {
+            reasons.push(format!(
+                "room {} has a blocked square ({}, {}) outside the grid",
+                room.id, cell.x, cell.y
+            ));
+        }
+    }
+    if !reasons.is_empty() {
+        return Err(LoadError::Invalid { reasons });
+    }
+
+    let text = room_json(room);
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &text).map_err(|source| LoadError::Write {
+        path: tmp.clone(),
+        source,
+    })?;
+    fs::rename(&tmp, path).map_err(|source| LoadError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn room_json(room: &Room) -> String {
+    let mut out = String::new();
+    out.push_str("{\n  \"id\": ");
+    out.push_str(&serde_json::to_string(&room.id).unwrap());
+    out.push_str(",\n  \"cell_feet\": ");
+    out.push_str(&room.cell_feet.to_string());
+    out.push_str(",\n  \"rows\": [\n");
+    let rows = rows_of(room);
+    for (index, row) in rows.iter().enumerate() {
+        out.push_str("    ");
+        out.push_str(&serde_json::to_string(row).unwrap());
+        if index + 1 != rows.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ],\n  \"floors\": [\n");
+    let width = room.width as usize;
+    let height = room.height as usize;
+    for y in 0..height {
+        out.push_str("    [");
+        for x in 0..width {
+            if x > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&serde_json::to_string(&room.floors[y * width + x]).unwrap());
+        }
+        out.push(']');
+        if y + 1 != height {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ]\n}\n");
+    out
+}
+
+fn rows_of(room: &Room) -> Vec<String> {
+    let mut blocked = vec![false; (room.width as usize) * (room.height as usize)];
+    for cell in &room.blocked {
+        if let Some(index) = room.index(cell.x, cell.y) {
+            if let Some(flag) = blocked.get_mut(index) {
+                *flag = true;
+            }
+        }
+    }
+    (0..room.height)
+        .map(|y| {
+            (0..room.width)
+                .map(|x| {
+                    let index = (y * room.width + x) as usize;
+                    if blocked[index] {
+                        '#'
+                    } else {
+                        '.'
+                    }
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn validate_placement(

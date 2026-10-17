@@ -5,6 +5,6 @@
 mod load;
 
 pub use load::{
-    load_encounter, Cell, Creature, DamageSpec, EncounterFixture, LoadError, Room, Spawn,
-    StrikeSpec, Trigger,
+    load_encounter, load_room, save_room, Cell, Creature, DamageSpec, EncounterFixture, Floor,
+    LoadError, Room, Spawn, StrikeSpec, Trigger,
 };
