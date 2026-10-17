@@ -28,7 +28,7 @@ pub enum TriggerState {
 pub enum Aim {
     #[default]
     None,
-    Move,
+    Stride,
     Strike,
 }
 
@@ -379,7 +379,7 @@ fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         .iter()
         .filter_map(|action| match action {
             Action::Strike { target } => Some(*target),
-            Action::Move { .. } => None,
+            Action::Stride { .. } => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -410,7 +410,7 @@ fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
     legal
         .into_iter()
         .filter_map(|action| match action {
-            Action::Move { destination } => Some(destination),
+            Action::Stride { destination } => Some(destination),
             Action::Strike { .. } => None,
         })
         .filter_map(|destination| {
@@ -422,7 +422,7 @@ fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
             (dist < here).then_some((dist, destination))
         })
         .min_by_key(|(dist, destination)| (*dist, destination.x, destination.y))
-        .map(|(_, destination)| Action::Move { destination })
+        .map(|(_, destination)| Action::Stride { destination })
 }
 
 fn describe(encounter: &Encounter, event: &Event) -> String {
@@ -533,7 +533,7 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
     legal
         .into_iter()
         .filter_map(|action| match action {
-            Action::Move { destination } => Some(destination),
+            Action::Stride { destination } => Some(destination),
             Action::Strike { .. } => None,
         })
         .min_by_key(|destination| {
@@ -544,7 +544,7 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
                 .unwrap_or(u32::MAX);
             (dist, destination.x, destination.y)
         })
-        .map(|destination| Action::Move { destination })
+        .map(|destination| Action::Stride { destination })
 }
 
 pub fn headless_report() -> Result<String, String> {
@@ -740,6 +740,6 @@ mod tests {
                 break;
             }
         }
-        assert!(acted, "a party member should resolve Move or Strike");
+        assert!(acted, "a party member should resolve Stride or Strike");
     }
 }

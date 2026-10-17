@@ -18,7 +18,7 @@ cargo build -p game
 cargo build -p editor
 ```
 
-`cargo test` includes headless rules, fixture validation, and a Bevy `MinimalPlugins` transition that snaps into combat and resolves one Move or Strike. It does not need a GPU.
+`cargo test` includes headless rules, fixture validation, and a Bevy `MinimalPlugins` transition that snaps into combat and resolves one Stride or Strike. It does not need a GPU.
 
 ## Headless smoke
 
@@ -56,7 +56,7 @@ What you should see:
 
 ### Combat
 
-The bar at the bottom shows **Move (M)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, and actions remaining.
+The bar at the bottom shows **Stride (M)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, and actions remaining.
 
 - On the guard's turn, wait. The guard Strides or Strikes on its own, about half a second per action.
 - On a player turn, press **M**. Gold squares are legal Strides (one action, up to Speed 25). Click one. The log records the square and the feet spent.

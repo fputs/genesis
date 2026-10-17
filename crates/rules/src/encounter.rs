@@ -43,7 +43,7 @@ impl Combatant {
 /// Closed set of combat actions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    Move { destination: GridPos },
+    Stride { destination: GridPos },
     Strike { target: CombatantId },
 }
 
@@ -339,9 +339,9 @@ fn insert_combatant(
     Ok(())
 }
 
-/// Legal Move and Strike actions for `id` on their turn.
+/// Legal Stride and Strike actions for `id` on their turn.
 ///
-/// Move lists every square a Stride of up to Speed can reach. Allies can be crossed and not
+/// Stride lists every square up to Speed that can be reached. Allies can be crossed and not
 /// ended on. Conscious enemies cannot be entered. Strike lists each conscious opponent in reach.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     if encounter.outcome.is_some() || encounter.actions_remaining == 0 {
@@ -377,7 +377,7 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
         &cannot_enter,
         &cannot_end,
     ) {
-        actions.push(Action::Move { destination });
+        actions.push(Action::Stride { destination });
     }
 
     let reach = squares_within_feet(
@@ -425,7 +425,7 @@ pub fn declare_action(
 
     let mut events = Vec::new();
     match action {
-        Action::Move { destination } => resolve_move(encounter, id, destination, &mut events),
+        Action::Stride { destination } => resolve_move(encounter, id, destination, &mut events),
         Action::Strike { target } => resolve_strike(encounter, id, target, rng, &mut events),
     }
     if let Some(outcome) = encounter.detect_outcome() {
