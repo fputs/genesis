@@ -25,7 +25,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 - Capture the user action and the resulting state, not only the final screen.
 - Window proof includes a client screenshot and the HUD OCR from that moment.
 - Explore movement proof includes `control-genesis tokens` on the before and after screenshots.
-- Combat proof includes the HUD line the action wrote (`strides to`, or `d20` with `vs AC` and `HP left`) and the actions-remaining count.
+- Combat proof includes the HUD line the action wrote (`strides to`, `steps to`, or `d20` with `vs AC` and `HP left`) and the actions-remaining count.
 - Record the feature id and the entry point with every artifact.
 - Report an unreachable path with the attempted command and the unmet precondition.
 - Do not report a skipped entry point as verified through a different path.
@@ -46,5 +46,6 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Explore the hall](./explore.md) covers the opening room, a short east step, and choosing a formation leader.
 - [Start the encounter](./encounter-start.md) covers walking onto the trigger until the initiative log appears.
 - [Stride](./move.md) covers aiming a Stride and clicking a lit square.
+- [Step](./step.md) covers aiming a Step and clicking a lit square 5 feet away.
 - [Strike](./strike.md) covers aiming a Strike and clicking the guard.
 - [End the fight](./combat-end.md) covers the victory modal, the return to Explore, and a wiped party.

@@ -1,4 +1,4 @@
-//! Seeded encounter sequences for the Stride + Strike subset.
+//! Seeded encounter sequences for the Stride, Step, and Strike subset.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
@@ -197,6 +197,140 @@ fn three_strides_spend_the_turn() {
         CombatantId(0),
         Action::Stride {
             destination: GridPos::new(4, 1),
+        },
+        &mut dice,
+    )
+    .unwrap_err();
+    assert_eq!(err, Illegal::NotLegal);
+}
+
+/// Player Core, "Step": one action moves 5 feet when Speed is at least 10.
+#[test]
+fn step_moves_five_feet_and_spends_one_action() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 1),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(0, 6)],
+        Grid::new(12, 12, [GridPos::new(1, 1)]),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Step {
+        destination: GridPos::new(1, 0)
+    }));
+    assert!(!legal.contains(&Action::Step {
+        destination: GridPos::new(0, 1)
+    }));
+    assert!(!legal.contains(&Action::Step {
+        destination: GridPos::new(1, 1)
+    }));
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Step {
+            destination: GridPos::new(1, 0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Stepped {
+            id: CombatantId(0),
+            from: GridPos::new(0, 0),
+            to: GridPos::new(1, 0),
+            feet: 5,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(
+        encounter.combatant(CombatantId(0)).unwrap().position,
+        GridPos::new(1, 0)
+    );
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, "Step": Speed below 10 cannot Step, and a Step is not a two-square move.
+#[test]
+fn step_rejects_speed_below_ten_and_a_two_square_destination() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(0, 6)],
+        open(12, 12),
+        &mut dice,
+    )
+    .unwrap();
+    assert!(
+        !legal_actions(&encounter, CombatantId(0)).contains(&Action::Step {
+            destination: GridPos::new(2, 0)
+        })
+    );
+    let err = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Step {
+            destination: GridPos::new(2, 0),
+        },
+        &mut dice,
+    )
+    .unwrap_err();
+    assert_eq!(err, Illegal::NotLegal);
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert_eq!(
+        encounter.combatant(CombatantId(0)).unwrap().position,
+        GridPos::new(0, 0)
+    );
+
+    let mut slow = party();
+    slow[0].speed_feet = 5;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &slow,
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(0, 6)],
+        open(12, 12),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal
+        .iter()
+        .all(|action| !matches!(action, Action::Step { .. })));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(1, 0)
+    }));
+    let err = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Step {
+            destination: GridPos::new(1, 0),
         },
         &mut dice,
     )
