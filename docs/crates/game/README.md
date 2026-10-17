@@ -6,7 +6,7 @@ Bevy 0.15.3 host for the explore-to-combat loop. `rules` and `content` stay engi
 
 ## What you see
 
-- Orthographic diamond room: one generated floor texture per walkable square, darker tiles for walls. Tokens are Y-sorted by grid depth.
+- Orthographic diamond room. Walkable squares use the room floor (stone, grass, or dirt). Walls are darker tiles. Tokens are Y-sorted by grid depth.
 - Four portrait slots on the left, always, including a slot at 0 HP.
 - Combat bar: Move, Strike, End Turn. Feedback and the initiative line sit in the upper right. A modal covers the end of the fight and illegal clicks.
 - Player chrome is Bevy UI.

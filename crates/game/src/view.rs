@@ -3,6 +3,7 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use content::Floor;
 use rules::{legal_actions, Action, Side};
 
 use crate::session::{
@@ -77,11 +78,23 @@ fn spawn_world(mut commands: Commands, session: Res<Session>, mut images: ResMut
         },
     ));
 
-    let floor = images.add(diamond(
+    let stone = images.add(diamond(
         TILE_W as u32,
         TILE_H as u32,
         [92, 84, 70, 255],
         [58, 52, 42, 255],
+    ));
+    let grass = images.add(diamond(
+        TILE_W as u32,
+        TILE_H as u32,
+        [72, 96, 58, 255],
+        [42, 60, 34, 255],
+    ));
+    let dirt = images.add(diamond(
+        TILE_W as u32,
+        TILE_H as u32,
+        [112, 80, 48, 255],
+        [70, 48, 28, 255],
     ));
     let wall = images.add(diamond(
         TILE_W as u32,
@@ -94,9 +107,18 @@ fn spawn_world(mut commands: Commands, session: Res<Session>, mut images: ResMut
         for x in 0..room.width {
             let (wx, wy) = cell_to_world(x, y);
             let blocked = !room.walkable(x, y);
+            let image = if blocked {
+                wall.clone()
+            } else {
+                match room.floor(x, y).unwrap_or(Floor::Stone) {
+                    Floor::Stone => stone.clone(),
+                    Floor::Grass => grass.clone(),
+                    Floor::Dirt => dirt.clone(),
+                }
+            };
             commands.spawn((
                 Sprite {
-                    image: if blocked { wall.clone() } else { floor.clone() },
+                    image,
                     custom_size: Some(Vec2::new(TILE_W, TILE_H)),
                     ..default()
                 },
