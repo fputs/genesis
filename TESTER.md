@@ -15,6 +15,7 @@ sudo apt-get install -y pkg-config libasound2-dev libudev-dev libwayland-dev lib
 ```
 cargo test
 cargo build -p game
+cargo build -p editor
 ```
 
 `cargo test` includes headless rules, fixture validation, and a Bevy `MinimalPlugins` transition that snaps into combat and resolves one Move or Strike. It does not need a GPU.
@@ -66,6 +67,30 @@ The bar at the bottom shows **Move (M)**, **Strike (F)**, and **End Turn (Space)
 Repeat until the guard is at 0 HP. The modal reads `The guard falls. The hall is quiet.` **Continue** returns to Explore. The red token is gone. **D** moves the party again. The trigger does not start a second fight.
 
 A wiped party shows `The party is down.` Portraits stay at four slots and read **Down**.
+
+## Map editor
+
+Separate window from the game. No portraits and no combat bar.
+
+```
+cargo run -p editor -- fixtures/rooms/small_room.json
+```
+
+A window titled **Genesis Editor** opens. The terminal logs `loaded room small_room`. You should see:
+
+- Top bar: **Load**, **Save**, map name `small_room`, cell size `5 ft`.
+- Left column, three floors: **Stone** (selected, light border), **Grass**, **Dirt**.
+- Center: a 12 by 8 grid of stone squares. The first row of the file is the top row.
+- Right: the same 96 squares as smaller diamonds.
+- Bottom: `Paint floor · small_room · 12×8 · 5 ft`.
+
+Click **Grass**. Its border turns light. Click one square in the grid (an interior square is easy to see). That square and the matching diamond turn green. The status stays `Paint floor · small_room · 12×8 · 5 ft`.
+
+Click **Save**. The status becomes `Saved · small_room · 12×8 · 5 ft`. `fixtures/rooms/small_room.json` now has `"grass"` in that cell's place in `floors`. The `#` and `.` rows are unchanged.
+
+Press **Esc**. Run the same command again. The painted square is still green in the grid and in the diamonds. **Load** reads the file again and shows those same cells.
+
+**Dirt** paints the same way. The only floors are stone, grass, and dirt. A bad path leaves the grid reading `Could not load this map.` and puts the load error in the status line.
 
 ## Fixture the loop uses
 
