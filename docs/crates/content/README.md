@@ -15,10 +15,11 @@ JSON fixtures and the loader the game and the editor call. No Bevy dependency. T
 | `strike.attack_bonus` | Modifier on the Strike's attack roll |
 | `strike.damage` | `dice`, `faces`, and flat `bonus` |
 | `strike.reach_feet` | Strike reach in feet |
+| `features` | Class features. `reactive_strike` or an empty list. Any other name is rejected |
 | `cell_feet` | Square size; fixtures use 5 |
 | `trigger.radius_feet` | Chebyshev distance in feet that starts combat |
 | `floors` | Square surfaces: `stone`, `grass`, or `dirt` |
 
 Room rows use `#` for blocked and `.` for walkable. `floors` is optional. When it is present, each row matches a map row and each name is one `Floor`. The loaded `Room` stores that grid row-major. Omitted floors are stone on every square. `load_room` and `save_room` read and write a room file on its own. Unknown fields and failed checks return `LoadError` rather than a partial encounter.
 
-The slice fixture is `fixtures/encounters/room_one.json`: one room, four level-1 fighters, one enemy, one proximity trigger.
+The slice fixture is `fixtures/encounters/room_one.json`: one room, four level-1 fighters, one enemy, one proximity trigger. `fixtures/creatures/fighter_l1.json` lists `reactive_strike`. `fixtures/creatures/enemy_mvp.json` has no feature list.

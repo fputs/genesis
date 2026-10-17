@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use content::{load_encounter, load_room, save_room, Floor, LoadError};
+use content::{load_encounter, load_room, save_room, Feature, Floor, LoadError};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/encounters/room_one.json")
@@ -236,5 +236,71 @@ fn floors_default_to_stone_and_round_trip() {
     assert!(matches!(error, LoadError::Json { .. }), "{error}");
     assert!(error.to_string().contains("lava"), "{error}");
 
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn fighter_lists_reactive_strike_and_guard_lists_none() {
+    let encounter = load_encounter(&fixture_path()).unwrap();
+    assert!(encounter
+        .party
+        .iter()
+        .all(|spawn| spawn.creature.features == vec![Feature::ReactiveStrike]));
+    assert!(encounter.enemies[0].creature.features.is_empty());
+
+    let root = std::env::temp_dir().join(format!("genesis-feature-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("encounters")).unwrap();
+    fs::create_dir_all(root.join("rooms")).unwrap();
+    fs::create_dir_all(root.join("creatures")).unwrap();
+    fs::write(
+        root.join("rooms/small_room.json"),
+        "{\n  \"id\": \"small_room\",\n  \"cell_feet\": 5,\n  \"rows\": [\"....\", \"....\"]\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("creatures/unknown.json"),
+        r#"{
+  "id": "unknown",
+  "name": "Unknown",
+  "level": 1,
+  "hit_points": 10,
+  "armor_class": 10,
+  "perception": 0,
+  "speed_feet": 25,
+  "strike": {
+    "name": "fist",
+    "attack_bonus": 0,
+    "damage": { "dice": 1, "faces": 4, "bonus": 0 },
+    "reach_feet": 5
+  },
+  "features": ["shield_block"]
+}
+"#,
+    )
+    .unwrap();
+    let bad = root.join("encounters/bad.json");
+    fs::write(
+        &bad,
+        r#"{
+  "id": "bad",
+  "room": "../rooms/small_room.json",
+  "rng_seed": 1,
+  "trigger": { "x": 0, "y": 0, "radius_feet": 5 },
+  "party": [
+    { "creature": "../creatures/unknown.json", "name": "Sera Voss", "x": 0, "y": 0 },
+    { "creature": "../creatures/unknown.json", "name": "Bram Holt", "x": 1, "y": 0 },
+    { "creature": "../creatures/unknown.json", "name": "Quill Ames", "x": 2, "y": 0 },
+    { "creature": "../creatures/unknown.json", "name": "Doss Kade", "x": 3, "y": 0 }
+  ],
+  "enemies": [
+    { "creature": "../creatures/unknown.json", "name": "Hall Guard", "x": 0, "y": 1 }
+  ]
+}
+"#,
+    )
+    .unwrap();
+    let error = load_encounter(&bad).unwrap_err();
+    assert!(error.to_string().contains("shield_block"), "{error}");
     let _ = fs::remove_dir_all(&root);
 }

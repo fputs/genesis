@@ -43,3 +43,17 @@ Principle III records for procedures that this slice does not run as written at 
 - **Why it does not operate here.** Those tracks are absent, so they cannot advance.
 - **Substitute.** One reaction per creature, regained at the start of that creature's turn. A spent reaction stays spent until that turn starts.
 - **Intent kept.** Each creature still has one reaction. Spending it is separate from Stride, Step, and Strike, and the reaction is ready again when that creature's turn starts.
+
+## Disruption
+
+- **Rule and source.** Player Core, Reactive Strike, disrupts a manipulate action on a critical hit.
+- **Why it does not operate here.** This encounter has no manipulate action, so that cancel cannot run.
+- **Substitute.** The critical hit deals its damage and the Stride continues unless the mover is at 0 HP. The reaction still punishes leaving a square.
+- **Intent kept.** A critical Reactive Strike still deals double damage. Leaving a threatened square still draws the reaction.
+
+## Shield Block
+
+- **Rule and source.** Player Core gives Shield Block to a fighter.
+- **Why it does not operate here.** This encounter has no shield, and the fight can start, act, and end without that action.
+- **Substitute.** No shield action is offered. The fighter still has Reactive Strike, Stride, Step, and Strike.
+- **Intent kept.** The fighter's reaction in this fight is Reactive Strike. Stride, Step, and Strike still spend the turn.

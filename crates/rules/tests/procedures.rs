@@ -1,9 +1,10 @@
-//! Seeded encounter sequences for the Stride, Step, and Strike subset.
+//! Seeded encounter sequences for the Stride, Step, Strike, and Reactive Strike subset.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
-    start_encounter, Action, CombatantId, CreatureTemplate, DamageFormula, Degree, Event, Grid,
-    GridPos, Illegal, Outcome, ScriptedDice, Side, StrikeTemplate,
+    reactors_for_left_square, start_encounter, Action, ClassFeature, CombatantId, CreatureTemplate,
+    DamageFormula, Degree, Event, Grid, GridPos, Illegal, Outcome, ScriptedDice, Side,
+    StrikeTemplate,
 };
 
 fn strike(name: &str, attack: i32, dice: u8, faces: u8, bonus: i32) -> StrikeTemplate {
@@ -25,6 +26,7 @@ fn fighter(name: &str) -> CreatureTemplate {
         speed_feet: 25,
         strike: strike("longsword", 7, 1, 8, 4),
         side: Side::Party,
+        features: Vec::new(),
     }
 }
 
@@ -38,6 +40,7 @@ fn guard() -> CreatureTemplate {
         speed_feet: 25,
         strike: strike("spear", 6, 1, 6, 2),
         side: Side::Enemy,
+        features: Vec::new(),
     }
 }
 
@@ -975,4 +978,329 @@ fn stride_step_and_strike_do_not_spend_the_reaction() {
     for combatant in encounter.combatants() {
         assert_eq!(encounter.reaction_ready(combatant.id), Some(true));
     }
+}
+
+fn reactive_party() -> [CreatureTemplate; 4] {
+    let mut party = party();
+    party[0].features.push(ClassFeature::ReactiveStrike);
+    party
+}
+
+/// Player Core, Reactive Strike: leaving a square in reach provokes at multiple attack penalty 0.
+/// Damage applies on a success and doubles on a critical success. The reaction does not change the strike count.
+#[test]
+fn reactive_strike_ignores_map() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 16, 2, 10, 4]);
+    let mut encounter = start_encounter(
+        &reactive_party(),
+        &[guard()],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert_eq!(
+        encounter.combatant(CombatantId(0)).unwrap().features,
+        vec![ClassFeature::ReactiveStrike]
+    );
+    assert!(encounter
+        .combatant(CombatantId(4))
+        .unwrap()
+        .features
+        .is_empty());
+    assert_eq!(
+        reactors_for_left_square(&encounter, CombatantId(4), GridPos::new(2, 1)),
+        vec![CombatantId(0)]
+    );
+
+    // The guard's Strike spends the first attack. A later Strike would take −5.
+    let strike = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(strike
+        .iter()
+        .all(|event| matches!(event, Event::StrikeResolved { .. })));
+    assert_eq!(encounter.strikes_this_turn(), 1);
+
+    // 10 + 7 + 0 = 17 vs AC 14 is a success. With −5 the same d20 would miss. Damage 4 + 4 = 8.
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Stride {
+            destination: GridPos::new(4, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![
+            Event::ReactiveStrike {
+                attacker: CombatantId(0),
+                target: CombatantId(4),
+                natural: 10,
+                attack_bonus: 7,
+                map: 0,
+                total: 17,
+                armor_class: 14,
+                degree: Degree::Success,
+                damage: 8,
+                target_hit_points: 10,
+            },
+            Event::Moved {
+                id: CombatantId(4),
+                from: GridPos::new(2, 1),
+                to: GridPos::new(4, 1),
+                feet: 10,
+                actions_remaining: 1,
+            },
+        ]
+    );
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+    assert_eq!(
+        encounter.combatant(CombatantId(4)).unwrap().position,
+        GridPos::new(4, 1)
+    );
+    assert_eq!(dice.remaining(), 0);
+
+    // 18 + 7 + 0 = 25 vs AC 14 is a critical success, so 8 damage doubles to 16.
+    // 18 + 7 − 5 = 20 would only be a success.
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 16, 2, 18, 4]);
+    let mut encounter = start_encounter(
+        &reactive_party(),
+        &[guard()],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Stride {
+            destination: GridPos::new(4, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &events[0] {
+        Event::ReactiveStrike {
+            map,
+            degree,
+            damage,
+            total,
+            target_hit_points,
+            ..
+        } => {
+            assert_eq!(*map, 0);
+            assert_eq!(*degree, Degree::CriticalSuccess);
+            assert_eq!(*damage, 16);
+            assert_eq!(*total, 25);
+            assert_eq!(*target_hit_points, 2);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert!(matches!(events[1], Event::Moved { .. }));
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    assert_eq!(dice.remaining(), 0);
+
+    // A fighter does not Reactive Strike an ally who leaves their reach.
+    let mut allies = party();
+    allies[0].features.push(ClassFeature::ReactiveStrike);
+    allies[1].features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &allies,
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(1, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(0, 6)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert!(reactors_for_left_square(&encounter, CombatantId(0), GridPos::new(0, 0)).is_empty());
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(2, 0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events
+        .iter()
+        .all(|event| matches!(event, Event::Moved { .. })));
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Step: a Step does not trigger Reactive Strike.
+#[test]
+fn step_does_not_provoke() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 16]);
+    let mut encounter = start_encounter(
+        &reactive_party(),
+        &[guard()],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert_eq!(
+        reactors_for_left_square(&encounter, CombatantId(4), GridPos::new(2, 1)),
+        vec![CombatantId(0)]
+    );
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Step {
+            destination: GridPos::new(3, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Stepped {
+            id: CombatantId(4),
+            from: GridPos::new(2, 1),
+            to: GridPos::new(3, 1),
+            feet: 5,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(dice.remaining(), 0);
+    assert_eq!(
+        encounter.combatant(CombatantId(4)).unwrap().position,
+        GridPos::new(3, 1)
+    );
+}
+
+/// A Reactive Strike that drops the mover ends the Stride on the square they were leaving.
+#[test]
+fn downed_mover_stops_on_the_left_square() {
+    let mut reactor = fighter("Sera Voss");
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    reactor.strike.reach_feet = 10;
+    let mut second = fighter("Bram Holt");
+    second.features.push(ClassFeature::ReactiveStrike);
+    let mut mover = guard();
+    mover.hit_points = 8;
+    let mut witness = guard();
+    witness.name = "Witness".into();
+
+    let blocked: Vec<GridPos> = (0..8)
+        .flat_map(|x| [GridPos::new(x, 0), GridPos::new(x, 2)])
+        .filter(|pos| *pos != GridPos::new(1, 2))
+        .collect();
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 18, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[reactor, second, fighter("Quill Ames"), fighter("Doss Kade")],
+        &[mover, witness],
+        &[
+            GridPos::new(0, 1),
+            GridPos::new(1, 2),
+            GridPos::new(5, 1),
+            GridPos::new(6, 1),
+        ],
+        &[GridPos::new(3, 1), GridPos::new(7, 1)],
+        Grid::new(8, 3, blocked),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert_eq!(
+        reactors_for_left_square(&encounter, CombatantId(4), GridPos::new(3, 1)),
+        Vec::<CombatantId>::new()
+    );
+    assert_eq!(
+        reactors_for_left_square(&encounter, CombatantId(4), GridPos::new(2, 1)),
+        vec![CombatantId(0), CombatantId(1)]
+    );
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Stride {
+            destination: GridPos::new(1, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![
+            Event::ReactiveStrike {
+                attacker: CombatantId(0),
+                target: CombatantId(4),
+                natural: 10,
+                attack_bonus: 7,
+                map: 0,
+                total: 17,
+                armor_class: 14,
+                degree: Degree::Success,
+                damage: 8,
+                target_hit_points: 0,
+            },
+            Event::CombatantDowned { id: CombatantId(4) },
+        ]
+    );
+    assert_eq!(
+        encounter.combatant(CombatantId(4)).unwrap().position,
+        GridPos::new(2, 1)
+    );
+    assert_eq!(encounter.combatant(CombatantId(4)).unwrap().hit_points, 0);
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
+    assert!(encounter.outcome().is_none());
+    assert_eq!(dice.remaining(), 0);
 }

@@ -1,11 +1,11 @@
 //! Explore / combat session. Rules stay in `rules`; this module owns the mode machine.
 
 use bevy::prelude::*;
-use content::{load_encounter, EncounterFixture, Spawn};
+use content::{load_encounter, EncounterFixture, Feature, Spawn};
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, start_encounter, Action,
-    CombatantId, CreatureTemplate, DamageFormula, Encounter, Event, Grid, GridPos, Outcome, Side,
-    StrikeTemplate,
+    ClassFeature, CombatantId, CreatureTemplate, DamageFormula, Encounter, Event, Grid, GridPos,
+    Outcome, Side, StrikeTemplate,
 };
 
 use crate::world::{cell_in_trigger, cell_to_world, member_world, snap_to_grid, world_to_cell};
@@ -482,6 +482,20 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
                 target_hit_points
             )
         }
+        Event::ReactiveStrike {
+            attacker,
+            target,
+            natural,
+            total,
+            armor_class,
+            damage,
+            target_hit_points,
+            ..
+        } => format!(
+            "{} — reactive strike on {} for {damage} (d20 {natural}, {total} vs AC {armor_class}). {target_hit_points} HP left.",
+            name(*attacker),
+            name(*target),
+        ),
         Event::CombatantDowned { id } => format!("{} is down.", name(*id)),
         Event::TurnStarted { id, round, actions } => {
             format!("Round {round}. {} — {actions} actions.", name(*id))
@@ -512,6 +526,15 @@ fn template_of(spawn: &Spawn, side: Side) -> CreatureTemplate {
             reach_feet: spawn.creature.strike.reach_feet,
         },
         side,
+        features: spawn
+            .creature
+            .features
+            .iter()
+            .copied()
+            .map(|feature| match feature {
+                Feature::ReactiveStrike => ClassFeature::ReactiveStrike,
+            })
+            .collect(),
     }
 }
 

@@ -5,6 +5,12 @@ pub enum Side {
     Enemy,
 }
 
+/// One class feature. This encounter resolves Reactive Strike and no other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClassFeature {
+    ReactiveStrike,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DamageFormula {
     pub dice: u8,
@@ -31,17 +37,19 @@ pub struct CreatureTemplate {
     pub speed_feet: u32,
     pub strike: StrikeTemplate,
     pub side: Side,
+    pub features: Vec<ClassFeature>,
 }
 
 /// Modifiers gathered before derived stats are written.
 ///
-/// Fixture preparation leaves every field at zero.
+/// Fixture preparation leaves the numeric fields at zero. [`apply_effects`] copies class features.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Synthetics {
     pub armor_class: i32,
     pub attack_bonus: i32,
     pub perception: i32,
     pub speed_feet: i32,
+    pub features: Vec<ClassFeature>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,11 +71,12 @@ pub struct PreparedCombatant {
     pub speed_feet: u32,
     pub strike: PreparedStrike,
     pub side: Side,
+    pub features: Vec<ClassFeature>,
 }
 
-/// Collects synthetic modifiers. Templates contribute none, so the accumulator stays zero.
-pub fn apply_effects(_defn: &CreatureTemplate, synthetics: &mut Synthetics) {
-    let _ = synthetics;
+/// Copies class features onto `synthetics`. Numeric modifiers stay at zero.
+pub fn apply_effects(defn: &CreatureTemplate, synthetics: &mut Synthetics) {
+    synthetics.features.clone_from(&defn.features);
 }
 
 /// Runs preparation phases and returns derived combat stats.
@@ -93,5 +102,6 @@ fn derive(defn: &CreatureTemplate, synthetics: &Synthetics) -> PreparedCombatant
             reach_feet: defn.strike.reach_feet,
         },
         side: defn.side,
+        features: synthetics.features.clone(),
     }
 }
