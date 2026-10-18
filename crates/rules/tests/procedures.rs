@@ -855,3 +855,124 @@ fn a_move_does_not_increase_map() {
         other => panic!("unexpected {other:?}"),
     }
 }
+
+/// Player Core, reactions: one reaction, regained at the start of your turn.
+#[test]
+fn reaction_returns_at_the_start_of_your_turn() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(1, 0),
+            GridPos::new(2, 0),
+            GridPos::new(3, 0),
+        ],
+        &[GridPos::new(5, 0)],
+        open(8, 4),
+        &mut dice,
+    )
+    .unwrap();
+
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    for combatant in encounter.combatants() {
+        assert!(combatant.is_conscious());
+        assert_eq!(encounter.reaction_ready(combatant.id), Some(true));
+    }
+
+    encounter.spend_reaction(CombatantId(0)).unwrap();
+    encounter.spend_reaction(CombatantId(2)).unwrap();
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+    assert_eq!(encounter.reaction_ready(CombatantId(2)), Some(false));
+    assert_eq!(
+        encounter.spend_reaction(CombatantId(0)),
+        Err(Illegal::NoReaction)
+    );
+
+    let events = end_turn(&mut encounter).unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TurnStarted { id, .. } if *id == CombatantId(1)
+    )));
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
+    assert_eq!(encounter.reaction_ready(CombatantId(2)), Some(false));
+
+    let events = end_turn(&mut encounter).unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TurnStarted { id, .. } if *id == CombatantId(2)
+    )));
+    assert_eq!(encounter.reaction_ready(CombatantId(2)), Some(true));
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+
+    while encounter.active() != Some(CombatantId(0)) {
+        end_turn(&mut encounter).unwrap();
+    }
+    assert_eq!(encounter.round(), 2);
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
+}
+
+/// Stride, Step, and Strike spend actions and leave the reaction flag set.
+#[test]
+fn stride_step_and_strike_do_not_spend_the_reaction() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(1, 0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
+
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Step {
+            destination: GridPos::new(2, 0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.actions_remaining(), 1);
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
+
+    let mut strike_dice = ScriptedDice::new([10, 4]);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut strike_dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.actions_remaining(), 0);
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    for combatant in encounter.combatants() {
+        assert_eq!(encounter.reaction_ready(combatant.id), Some(true));
+    }
+}
