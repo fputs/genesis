@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use content::{load_encounter, LoadError};
+use content::{load_encounter, load_room, save_room, Floor, LoadError};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/encounters/room_one.json")
@@ -51,6 +51,13 @@ fn room_one_loads_four_fighters_and_one_guard() {
     assert_eq!(encounter.room.cell_feet, 5);
     assert_eq!(encounter.room.width, 12);
     assert_eq!(encounter.room.height, 8);
+    assert_eq!(encounter.room.floors.len(), 12 * 8);
+    assert!(encounter
+        .room
+        .floors
+        .iter()
+        .all(|floor| *floor == Floor::Stone));
+    assert_eq!(encounter.room.floor(2, 2), Some(Floor::Stone));
     assert!(!encounter.room.walkable(0, 0));
     assert!(encounter.room.walkable(2, 2));
     assert!(encounter.room.walkable(6, 4));
@@ -157,6 +164,77 @@ fn rejects_a_short_party_overlap_and_a_missing_field() {
     let missing = root.join("encounters/missing.json");
     let error = load_encounter(&missing).unwrap_err();
     assert!(matches!(error, LoadError::Io { .. }), "{error}");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn floors_default_to_stone_and_round_trip() {
+    let root = std::env::temp_dir().join(format!("genesis-floors-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+
+    let plain = root.join("plain.json");
+    fs::write(
+        &plain,
+        "{\n  \"id\": \"plain\",\n  \"cell_feet\": 5,\n  \"rows\": [\"##\", \"#.\"]\n}\n",
+    )
+    .unwrap();
+    let room = load_room(&plain).unwrap();
+    assert_eq!(room.floors, vec![Floor::Stone; 4]);
+    assert!(!room.walkable(0, 0));
+    assert!(room.walkable(1, 1));
+
+    let painted = root.join("painted.json");
+    fs::write(
+        &painted,
+        "{\n  \"id\": \"painted\",\n  \"cell_feet\": 5,\n  \"rows\": [\"##\", \"#.\"],\n  \"floors\": [[\"stone\", \"grass\"], [\"dirt\", \"stone\"]]\n}\n",
+    )
+    .unwrap();
+    let mut room = load_room(&painted).unwrap();
+    assert_eq!(
+        room.floors,
+        vec![Floor::Stone, Floor::Grass, Floor::Dirt, Floor::Stone]
+    );
+    assert!(room.set_floor(1, 1, Floor::Grass));
+    assert!(!room.set_floor(4, 4, Floor::Dirt));
+    save_room(&painted, &room).unwrap();
+    let again = load_room(&painted).unwrap();
+    assert_eq!(again, room);
+    assert_eq!(again.floor(1, 1), Some(Floor::Grass));
+    assert!(!again.walkable(0, 1));
+
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/rooms/small_room.json");
+    let original = fs::read_to_string(&fixture).unwrap();
+    let saved = root.join("small_room.json");
+    save_room(&saved, &load_room(&fixture).unwrap()).unwrap();
+    assert_eq!(fs::read_to_string(&saved).unwrap(), original);
+
+    let short = root.join("short.json");
+    fs::write(
+        &short,
+        "{\n  \"id\": \"short\",\n  \"cell_feet\": 5,\n  \"rows\": [\"##\", \"#.\"],\n  \"floors\": [[\"stone\"]]\n}\n",
+    )
+    .unwrap();
+    let error = load_room(&short).unwrap_err();
+    assert!(error.to_string().contains("floor rows"), "{error}");
+
+    let lava = root.join("lava.json");
+    fs::write(
+        &lava,
+        r#"{
+  "id": "lava",
+  "cell_feet": 5,
+  "rows": ["."],
+  "floors": [["lava"]]
+}
+"#,
+    )
+    .unwrap();
+    let error = load_room(&lava).unwrap_err();
+    assert!(matches!(error, LoadError::Json { .. }), "{error}");
+    assert!(error.to_string().contains("lava"), "{error}");
 
     let _ = fs::remove_dir_all(&root);
 }

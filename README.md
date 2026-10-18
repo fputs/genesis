@@ -20,10 +20,13 @@ Rust 1.99.1 (`rust-toolchain.toml`). See [TESTER.md](TESTER.md) for the walkthro
 cargo test
 cargo run -p game
 cargo run -p game -- --headless
+cargo run -p editor -- fixtures/rooms/small_room.json
 ```
 
 The game loads `fixtures/encounters/room_one.json`: explore the room, then a turn-based fight with Move and Strike.
 
+The editor paints stone, grass, and dirt on a room file and saves it. See [TESTER.md](TESTER.md).
+
 ## Status
 
-Slice 1 is in the workspace crates `rules`, `content`, and `game`. Architecture: [docs/mvp-architecture.md](docs/mvp-architecture.md).
+Workspace crates: `rules`, `content`, `game`, and `editor`. Architecture: [docs/mvp-architecture.md](docs/mvp-architecture.md).
