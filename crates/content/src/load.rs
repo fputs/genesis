@@ -43,6 +43,16 @@ pub struct StrikeSpec {
     pub reach_feet: u32,
 }
 
+/// A wielded shield. Absent when the creature has none.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShieldSpec {
+    pub hardness: i32,
+    pub hit_points: i32,
+    pub max_hit_points: i32,
+    pub broken_threshold: i32,
+}
+
 /// A creature stat block as authored in a fixture file.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -58,6 +68,11 @@ pub struct Creature {
     /// Missing lists stay empty. The only accepted name is `reactive_strike`.
     #[serde(default)]
     pub features: Vec<Feature>,
+    /// Fighter Shield Block. Missing means false. It is not a feature name.
+    #[serde(default)]
+    pub shield_block: bool,
+    #[serde(default)]
+    pub shield: Option<ShieldSpec>,
 }
 
 /// One placed creature. `name` is the name used in the encounter, not the template name.
@@ -587,6 +602,29 @@ fn validate_creature(creature: &Creature, label: &str, reasons: &mut Vec<String>
             "{label} has damage {}d{}",
             creature.strike.damage.dice, creature.strike.damage.faces
         ));
+    }
+    if let Some(shield) = &creature.shield {
+        if shield.hardness < 0 {
+            reasons.push(format!("{label} has shield hardness {}", shield.hardness));
+        }
+        if shield.max_hit_points <= 0 {
+            reasons.push(format!(
+                "{label} has shield hit points {}",
+                shield.max_hit_points
+            ));
+        }
+        if shield.hit_points < 0 || shield.hit_points > shield.max_hit_points {
+            reasons.push(format!(
+                "{label} has shield hit points {} of {}",
+                shield.hit_points, shield.max_hit_points
+            ));
+        }
+        if shield.broken_threshold < 0 {
+            reasons.push(format!(
+                "{label} has a broken threshold of {}",
+                shield.broken_threshold
+            ));
+        }
     }
 }
 

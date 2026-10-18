@@ -1,10 +1,14 @@
-//! Seeded encounter sequences for Stride, Step, Strike, Reactive Strike, and the dying track.
+//! Seeded encounter sequences for Stride, Step, Crawl, Leap, Drop Prone, Stand, Strike, Seek,
+//! Point Out, Take Cover, Interact, Release, Delay, Ready, Aid, Raise a Shield, Shield Block,
+//! Reactive Strike, cover, difficult terrain, and the dying track.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
-    reactors_for_left_square, start_encounter, Action, ClassFeature, CombatantId, CreatureTemplate,
-    DamageFormula, Degree, Event, Grid, GridPos, Illegal, Outcome, ScriptedDice, Side,
-    StrikeTemplate,
+    reactors_for_left_square, resolve_delay_resume, resolve_pending_aid,
+    resolve_pending_shield_block, start_encounter, Action, ClassFeature, CombatantId,
+    CreatureTemplate, DamageFormula, Degree, Detection, Encounter, Event, Gear, Grid, GridPos,
+    Illegal, Outcome, Readied, ReadiedAction, ReadyTrigger, ScriptedDice, Shield, Side,
+    StrikeTemplate, Terrain,
 };
 
 fn strike(name: &str, attack: i32, dice: u8, faces: u8, bonus: i32) -> StrikeTemplate {
@@ -27,6 +31,9 @@ fn fighter(name: &str) -> CreatureTemplate {
         strike: strike("longsword", 7, 1, 8, 4),
         side: Side::Party,
         features: Vec::new(),
+        shield: None,
+        shield_block: false,
+        stealth_dc: None,
     }
 }
 
@@ -41,7 +48,51 @@ fn guard() -> CreatureTemplate {
         strike: strike("spear", 6, 1, 6, 2),
         side: Side::Enemy,
         features: Vec::new(),
+        shield: None,
+        shield_block: false,
+        stealth_dc: None,
     }
+}
+
+fn steel_shield() -> Shield {
+    Shield {
+        hardness: 5,
+        hit_points: 20,
+        max_hit_points: 20,
+        broken_threshold: 10,
+        raised: false,
+    }
+}
+
+fn shielded(name: &str, shield_block: bool) -> CreatureTemplate {
+    let mut creature = fighter(name);
+    creature.shield = Some(steel_shield());
+    creature.shield_block = shield_block;
+    creature
+}
+
+/// Existing strikes decline every Aid offer, so their scripted attack dice stay in order.
+fn act(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    action: Action,
+    dice: &mut ScriptedDice,
+) -> Result<Vec<Event>, Illegal> {
+    let mut events = declare_action(encounter, id, action, dice)?;
+    while encounter.pending_aid().is_some() {
+        events.extend(resolve_pending_aid(encounter, false, dice)?);
+    }
+    Ok(events)
+}
+
+fn end_until(encounter: &mut Encounter, id: CombatantId, dice: &mut ScriptedDice) {
+    for _ in 0..8 {
+        if encounter.active() == Some(id) {
+            return;
+        }
+        end_turn(encounter, dice).unwrap();
+    }
+    panic!("did not reach {id}");
 }
 
 fn party() -> [CreatureTemplate; 4] {
@@ -143,7 +194,7 @@ fn stride_spends_one_action_and_respects_speed_including_diagonals() {
         destination: GridPos::new(4, 4)
     }));
 
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -184,7 +235,7 @@ fn three_strides_spend_the_turn() {
     .unwrap();
 
     for step in 1..=3 {
-        declare_action(
+        act(
             &mut encounter,
             CombatantId(0),
             Action::Stride {
@@ -195,7 +246,7 @@ fn three_strides_spend_the_turn() {
         .unwrap();
     }
     assert_eq!(encounter.actions_remaining(), 0);
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -238,7 +289,7 @@ fn step_moves_five_feet_and_spends_one_action() {
         destination: GridPos::new(1, 1)
     }));
 
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Step {
@@ -289,7 +340,7 @@ fn step_rejects_speed_below_ten_and_a_two_square_destination() {
             destination: GridPos::new(2, 0)
         })
     );
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(0),
         Action::Step {
@@ -329,7 +380,7 @@ fn step_rejects_speed_below_ten_and_a_two_square_destination() {
     assert!(legal.contains(&Action::Stride {
         destination: GridPos::new(1, 0)
     }));
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(0),
         Action::Step {
@@ -428,7 +479,7 @@ fn strike_hits_misses_and_doubles_damage_on_a_critical_success() {
 
     // 10 + 7 = 17 vs AC 14 success. Damage die 4 + 4 = 8. 18 - 8 = 10.
     let mut dice = ScriptedDice::new([10, 4]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -458,7 +509,7 @@ fn strike_hits_misses_and_doubles_damage_on_a_critical_success() {
 
     // Natural 20: 20 + 7 = 27 vs AC 14 is a critical success (DC + 10 = 24). Die 4 + 4 = 8, doubled to 16.
     let mut dice = ScriptedDice::new([20, 4]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -521,7 +572,7 @@ fn later_strikes_take_map_and_a_miss_does_not_roll_damage_dice() {
     // Second: 11 + 7 - 5 = 13 vs 18 failure. Damage dice are not rolled.
     // Third: 20 + 7 - 10 = 17 vs 18 failure, natural 20 improves it to a success. Damage 2 + 4 = 6.
     let mut dice = ScriptedDice::new([11, 1, 11, 20, 2]);
-    let first = declare_action(
+    let first = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -544,7 +595,7 @@ fn later_strikes_take_map_and_a_miss_does_not_roll_damage_dice() {
         other => panic!("unexpected {other:?}"),
     }
 
-    let second = declare_action(
+    let second = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -570,7 +621,7 @@ fn later_strikes_take_map_and_a_miss_does_not_roll_damage_dice() {
     }
     assert_eq!(dice.remaining(), 2, "a miss does not consume damage dice");
 
-    let third = declare_action(
+    let third = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -615,7 +666,7 @@ fn strike_out_of_reach_and_another_creatures_turn_are_illegal() {
         &mut dice,
     )
     .unwrap();
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -625,7 +676,7 @@ fn strike_out_of_reach_and_another_creatures_turn_are_illegal() {
     )
     .unwrap_err();
     assert_eq!(err, Illegal::NotLegal);
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(1),
         Action::Stride {
@@ -659,7 +710,7 @@ fn downed_party_slot_remains_and_is_skipped() {
     assert_eq!(encounter.active(), Some(CombatantId(4)));
 
     let mut dice = ScriptedDice::new([10, 1, 11]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -710,7 +761,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
     // Three killing blows, then the surviving PC passes, then the enemy drops the last PC.
     let mut dice = ScriptedDice::new([12, 1, 12, 1, 12, 1, 12, 1]);
     for target in [CombatantId(0), CombatantId(1), CombatantId(2)] {
-        declare_action(
+        act(
             &mut encounter,
             CombatantId(4),
             Action::Strike { target },
@@ -726,7 +777,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
     )));
     end_turn(&mut encounter, &mut dice).unwrap();
     assert_eq!(encounter.active(), Some(CombatantId(4)));
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -766,7 +817,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
     )
     .unwrap();
     let mut dice = ScriptedDice::new([15, 8, 10, 1, 16, 1]);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -777,7 +828,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
     .unwrap();
     assert!(encounter.outcome().is_none());
     assert!(!encounter.combatant(CombatantId(4)).unwrap().dead);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -787,7 +838,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
     )
     .unwrap();
     assert!(encounter.outcome().is_none());
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -823,7 +874,7 @@ fn ending_the_turn_early_advances_and_resets_the_action_economy() {
     )
     .unwrap();
     let first = encounter.active().unwrap();
-    declare_action(
+    act(
         &mut encounter,
         first,
         Action::Stride {
@@ -861,7 +912,7 @@ fn a_move_does_not_increase_map() {
         &mut dice,
     )
     .unwrap();
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -871,7 +922,7 @@ fn a_move_does_not_increase_map() {
     )
     .unwrap();
     let mut dice = ScriptedDice::new([10, 4]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -965,7 +1016,7 @@ fn stride_step_and_strike_do_not_spend_the_reaction() {
     .unwrap();
     assert_eq!(encounter.active(), Some(CombatantId(0)));
 
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -977,7 +1028,7 @@ fn stride_step_and_strike_do_not_spend_the_reaction() {
     assert_eq!(encounter.actions_remaining(), 2);
     assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
 
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Step {
@@ -991,7 +1042,7 @@ fn stride_step_and_strike_do_not_spend_the_reaction() {
     assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
 
     let mut strike_dice = ScriptedDice::new([10, 4]);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1048,7 +1099,7 @@ fn reactive_strike_ignores_map() {
     );
 
     // The guard's Strike spends the first attack. A later Strike would take −5.
-    let strike = declare_action(
+    let strike = act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1063,7 +1114,7 @@ fn reactive_strike_ignores_map() {
     assert_eq!(encounter.strikes_this_turn(), 1);
 
     // 10 + 7 + 0 = 17 vs AC 14 is a success. With −5 the same d20 would miss. Damage 4 + 4 = 8.
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Stride {
@@ -1122,7 +1173,7 @@ fn reactive_strike_ignores_map() {
         &mut dice,
     )
     .unwrap();
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1131,7 +1182,7 @@ fn reactive_strike_ignores_map() {
         &mut dice,
     )
     .unwrap();
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Stride {
@@ -1182,7 +1233,7 @@ fn reactive_strike_ignores_map() {
     .unwrap();
     assert_eq!(encounter.active(), Some(CombatantId(0)));
     assert!(reactors_for_left_square(&encounter, CombatantId(0), GridPos::new(0, 0)).is_empty());
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -1222,7 +1273,7 @@ fn step_does_not_provoke() {
         vec![CombatantId(0)]
     );
 
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Step {
@@ -1278,7 +1329,7 @@ fn a_hit_that_drops_a_creature_sets_dying_and_wounded() {
 
     // 10 + 7 = 17 vs AC 14 success. Damage 4 + 4 = 8.
     let mut dice = ScriptedDice::new([10, 4]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1315,7 +1366,7 @@ fn a_critical_hit_that_drops_a_creature_sets_dying_two_plus_wounded() {
 
     // Natural 20 is a critical success. Damage 4 + 4 = 8, doubled to 16.
     let mut dice = ScriptedDice::new([20, 4]);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1344,7 +1395,7 @@ fn wounded_increases_the_next_dying_value() {
     // Drop: dying 1, wounded 1. Recovery 11 vs DC 11 is a success, so dying falls to 0.
     // The later hit is a critical success against the unconscious creature: dying 2 + wounded 1.
     let mut dice = ScriptedDice::new([10, 4, 11, 12, 3]);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1367,7 +1418,7 @@ fn wounded_increases_the_next_dying_value() {
     assert!(stable.is_unconscious());
     assert!(!stable.dead);
 
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1400,7 +1451,7 @@ fn damage_while_dying_increases_dying_without_wounded() {
     // 10 + 7 - 5 = 12 vs off-guard AC 16 would miss. The penalty is −2 once, so AC 16, not 14.
     // Use a roll that hits the penalized AC: 14 + 7 - 5 = 16 vs AC 16 success, which upgrades to a critical success.
     let mut dice = ScriptedDice::new([11, 4, 14, 1]);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1409,7 +1460,7 @@ fn damage_while_dying_increases_dying_without_wounded() {
         &mut dice,
     )
     .unwrap();
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1452,7 +1503,7 @@ fn dying_four_kills_and_a_dead_party_slot_remains() {
     // 10 + 12 − 5 = 17 vs off-guard AC 16. Damage doubled to 42. Dying 3.
     // 16 + 12 − 10 = 18 vs AC 16. Dying 5, which kills.
     let mut dice = ScriptedDice::new([10, 1, 10, 1, 16, 1]);
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1466,7 +1517,7 @@ fn dying_four_kills_and_a_dead_party_slot_remains() {
     assert_eq!(encounter.party().len(), 4);
     assert_eq!(encounter.party()[0], CombatantId(0));
 
-    declare_action(
+    act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1479,7 +1530,7 @@ fn dying_four_kills_and_a_dead_party_slot_remains() {
     assert_eq!(encounter.combatant(CombatantId(0)).unwrap().wounded, 1);
     assert!(encounter.outcome().is_none());
 
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1504,7 +1555,7 @@ fn dying_four_kills_and_a_dead_party_slot_remains() {
             target: CombatantId(0)
         })
     );
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1537,7 +1588,7 @@ fn recovery_checks_cover_each_degree() {
         let mut encounter = adjacent(enemy, &mut dice);
         // Natural 20, damage 6 + 4 = 10 doubled to 20. Dying 2, wounded 1.
         let mut dice = ScriptedDice::new([20, 6, roll]);
-        declare_action(
+        act(
             &mut encounter,
             CombatantId(0),
             Action::Strike {
@@ -1598,7 +1649,7 @@ fn massive_damage_kills_without_dying() {
     assert_eq!(encounter.active(), Some(CombatantId(4)));
 
     let mut dice = ScriptedDice::new([10, 1]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Strike {
@@ -1647,7 +1698,7 @@ fn flanking_off_guard_applies_only_to_the_flanking_attacker() {
 
     // South attacker is not opposite either ally. 11 + 7 = 18 vs AC 18.
     let mut dice = ScriptedDice::new([11, 1]);
-    let south = declare_action(
+    let south = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1665,7 +1716,7 @@ fn flanking_off_guard_applies_only_to_the_flanking_attacker() {
     assert_eq!(encounter.active(), Some(CombatantId(1)));
     // West attacker, with the east ally, flanks. AC 16.
     let mut dice = ScriptedDice::new([11, 1]);
-    let west = declare_action(
+    let west = act(
         &mut encounter,
         CombatantId(1),
         Action::Strike {
@@ -1713,7 +1764,7 @@ fn an_unconscious_creature_cannot_stride_or_strike() {
 
     // 10 + 12 = 22 vs AC 18 success. Damage 1 + 20 = 21. Twice maximum HP is 40, so this is dying, not death.
     let mut dice = ScriptedDice::new([10, 1]);
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -1738,7 +1789,7 @@ fn an_unconscious_creature_cannot_stride_or_strike() {
         Action::Stride { .. } | Action::Strike { .. } | Action::Step { .. }
     )));
     assert!(legal.is_empty());
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(0),
         Action::Strike {
@@ -1748,7 +1799,7 @@ fn an_unconscious_creature_cannot_stride_or_strike() {
     )
     .unwrap_err();
     assert_eq!(err, Illegal::NotLegal);
-    let err = declare_action(
+    let err = act(
         &mut encounter,
         CombatantId(0),
         Action::Stride {
@@ -1802,7 +1853,7 @@ fn downed_mover_stops_on_the_left_square() {
         vec![CombatantId(0), CombatantId(1)]
     );
 
-    let events = declare_action(
+    let events = act(
         &mut encounter,
         CombatantId(4),
         Action::Stride {
@@ -1839,5 +1890,2600 @@ fn downed_mover_stops_on_the_left_square() {
     assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
     assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
     assert!(encounter.outcome().is_none());
+    assert_eq!(dice.remaining(), 0);
+}
+
+fn place(sera: CreatureTemplate, foe: CreatureTemplate, dice: &mut ScriptedDice) -> Encounter {
+    start_encounter(
+        &[
+            sera,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[foe],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        dice,
+    )
+    .unwrap()
+}
+
+/// Player Core, Raise a Shield: one action, +2 circumstance bonus to AC.
+#[test]
+fn raise_shield_spends_one_action_and_adds_two_ac() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 2]);
+    let mut encounter = place(shielded("Sera Voss", true), guard(), &mut dice);
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+    let shield = encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .as_ref()
+        .unwrap();
+    assert_eq!(shield.hardness, 5);
+    assert!(!shield.raised);
+
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::ShieldRaised {
+            id: CombatantId(0),
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .raised
+    );
+
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    match events[0] {
+        Event::StrikeResolved {
+            armor_class,
+            damage,
+            ..
+        } => {
+            assert_eq!(armor_class, 20);
+            assert_eq!(damage, 0);
+        }
+        ref other => panic!("expected the strike, got {other:?}"),
+    }
+}
+
+/// The circumstance bonus lasts until the start of that creature's next turn.
+#[test]
+fn raised_shield_ends_at_the_next_turn() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 2, 2]);
+    let mut encounter = place(shielded("Sera Voss", true), guard(), &mut dice);
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 20,
+            ..
+        }
+    ));
+
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert_eq!(encounter.round(), 2);
+    assert!(
+        !encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .raised
+    );
+
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 18,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn broken_shield_cannot_be_raised() {
+    for hit_points in [10, 0] {
+        let mut sera = shielded("Sera Voss", true);
+        sera.shield.as_mut().unwrap().hit_points = hit_points;
+        let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+        let mut encounter = place(sera, guard(), &mut dice);
+        assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+        let err = act(
+            &mut encounter,
+            CombatantId(0),
+            Action::RaiseShield,
+            &mut dice,
+        )
+        .unwrap_err();
+        assert_eq!(err, Illegal::NotLegal);
+        assert!(
+            !encounter
+                .combatant(CombatantId(0))
+                .unwrap()
+                .shield
+                .as_ref()
+                .unwrap()
+                .raised
+        );
+    }
+}
+
+/// Hardness 5 against 12 damage. Creature and shield each take 7.
+#[test]
+fn shield_block_reduces_by_hardness_and_splits_the_rest() {
+    let mut foe = guard();
+    foe.strike.attack_bonus = 10;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 8,
+        bonus: 4,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 8]);
+    let mut encounter = place(shielded("Sera Voss", true), foe, &mut dice);
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.is_empty());
+    assert_eq!(encounter.pending_shield_block().unwrap().damage, 12);
+    let events = resolve_pending_shield_block(&mut encounter, true, &mut dice).unwrap();
+    assert_eq!(
+        events[0],
+        Event::ShieldBlock {
+            defender: CombatantId(0),
+            prevented: 5,
+            damage: 7,
+            shield_hit_points: 13,
+            broken: false,
+            destroyed: false,
+        }
+    );
+    assert!(matches!(
+        events[1],
+        Event::StrikeResolved {
+            damage: 7,
+            target_hit_points: 13,
+            armor_class: 20,
+            ..
+        }
+    ));
+    let sera = encounter.combatant(CombatantId(0)).unwrap();
+    assert_eq!(sera.hit_points, 13);
+    let shield = sera.shield.as_ref().unwrap();
+    assert_eq!(shield.hit_points, 13);
+    assert!(!shield.is_broken());
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+    assert!(encounter.pending_shield_block().is_none());
+}
+
+/// Remaining damage that lands on the broken threshold breaks the shield.
+#[test]
+fn shield_breaks_when_hit_points_reach_the_threshold() {
+    let mut foe = guard();
+    foe.strike.attack_bonus = 11;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 10,
+        bonus: 5,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 9, 10, 9]);
+    let mut encounter = place(shielded("Sera Voss", true), foe, &mut dice);
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    let events = resolve_pending_shield_block(&mut encounter, true, &mut dice).unwrap();
+    assert_eq!(
+        events[0],
+        Event::ShieldBlock {
+            defender: CombatantId(0),
+            prevented: 5,
+            damage: 10,
+            shield_hit_points: 10,
+            broken: true,
+            destroyed: false,
+        }
+    );
+    let shield = encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .as_ref()
+        .unwrap();
+    assert_eq!(shield.hit_points, shield.broken_threshold);
+    assert!(shield.is_broken());
+    assert!(!shield.is_destroyed());
+
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 18,
+            ..
+        }
+    ));
+    assert_eq!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hit_points,
+        10
+    );
+
+    end_until(&mut encounter, CombatantId(0), &mut dice);
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+}
+
+/// Shield Block and Reactive Strike spend one reaction. The second try in the round fails.
+#[test]
+fn shield_block_spends_the_reaction() {
+    let mut sera = shielded("Sera Voss", true);
+    sera.features.push(ClassFeature::ReactiveStrike);
+    let mut foe = guard();
+    foe.strike.attack_bonus = 16;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 8,
+        bonus: 4,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 8, 10, 8]);
+    let mut encounter = place(sera, foe, &mut dice);
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    resolve_pending_shield_block(&mut encounter, true, &mut dice).unwrap();
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().hit_points, 13);
+    assert_eq!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hit_points,
+        13
+    );
+    assert_eq!(
+        encounter.spend_reaction(CombatantId(0)),
+        Err(Illegal::NoReaction)
+    );
+
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            damage: 12,
+            target_hit_points: 1,
+            ..
+        }
+    ));
+    assert_eq!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hit_points,
+        13
+    );
+
+    assert!(reactors_for_left_square(&encounter, CombatantId(4), GridPos::new(2, 1)).is_empty());
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Stride {
+            destination: GridPos::new(5, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::ReactiveStrike { .. })));
+    assert!(matches!(events[0], Event::Moved { .. }));
+}
+
+#[test]
+fn fighter_without_shield_block_cannot_block() {
+    let mut foe = guard();
+    foe.strike.attack_bonus = 10;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 8,
+        bonus: 4,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 8]);
+    let mut encounter = place(shielded("Sera Voss", false), foe, &mut dice);
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 20,
+            damage: 12,
+            target_hit_points: 8,
+            ..
+        }
+    ));
+    let sera = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(!sera.shield_block);
+    assert!(sera.features.is_empty());
+    assert_eq!(sera.shield.as_ref().unwrap().hit_points, 20);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
+    assert_eq!(
+        resolve_pending_shield_block(&mut encounter, true, &mut dice),
+        Err(Illegal::NotLegal)
+    );
+}
+
+fn corner_party() -> [GridPos; 4] {
+    [
+        GridPos::new(2, 2),
+        GridPos::new(6, 6),
+        GridPos::new(6, 7),
+        GridPos::new(7, 6),
+    ]
+}
+
+/// Player Core, Drop Prone: one action, no movement, and it does not provoke.
+#[test]
+fn drop_prone_sets_prone_without_moving_or_provoking() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[reactor],
+        &corner_party(),
+        &[GridPos::new(3, 2)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    let start = encounter.combatant(CombatantId(0)).unwrap().position;
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::DropProne));
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Stand));
+
+    let events = act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::DroppedProne {
+            id: CombatantId(0),
+            actions_remaining: 2,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(actor.prone);
+    assert!(actor.is_conscious());
+    assert_eq!(actor.position, start);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::DropProne));
+    assert_eq!(
+        act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A prone attacker's −2 and a −5 multiple attack penalty are circumstance penalties.
+/// The more severe one applies. Off-guard still lowers the target's Armor Class.
+#[test]
+fn prone_attack_penalty_does_not_stack_with_map() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    act(&mut encounter, CombatantId(4), Action::DropProne, &mut dice).unwrap();
+    end_until(&mut encounter, CombatantId(0), &mut dice);
+    assert!(encounter.combatant(CombatantId(0)).unwrap().prone);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().prone);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().is_conscious());
+
+    // 6 + 7 − 2 = 11 vs off-guard AC 12. A standing roll would be 13.
+    let mut dice = ScriptedDice::new([6, 8]);
+    let first = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &first[0] {
+        Event::StrikeResolved {
+            map,
+            total,
+            armor_class,
+            degree,
+            damage,
+            ..
+        } => {
+            assert_eq!(*map, -2);
+            assert_eq!(*total, 11);
+            assert_eq!(*armor_class, 12);
+            assert_eq!(*degree, Degree::Failure);
+            assert_eq!(*damage, 0);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+
+    // 8 + 7 − 5 = 10. Stacking the prone penalty would make this 8.
+    let second = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &second[0] {
+        Event::StrikeResolved {
+            map,
+            total,
+            armor_class,
+            ..
+        } => {
+            assert_eq!(*map, -5);
+            assert_eq!(*total, 10);
+            assert_eq!(*armor_class, 12);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Stand: one action, clears prone, no movement, and it does not provoke.
+#[test]
+fn stand_clears_prone_without_moving_or_provoking() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[reactor],
+        &corner_party(),
+        &[GridPos::new(3, 2)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Stand));
+    act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    let start = encounter.combatant(CombatantId(0)).unwrap().position;
+
+    let events = act(&mut encounter, CombatantId(0), Action::Stand, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Stood {
+            id: CombatantId(0),
+            actions_remaining: 1,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(!actor.prone);
+    assert_eq!(actor.position, start);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+    assert!(
+        legal_actions(&encounter, CombatantId(0)).contains(&Action::Stride {
+            destination: GridPos::new(2, 3)
+        })
+    );
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Stand));
+    assert_eq!(
+        act(&mut encounter, CombatantId(0), Action::Stand, &mut dice).unwrap_err(),
+        Illegal::NotLegal
+    );
+}
+
+/// While prone, Stride, Step, and Leap are illegal. Crawl and Stand are the movement options.
+#[test]
+fn prone_creature_cannot_stride_step_or_leap() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.iter().all(|action| !matches!(
+        action,
+        Action::Stride { .. } | Action::Step { .. } | Action::Leap { .. }
+    )));
+    assert!(legal
+        .iter()
+        .any(|action| matches!(action, Action::Crawl { .. })));
+    assert!(legal.contains(&Action::Stand));
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(0),
+            Action::Stride {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(0),
+            Action::Step {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(0),
+            Action::Leap {
+                destination: GridPos::new(4, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+}
+
+/// Player Core, Crawl: one square that costs 5 feet. A 10-foot diagonal, and any square above 5, is out of reach.
+#[test]
+fn crawl_moves_five_feet_and_refuses_a_costlier_square() {
+    let mut grid = open(8, 8);
+    grid.set_terrain(GridPos::new(2, 3), Terrain::Difficult);
+    grid.set_terrain(GridPos::new(2, 1), Terrain::Greater);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        grid,
+        &mut dice,
+    )
+    .unwrap();
+    act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Crawl {
+        destination: GridPos::new(3, 2)
+    }));
+    assert!(legal.contains(&Action::Crawl {
+        destination: GridPos::new(3, 3)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(4, 2)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(4, 4)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(2, 3)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(2, 1)
+    }));
+
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Crawl {
+            destination: GridPos::new(3, 2),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Crawled {
+            id: CombatantId(0),
+            from: GridPos::new(2, 2),
+            to: GridPos::new(3, 2),
+            feet: 5,
+            actions_remaining: 1,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(actor.prone);
+    assert_eq!(actor.position, GridPos::new(3, 2));
+}
+
+/// Crawl leaves the start square, so it uses the same Reactive Strike path as Stride.
+#[test]
+fn crawl_provokes_reactive_strike() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[reactor],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    act(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+
+    let mut dice = ScriptedDice::new([1]);
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Crawl {
+            destination: GridPos::new(1, 2),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::ReactiveStrike {
+            attacker: CombatantId(4),
+            target: CombatantId(0),
+            map: 0,
+            ..
+        }
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Crawled {
+            id: CombatantId(0),
+            to: GridPos { x: 1, y: 2 },
+            feet: 5,
+            ..
+        }
+    )));
+    assert_eq!(
+        encounter.combatant(CombatantId(0)).unwrap().position,
+        GridPos::new(1, 2)
+    );
+    assert!(encounter.combatant(CombatantId(0)).unwrap().prone);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(false));
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Leap: Speed 25 reaches 10 feet and not 15. The leap can land on difficult terrain and does not cross a creature.
+#[test]
+fn leap_reaches_ten_feet_at_speed_25() {
+    let mut grid = open(8, 8);
+    grid.set_terrain(GridPos::new(1, 2), Terrain::Difficult);
+    grid.set_terrain(GridPos::new(2, 1), Terrain::Greater);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(3, 2)],
+        grid,
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().speed_feet, 25);
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 4)
+    }));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(1, 2)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(4, 2)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 5)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 1)
+    }));
+
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Leap {
+            destination: GridPos::new(2, 4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Leapt {
+            id: CombatantId(0),
+            from: GridPos::new(2, 2),
+            to: GridPos::new(2, 4),
+            feet: 10,
+            actions_remaining: 2,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert_eq!(actor.position, GridPos::new(2, 4));
+    assert!(!actor.prone);
+
+    let mut fast = fighter("Sera Voss");
+    fast.speed_feet = 30;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &[
+            fast,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(3, 0)
+    }));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 2)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(4, 0)
+    }));
+}
+
+/// Speed below 15 cannot Leap. Speed 15 leaps 10 feet and not 15.
+#[test]
+fn leap_is_illegal_below_speed_15() {
+    let mut slow = fighter("Sera Voss");
+    slow.speed_feet = 10;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &[
+            slow,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0))
+        .iter()
+        .all(|action| !matches!(action, Action::Leap { .. })));
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(0),
+            Action::Leap {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+
+    let mut edged = fighter("Sera Voss");
+    edged.speed_feet = 15;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &[
+            edged,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 0)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(3, 0)
+    }));
+}
+
+/// Player Core, Step: the destination cannot be difficult or greater difficult terrain.
+#[test]
+fn step_refuses_difficult_and_greater_terrain() {
+    let mut grid = open(8, 8);
+    grid.set_terrain(GridPos::new(3, 2), Terrain::Difficult);
+    grid.set_terrain(GridPos::new(2, 3), Terrain::Greater);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        grid,
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(!legal.contains(&Action::Step {
+        destination: GridPos::new(3, 2)
+    }));
+    assert!(!legal.contains(&Action::Step {
+        destination: GridPos::new(2, 3)
+    }));
+    assert!(legal.contains(&Action::Step {
+        destination: GridPos::new(1, 2)
+    }));
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(0),
+            Action::Step {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+}
+
+fn corridor(mark: GridPos, terrain: Terrain) -> Grid {
+    let blocked: Vec<GridPos> = (0..12)
+        .flat_map(|x| [GridPos::new(x, 0), GridPos::new(x, 2)])
+        .collect();
+    let mut grid = Grid::new(12, 3, blocked);
+    grid.set_terrain(mark, terrain);
+    grid
+}
+
+/// Entering difficult terrain costs 5 extra feet, so a Stride stops short of the square Speed would otherwise reach.
+#[test]
+fn difficult_terrain_stops_a_stride_short() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 1),
+            GridPos::new(9, 1),
+            GridPos::new(10, 1),
+            GridPos::new(11, 1),
+        ],
+        &[GridPos::new(8, 1)],
+        corridor(GridPos::new(3, 1), Terrain::Difficult),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(3, 1)
+    }));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(4, 1)
+    }));
+    assert!(!legal.contains(&Action::Stride {
+        destination: GridPos::new(5, 1)
+    }));
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(4, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Moved {
+            id: CombatantId(0),
+            from: GridPos::new(0, 1),
+            to: GridPos::new(4, 1),
+            feet: 25,
+            actions_remaining: 2,
+        }]
+    );
+
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 1),
+            GridPos::new(9, 1),
+            GridPos::new(10, 1),
+            GridPos::new(11, 1),
+        ],
+        &[GridPos::new(8, 1)],
+        corridor(GridPos::new(1, 1), Terrain::Greater),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(3, 1)
+    }));
+    assert!(!legal.contains(&Action::Stride {
+        destination: GridPos::new(4, 1)
+    }));
+}
+
+fn hidden_foe(dc: i32) -> CreatureTemplate {
+    let mut foe = guard();
+    foe.stealth_dc = Some(dc);
+    foe
+}
+
+fn long_reach(name: &str, feet: u32) -> CreatureTemplate {
+    let mut creature = fighter(name);
+    creature.strike.reach_feet = feet;
+    creature
+}
+
+fn strike_armor_class(events: &[Event]) -> i32 {
+    events
+        .iter()
+        .find_map(|event| match event {
+            Event::StrikeResolved { armor_class, .. } => Some(*armor_class),
+            _ => None,
+        })
+        .expect("strike")
+}
+
+/// Player Core, Seek: success against a hidden creature makes them observed.
+#[test]
+fn seek_success_turns_hidden_into_observed() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(3, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert_eq!(
+        encounter.set_detection(CombatantId(0), CombatantId(1), Some(Detection::Hidden)),
+        Err(Illegal::NotLegal)
+    );
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Hidden))
+        .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::Seek));
+
+    let events = act(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Sought {
+            id: CombatantId(0),
+            rolls: vec![rules::SeekRoll {
+                target: CombatantId(4),
+                natural: 10,
+                total: 15,
+                dc: 15,
+                degree: Degree::Success,
+            }],
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.detection(CombatantId(0), CombatantId(4)), None);
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Seek: failure and critical failure leave the target undetected.
+#[test]
+fn seek_failure_leaves_undetected() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 4]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(4, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Undetected))
+        .unwrap();
+    act(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    // 4 + Perception 5 = 9 against DC 15 is a failure.
+    assert_eq!(
+        encounter.detection(CombatantId(0), CombatantId(4)),
+        Some(Detection::Undetected)
+    );
+    assert_eq!(dice.remaining(), 0);
+
+    // Total 6 would succeed against DC 6. A natural 1 worsens it to a failure.
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(6)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(4, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Undetected))
+        .unwrap();
+    act(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    assert_eq!(
+        encounter.detection(CombatantId(0), CombatantId(4)),
+        Some(Detection::Undetected)
+    );
+
+    // Total 25 against DC 30 is a failure. A natural 20 improves it to a success.
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 20]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(30)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(4, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Undetected))
+        .unwrap();
+    act(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    assert_eq!(
+        encounter.detection(CombatantId(0), CombatantId(4)),
+        Some(Detection::Hidden)
+    );
+}
+
+/// Player Core, Point Out: allies who had the target undetected now have them hidden.
+#[test]
+fn point_out_turns_undetected_into_hidden_for_an_ally_only() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(1, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(3, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let enemy = CombatantId(4);
+    encounter
+        .set_detection(CombatantId(1), enemy, Some(Detection::Undetected))
+        .unwrap();
+    encounter
+        .set_detection(CombatantId(3), enemy, Some(Detection::Hidden))
+        .unwrap();
+    encounter
+        .set_detection(CombatantId(0), enemy, Some(Detection::Concealed))
+        .unwrap();
+    assert!(
+        !legal_actions(&encounter, CombatantId(0)).contains(&Action::PointOut { target: enemy })
+    );
+    encounter
+        .set_detection(CombatantId(0), enemy, None)
+        .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::PointOut { target: enemy }));
+
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::PointOut { target: enemy },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::PointedOut {
+            id: CombatantId(0),
+            target: enemy,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.detection(CombatantId(0), enemy), None);
+    assert_eq!(
+        encounter.detection(CombatantId(1), enemy),
+        Some(Detection::Hidden)
+    );
+    assert_eq!(encounter.detection(CombatantId(2), enemy), None);
+    assert_eq!(
+        encounter.detection(CombatantId(3), enemy),
+        Some(Detection::Hidden)
+    );
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core: a hidden Strike rolls a DC 11 flat check first. Failure spends no attack.
+#[test]
+fn failed_hidden_flat_check_spends_no_attack() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let enemy = CombatantId(4);
+    encounter
+        .set_detection(CombatantId(0), enemy, Some(Detection::Undetected))
+        .unwrap();
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Strike { target: enemy }));
+    encounter
+        .set_detection(CombatantId(0), enemy, Some(Detection::Hidden))
+        .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::Strike { target: enemy }));
+
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike { target: enemy },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::FlatCheckFailed {
+            attacker: CombatantId(0),
+            target: enemy,
+            natural: 10,
+            dc: 11,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.combatant(enemy).unwrap().hit_points, 18);
+    assert_eq!(dice.remaining(), 0);
+
+    let mut dice = ScriptedDice::new([11, 10, 4]);
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike { target: enemy },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            natural: 10,
+            map: 0,
+            total: 17,
+            armor_class: 14,
+            degree: Degree::Success,
+            damage: 8,
+            ..
+        }
+    ));
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A creature between the attacker and the target is lesser cover, +1 circumstance bonus to AC.
+#[test]
+fn lesser_cover_from_a_creature_adds_one_ac() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 15),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(1, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 15);
+}
+
+/// An unwalkable square on the segment is standard cover, +2. A creature on that segment does not add more.
+#[test]
+fn standard_cover_from_a_wall_adds_two_ac() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 15),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(2, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 16);
+
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 20),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(2, 0),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(3, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 16);
+}
+
+/// Take Cover improves standard cover to greater cover, +4.
+#[test]
+fn take_cover_upgrades_standard_cover() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 20, 16, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 15),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(2, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert!(legal_actions(&encounter, CombatantId(4)).contains(&Action::TakeCover));
+    let events = act(&mut encounter, CombatantId(4), Action::TakeCover, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::TookCover {
+            id: CombatantId(4),
+            actions_remaining: 2,
+        }]
+    );
+    assert!(encounter.combatant(CombatantId(4)).unwrap().taking_cover);
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 18);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().taking_cover);
+}
+
+/// A raised shield and cover are circumstance bonuses. The strike uses the larger.
+#[test]
+fn shield_bonus_does_not_stack_with_cover() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 2]);
+    let mut foe = guard();
+    foe.strike.reach_feet = 15;
+    let mut encounter = start_encounter(
+        &[
+            shielded("Sera Voss", true),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[foe],
+        &[
+            GridPos::new(2, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(0, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = act(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 20);
+    assert_eq!(dice.remaining(), 0);
+}
+
+fn guard_in_reach(party: [CreatureTemplate; 4]) -> Encounter {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &party,
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 1),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(1, 0)],
+        open(10, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert_eq!(dice.remaining(), 0);
+    encounter
+}
+
+/// Player Core, Release and Interact. Release does not spend an action. Interact spends one.
+/// The shield is picked up before a weapon. Strike needs the weapon in hand.
+#[test]
+fn release_is_free_and_interact_returns_the_shield() {
+    let mut encounter = guard_in_reach([
+        shielded("Sera Voss", true),
+        fighter("Bram Holt"),
+        fighter("Quill Ames"),
+        fighter("Doss Kade"),
+    ]);
+    let pos = GridPos::new(0, 0);
+    let mut dice = ScriptedDice::new([]);
+    assert!(
+        legal_actions(&encounter, CombatantId(0)).contains(&Action::Release { item: Gear::Shield })
+    );
+    assert!(
+        legal_actions(&encounter, CombatantId(0)).contains(&Action::Strike {
+            target: CombatantId(4)
+        })
+    );
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Interact));
+
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Release { item: Gear::Shield },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Released {
+            id: CombatantId(0),
+            item: Gear::Shield,
+            actions_remaining: 3,
+        }]
+    );
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .is_none());
+    assert!(encounter.dropped_shield(pos).is_some());
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Release { item: Gear::Weapon },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(!encounter.combatant(CombatantId(0)).unwrap().holding_weapon);
+    assert!(encounter.dropped_weapon(pos));
+    assert!(legal_actions(&encounter, CombatantId(0))
+        .iter()
+        .all(|action| !matches!(action, Action::Strike { .. })));
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(0),
+            Action::Strike {
+                target: CombatantId(4),
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert!(!legal_actions(&encounter, CombatantId(0))
+        .contains(&Action::Release { item: Gear::Shield }));
+    assert!(!legal_actions(&encounter, CombatantId(0))
+        .contains(&Action::Release { item: Gear::Weapon }));
+
+    let events = act(&mut encounter, CombatantId(0), Action::Interact, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::PickedUp {
+            id: CombatantId(0),
+            item: Gear::Shield,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert!(encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .is_some());
+    assert!(encounter.dropped_shield(pos).is_none());
+    assert!(encounter.dropped_weapon(pos));
+    assert!(!encounter.combatant(CombatantId(0)).unwrap().holding_weapon);
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+
+    let events = act(&mut encounter, CombatantId(0), Action::Interact, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::PickedUp {
+            id: CombatantId(0),
+            item: Gear::Weapon,
+            actions_remaining: 1,
+        }]
+    );
+    assert!(encounter.combatant(CombatantId(0)).unwrap().holding_weapon);
+    assert!(!encounter.dropped_weapon(pos));
+    assert!(encounter.dropped_shield(pos).is_none());
+    assert!(
+        legal_actions(&encounter, CombatantId(0)).contains(&Action::Strike {
+            target: CombatantId(4)
+        })
+    );
+}
+
+/// A square that already holds a shield rejects another, and Interact will not take the weapon under it.
+#[test]
+fn a_square_rejects_a_second_shield_and_keeps_shield_first() {
+    let mut encounter = guard_in_reach([
+        shielded("Sera Voss", false),
+        shielded("Bram Holt", false),
+        fighter("Quill Ames"),
+        fighter("Doss Kade"),
+    ]);
+    let mut dice = ScriptedDice::new([]);
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Release { item: Gear::Shield },
+        &mut dice,
+    )
+    .unwrap();
+    act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(0, 2),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(1)));
+    act(
+        &mut encounter,
+        CombatantId(1),
+        Action::Stride {
+            destination: GridPos::new(0, 0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    let square = GridPos::new(0, 0);
+    assert!(encounter.dropped_shield(square).is_some());
+    assert!(encounter
+        .combatant(CombatantId(1))
+        .unwrap()
+        .shield
+        .is_some());
+    assert!(!legal_actions(&encounter, CombatantId(1))
+        .contains(&Action::Release { item: Gear::Shield }));
+    assert_eq!(
+        act(
+            &mut encounter,
+            CombatantId(1),
+            Action::Release { item: Gear::Shield },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+
+    act(
+        &mut encounter,
+        CombatantId(1),
+        Action::Release { item: Gear::Weapon },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.dropped_weapon(square));
+    assert!(!encounter.combatant(CombatantId(1)).unwrap().holding_weapon);
+    assert!(!legal_actions(&encounter, CombatantId(1)).contains(&Action::Interact));
+    assert!(encounter.dropped_shield(square).is_some());
+    assert!(encounter.dropped_weapon(square));
+}
+
+fn shield_dropped_beside_reactor(mut reactor: CreatureTemplate) -> Encounter {
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &[
+            shielded("Sera Voss", false),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[reactor],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    encounter.spend_reaction(CombatantId(4)).unwrap();
+    let dropped = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Release { item: Gear::Shield },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(dropped
+        .iter()
+        .all(|event| !matches!(event, Event::ReactiveStrike { .. })));
+    assert_eq!(encounter.actions_remaining(), 3);
+    end_turn(&mut encounter, &mut dice).unwrap();
+    end_until(&mut encounter, CombatantId(0), &mut dice);
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+    assert!(encounter.dropped_shield(GridPos::new(1, 1)).is_some());
+    assert!(encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .is_none());
+    assert_eq!(
+        reactors_for_left_square(&encounter, CombatantId(0), GridPos::new(1, 1)),
+        vec![CombatantId(4)]
+    );
+    encounter
+}
+
+/// Player Core, Reactive Strike: a manipulate action in reach draws one strike at penalty 0.
+/// A normal hit does not disrupt Interact.
+#[test]
+fn reactive_strike_on_interact_lets_a_normal_hit_finish() {
+    let mut encounter = shield_dropped_beside_reactor(guard());
+    // 12 + 6 = 18 vs AC 18 is a success. Damage 1 + 2 = 3. With a −5 penalty the same d20 would miss.
+    let mut dice = ScriptedDice::new([12, 1]);
+    let events = act(&mut encounter, CombatantId(0), Action::Interact, &mut dice).unwrap();
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(false));
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert!(encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .is_some());
+    assert!(encounter.dropped_shield(GridPos::new(1, 1)).is_none());
+    assert_eq!(
+        events,
+        vec![
+            Event::ReactiveStrike {
+                attacker: CombatantId(4),
+                target: CombatantId(0),
+                natural: 12,
+                attack_bonus: 6,
+                map: 0,
+                total: 18,
+                armor_class: 18,
+                degree: Degree::Success,
+                damage: 3,
+                target_hit_points: 17,
+            },
+            Event::PickedUp {
+                id: CombatantId(0),
+                item: Gear::Shield,
+                actions_remaining: 2,
+            },
+        ]
+    );
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A critical success disrupts Interact. The shield stays where it was, and the action is spent.
+#[test]
+fn critical_reactive_strike_leaves_the_shield_unmoved() {
+    let mut encounter = shield_dropped_beside_reactor(guard());
+    // Natural 20: 26 vs AC 18 is a success, improved to a critical success. Damage 3 doubles to 6.
+    let mut dice = ScriptedDice::new([20, 1]);
+    let events = act(&mut encounter, CombatantId(0), Action::Interact, &mut dice).unwrap();
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert!(encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .is_none());
+    assert!(encounter.dropped_shield(GridPos::new(1, 1)).is_some());
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::PickedUp { .. })));
+    match &events[0] {
+        Event::ReactiveStrike {
+            map,
+            degree,
+            damage,
+            target_hit_points,
+            ..
+        } => {
+            assert_eq!(*map, 0);
+            assert_eq!(*degree, Degree::CriticalSuccess);
+            assert_eq!(*damage, 6);
+            assert_eq!(*target_hit_points, 14);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(events.len(), 1);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Release is manipulate. A critical Reactive Strike does not drop the item and does not spend an action.
+#[test]
+fn critical_reactive_strike_does_not_release_the_shield() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &[
+            shielded("Sera Voss", false),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[reactor],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    let mut dice = ScriptedDice::new([20, 1]);
+    let events = act(
+        &mut encounter,
+        CombatantId(0),
+        Action::Release { item: Gear::Shield },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .is_some());
+    assert!(encounter.dropped_shield(GridPos::new(1, 1)).is_none());
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::Released { .. })));
+    match &events[0] {
+        Event::ReactiveStrike { degree, map, .. } => {
+            assert_eq!(*degree, Degree::CriticalSuccess);
+            assert_eq!(*map, 0);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Dropping the actor to 0 HP cancels Interact even when the Reactive Strike is not a critical hit.
+#[test]
+fn dropping_to_zero_cancels_interact() {
+    let mut reactor = guard();
+    reactor.strike.damage.bonus = 19;
+    let mut encounter = shield_dropped_beside_reactor(reactor);
+    // 12 + 6 = 18 vs AC 18 is a success. Damage 1 + 19 = 20, short of twice maximum HP.
+    let mut dice = ScriptedDice::new([12, 1]);
+    let events = act(&mut encounter, CombatantId(0), Action::Interact, &mut dice).unwrap();
+    let sera = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(sera.is_unconscious());
+    assert!(sera.shield.is_none());
+    assert!(encounter.dropped_shield(GridPos::new(1, 1)).is_some());
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::ReactiveStrike {
+            degree: Degree::Success,
+            target_hit_points: 0,
+            ..
+        }
+    )));
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::PickedUp { .. })));
+    assert_eq!(dice.remaining(), 0);
+}
+
+fn first_acts(dice: &mut ScriptedDice) -> Encounter {
+    start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(1, 0)],
+        open(8, 8),
+        dice,
+    )
+    .unwrap()
+}
+
+fn decline_resume(encounter: &mut Encounter, dice: &mut ScriptedDice) {
+    assert!(encounter.pending_delay_resume().is_some());
+    resolve_delay_resume(encounter, false, dice).unwrap();
+}
+
+/// Delay is a free action. Three actions stay unspent, and the reaction stays ready.
+#[test]
+fn delay_leaves_three_actions_unspent() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    assert_eq!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(legal_actions(&encounter, actor).contains(&Action::Delay));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+
+    let events = act(&mut encounter, actor, Action::Delay, &mut dice).unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Delayed {
+            id,
+            actions_remaining: 3,
+        } if *id == actor
+    )));
+    assert!(encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.reaction_ready(actor), Some(true));
+    assert_ne!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(encounter.pending_delay_resume().is_none());
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Resuming spends the reaction, then turn start gives it back, and the creature acts after the one who just ended.
+#[test]
+fn resume_acts_after_the_creature_who_just_ended() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    let next = CombatantId(1);
+    act(&mut encounter, actor, Action::Delay, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(next));
+
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.pending_delay_resume(), Some(actor));
+    let events = resolve_delay_resume(&mut encounter, true, &mut dice).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::Resumed { id } if *id == actor)));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TurnStarted { id, actions: 3, .. } if *id == actor
+    )));
+    assert_eq!(
+        encounter.initiative(),
+        &[
+            CombatantId(1),
+            CombatantId(0),
+            CombatantId(2),
+            CombatantId(3),
+            CombatantId(4),
+        ]
+    );
+    assert_eq!(encounter.active(), Some(actor));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.reaction_ready(actor), Some(true));
+    assert_eq!(encounter.actions_remaining(), 3);
+
+    act(&mut encounter, actor, Action::Seek, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.initiative()[0], next);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// The original slot returns, the delayed turn is lost, and the reaction is not spent.
+#[test]
+fn lost_delay_when_the_original_slot_returns() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    act(&mut encounter, actor, Action::Delay, &mut dice).unwrap();
+
+    for _ in 0..3 {
+        end_turn(&mut encounter, &mut dice).unwrap();
+        decline_resume(&mut encounter, &mut dice);
+    }
+    assert!(encounter.combatant(actor).unwrap().delaying);
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.pending_delay_resume(), Some(actor));
+    let events = resolve_delay_resume(&mut encounter, false, &mut dice).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::DelayLost { id } if *id == actor)));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.reaction_ready(actor), Some(true));
+    assert_ne!(encounter.active(), Some(actor));
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::TurnStarted { id, .. } if *id == actor)));
+    assert_eq!(encounter.round(), 2);
+
+    end_until(&mut encounter, actor, &mut dice);
+    assert_eq!(encounter.active(), Some(actor));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert_eq!(encounter.round(), 3);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Ready costs 2 actions. A readied Strike fires when an enemy enters reach and increases the strike count.
+#[test]
+fn ready_costs_two_and_a_strike_on_entering_reach_increases_the_count() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1, 1, 8]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    let guard = CombatantId(4);
+    let ready = Action::Ready {
+        action: ReadiedAction::Strike { target: guard },
+        trigger: ReadyTrigger::EntersReach,
+    };
+    assert!(legal_actions(&encounter, actor).contains(&ready));
+    let events = act(&mut encounter, actor, ready, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Readied {
+            id: actor,
+            actions_remaining: 1,
+        }]
+    );
+    assert_eq!(encounter.actions_remaining(), 1);
+    assert_eq!(
+        encounter.readied(actor),
+        Some(Readied {
+            action: ReadiedAction::Strike { target: guard },
+            trigger: ReadyTrigger::EntersReach,
+        })
+    );
+    assert!(!legal_actions(&encounter, actor).contains(&Action::Delay));
+
+    for _ in 0..4 {
+        end_turn(&mut encounter, &mut dice).unwrap();
+    }
+    assert_eq!(encounter.active(), Some(guard));
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    act(
+        &mut encounter,
+        guard,
+        Action::Strike { target: actor },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    assert_eq!(encounter.actions_remaining(), 2);
+
+    let events = act(
+        &mut encounter,
+        guard,
+        Action::Step {
+            destination: GridPos::new(1, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::StrikeResolved {
+            attacker,
+            target,
+            map: -5,
+            actions_remaining: 2,
+            ..
+        } if *attacker == actor && *target == guard
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Stepped {
+            id,
+            to,
+            actions_remaining: 1,
+            ..
+        } if *id == guard && *to == GridPos::new(1, 1)
+    )));
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::ReactiveStrike { .. })));
+    assert_eq!(encounter.strikes_this_turn(), 2);
+    assert!(encounter.readied(actor).is_none());
+    assert_eq!(encounter.reaction_ready(actor), Some(false));
+    assert_eq!(encounter.actions_remaining(), 1);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A readied action that never triggers is cleared when your next turn starts.
+#[test]
+fn readied_action_expires_at_the_next_turn() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    act(
+        &mut encounter,
+        actor,
+        Action::Ready {
+            action: ReadiedAction::Seek,
+            trigger: ReadyTrigger::EntersReach,
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.readied(actor).is_some());
+    assert_eq!(encounter.actions_remaining(), 1);
+
+    for _ in 0..4 {
+        end_turn(&mut encounter, &mut dice).unwrap();
+    }
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert!(encounter.readied(actor).is_some());
+
+    let events = end_turn(&mut encounter, &mut dice).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::ReadiedExpired { id } if *id == actor)));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TurnStarted { id, actions: 3, .. } if *id == actor
+    )));
+    assert!(encounter.readied(actor).is_none());
+    assert_eq!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert_eq!(dice.remaining(), 0);
+}
+
+fn aid_party(bram_attack: i32, quill_attack: i32) -> [CreatureTemplate; 4] {
+    let mut bram = fighter("Bram Holt");
+    bram.strike.attack_bonus = bram_attack;
+    let mut quill = fighter("Quill Ames");
+    quill.strike.attack_bonus = quill_attack;
+    [fighter("Sera Voss"), bram, quill, fighter("Doss Kade")]
+}
+
+/// Sera acts first. Bram and Quill stand where the test places them. Doss is out of Aid range.
+fn aid_encounter(
+    dice: &mut ScriptedDice,
+    bram: GridPos,
+    quill: GridPos,
+    bram_attack: i32,
+    quill_attack: i32,
+) -> Encounter {
+    let encounter = start_encounter(
+        &aid_party(bram_attack, quill_attack),
+        &[guard()],
+        &[GridPos::new(2, 2), bram, quill, GridPos::new(0, 7)],
+        &[GridPos::new(2, 3)],
+        open(8, 8),
+        dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    encounter
+}
+
+fn strike_guard(encounter: &mut Encounter, dice: &mut ScriptedDice) -> Vec<Event> {
+    declare_action(
+        encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        dice,
+    )
+    .unwrap()
+}
+
+fn aided<'a>(events: &'a [Event], aider: CombatantId) -> &'a Event {
+    events
+        .iter()
+        .find(|event| matches!(event, Event::Aided { aider: id, .. } if *id == aider))
+        .unwrap_or_else(|| panic!("missing aid from {aider}"))
+}
+
+/// Player Core, Aid. d20 plus the Strike attack bonus against DC 15. A success is +1.
+#[test]
+fn aid_success_gives_plus_one_including_a_diagonal_neighbor() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(1, 1), GridPos::new(7, 0), 7, 7);
+    assert_eq!(
+        rules::minimum_feet(GridPos::new(2, 2), GridPos::new(1, 1)),
+        5
+    );
+
+    // 10 + 7 = 17 vs DC 15 is a success. The strike is 10 + 7 + 1 = 18.
+    let mut dice = ScriptedDice::new([10, 10, 4]);
+    assert!(strike_guard(&mut encounter, &mut dice).is_empty());
+    assert_eq!(
+        encounter.pending_aid().map(|offer| offer.aider),
+        Some(CombatantId(1))
+    );
+    let events = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    match aided(&events, CombatantId(1)) {
+        Event::Aided {
+            natural,
+            attack_bonus,
+            total,
+            dc,
+            degree,
+            ..
+        } => {
+            assert_eq!(*natural, 10);
+            assert_eq!(*attack_bonus, 7);
+            assert_eq!(*total, 17);
+            assert_eq!(*dc, 15);
+            assert_eq!(*degree, Degree::Success);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match events.last() {
+        Some(Event::StrikeResolved {
+            aid, map, total, ..
+        }) => {
+            assert_eq!(*aid, 1);
+            assert_eq!(*map, 0);
+            assert_eq!(*total, 18);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(false));
+    assert!(encounter.pending_aid().is_none());
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A natural 20 improves a success to a critical success, and that is +2.
+#[test]
+fn aid_critical_success_gives_plus_two() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(1, 2), GridPos::new(7, 0), 4, 7);
+    // 20 + 4 = 24 vs DC 15 is a success. The natural 20 improves it to a critical success.
+    let mut dice = ScriptedDice::new([20, 10, 4]);
+    strike_guard(&mut encounter, &mut dice);
+    let events = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    match aided(&events, CombatantId(1)) {
+        Event::Aided {
+            natural,
+            total,
+            degree,
+            ..
+        } => {
+            assert_eq!(*natural, 20);
+            assert_eq!(*total, 24);
+            assert_eq!(*degree, Degree::CriticalSuccess);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match events.last() {
+        Some(Event::StrikeResolved { aid, total, .. }) => {
+            assert_eq!(*aid, 2);
+            assert_eq!(*total, 19);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A natural 1 worsens a failure to a critical failure, and that is −1.
+#[test]
+fn aid_critical_failure_gives_minus_one() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(3, 2), GridPos::new(7, 0), 7, 7);
+    // 1 + 7 = 8 vs DC 15 is a failure. The natural 1 worsens it to a critical failure.
+    let mut dice = ScriptedDice::new([1, 10, 4]);
+    strike_guard(&mut encounter, &mut dice);
+    let events = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    match aided(&events, CombatantId(1)) {
+        Event::Aided {
+            natural, degree, ..
+        } => {
+            assert_eq!(*natural, 1);
+            assert_eq!(*degree, Degree::CriticalFailure);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match events.last() {
+        Some(Event::StrikeResolved {
+            aid, map, total, ..
+        }) => {
+            assert_eq!(*aid, -1);
+            assert_eq!(*map, 0);
+            assert_eq!(*total, 16);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Failure changes nothing about the attack roll.
+#[test]
+fn aid_failure_does_not_change_the_strike() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(2, 1), GridPos::new(7, 0), 7, 7);
+    // 4 + 7 = 11 vs DC 15 is a failure, and 11 is above DC − 10.
+    let mut dice = ScriptedDice::new([4, 10, 4]);
+    strike_guard(&mut encounter, &mut dice);
+    let events = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    match aided(&events, CombatantId(1)) {
+        Event::Aided { degree, total, .. } => {
+            assert_eq!(*degree, Degree::Failure);
+            assert_eq!(*total, 11);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    match events.last() {
+        Some(Event::StrikeResolved {
+            aid, map, total, ..
+        }) => {
+            assert_eq!(*aid, 0);
+            assert_eq!(*map, 0);
+            assert_eq!(*total, 17);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(false));
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Two circumstance bonuses do not stack. The larger one, +2, is the one that applies.
+#[test]
+fn two_aid_bonuses_keep_only_the_larger() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(1, 2), GridPos::new(3, 2), 4, 7);
+    // Bram: 20 + 4 = 24, natural 20, critical success, +2.
+    // Quill: 10 + 7 = 17, success, +1. The strike keeps +2, not +3.
+    let mut dice = ScriptedDice::new([20, 10, 10, 4]);
+    strike_guard(&mut encounter, &mut dice);
+    assert_eq!(
+        encounter.pending_aid().map(|offer| offer.aider),
+        Some(CombatantId(1))
+    );
+    let first = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    assert!(matches!(
+        aided(&first, CombatantId(1)),
+        Event::Aided {
+            degree: Degree::CriticalSuccess,
+            ..
+        }
+    ));
+    assert_eq!(
+        encounter.pending_aid().map(|offer| offer.aider),
+        Some(CombatantId(2))
+    );
+    let second = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    assert!(matches!(
+        aided(&second, CombatantId(2)),
+        Event::Aided {
+            degree: Degree::Success,
+            ..
+        }
+    ));
+    match second.last() {
+        Some(Event::StrikeResolved { aid, total, .. }) => {
+            assert_eq!(*aid, 2);
+            assert_eq!(*total, 19);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A +1 circumstance bonus applies beside a −5 multiple attack penalty.
+#[test]
+fn aid_bonus_applies_beside_the_multiple_attack_penalty() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(1, 1), GridPos::new(7, 0), 7, 7);
+    // Decline the first offer so the reaction is still ready. 10 + 7 = 17, MAP 0.
+    let mut dice = ScriptedDice::new([10, 4, 10, 11, 4]);
+    strike_guard(&mut encounter, &mut dice);
+    let first = resolve_pending_aid(&mut encounter, false, &mut dice).unwrap();
+    match first.last() {
+        Some(Event::StrikeResolved {
+            map, aid, total, ..
+        }) => {
+            assert_eq!(*map, 0);
+            assert_eq!(*aid, 0);
+            assert_eq!(*total, 17);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
+
+    // 10 + 7 = 17 vs DC 15 is +1. The attack is 11 + 7 − 5 + 1 = 14, and MAP stays −5.
+    strike_guard(&mut encounter, &mut dice);
+    let second = resolve_pending_aid(&mut encounter, true, &mut dice).unwrap();
+    match second.last() {
+        Some(Event::StrikeResolved {
+            map, aid, total, ..
+        }) => {
+            assert_eq!(*map, -5);
+            assert_eq!(*aid, 1);
+            assert_eq!(*total, 14);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Aid spends the reaction. A second Aid before that creature's next turn is refused.
+#[test]
+fn spent_reaction_refuses_a_second_aid() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(1, 2), GridPos::new(7, 0), 7, 7);
+    let mut dice = ScriptedDice::new([10, 4, 11]);
+    strike_guard(&mut encounter, &mut dice);
+    encounter.spend_reaction(CombatantId(1)).unwrap();
+    assert_eq!(
+        resolve_pending_aid(&mut encounter, true, &mut dice).unwrap_err(),
+        Illegal::NoReaction
+    );
+    assert!(encounter.pending_aid().is_some());
+    let first = resolve_pending_aid(&mut encounter, false, &mut dice).unwrap();
+    match first.last() {
+        Some(Event::StrikeResolved { aid, map, .. }) => {
+            assert_eq!(*aid, 0);
+            assert_eq!(*map, 0);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+
+    let second = strike_guard(&mut encounter, &mut dice);
+    assert!(encounter.pending_aid().is_none());
+    assert!(second
+        .iter()
+        .all(|event| !matches!(event, Event::Aided { .. })));
+    match &second[0] {
+        Event::StrikeResolved {
+            aid, map, total, ..
+        } => {
+            assert_eq!(*aid, 0);
+            assert_eq!(*map, -5);
+            assert_eq!(*total, 13);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(false));
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Ten feet is not adjacent, so that ally cannot Aid.
+#[test]
+fn an_ally_who_is_not_adjacent_cannot_aid() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = aid_encounter(&mut dice, GridPos::new(2, 0), GridPos::new(7, 0), 7, 7);
+    assert_eq!(
+        rules::minimum_feet(GridPos::new(2, 2), GridPos::new(2, 0)),
+        10
+    );
+    let mut dice = ScriptedDice::new([10, 4]);
+    let events = strike_guard(&mut encounter, &mut dice);
+    assert!(encounter.pending_aid().is_none());
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::Aided { .. })));
+    match &events[0] {
+        Event::StrikeResolved { aid, total, .. } => {
+            assert_eq!(*aid, 0);
+            assert_eq!(*total, 17);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
     assert_eq!(dice.remaining(), 0);
 }

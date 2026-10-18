@@ -1,6 +1,6 @@
 # Fidelity ledger
 
-Principle III records. Knocked out and dying runs as written. The other entries are procedures this slice does not run as written at the table.
+Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Prone, Stand, Crawl, Leap, difficult terrain, Seek, Point Out, Take Cover, cover, Interact, Release, Delay, Ready, Aid, and Reactive Strike disruption of a manipulate action run as written. A critical hit still does not stop a Stride. The other entries are procedures this slice does not run as written at the table.
 
 ## Knocked out and dying
 
@@ -17,41 +17,68 @@ Principle III records. Knocked out and dying runs as written. The other entries 
 ## Downed space
 
 - **Rule and source.** A dying creature is prone in its space; other creatures treat that space under the normal movement rules.
-- **Why it does not operate here.** Prone, difficult terrain, and forced movement are outside Stride-to-a-square and Strike.
+- **Why it does not operate here.** Forced movement is outside this fight, so a square with a creature at 0 HP is not given a separate blocking rule.
 - **Substitute.** A creature at 0 HP does not block movement or the square another creature stops in.
 - **Intent kept.** A body does not erase the slot or the grid. It also does not stall the remaining turns in a room with no forced-movement action.
 
+## Drop Prone, Stand, Crawl, and Leap
+
+- **Rule and source.** Player Core, Drop Prone, Stand, Crawl, and Leap. Drop Prone is one action and makes you prone. Stand is one action and ends prone. Neither moves you, and neither provokes. Crawl requires prone and moves 5 feet. Leap is one horizontal action: Speed below 15 feet cannot leap, Speed of at least 15 feet leaps up to 10 feet, and Speed of at least 30 feet leaps up to 15 feet. A prone creature takes a −2 circumstance penalty on attack rolls. That penalty and the multiple attack penalty do not stack.
+- **Runs.** `Action::DropProne` sets prone and is illegal when the creature is already prone, unconscious, or dead. `Action::Stand` clears prone and is illegal unless the creature is prone and conscious. While prone, Stride, Step, and Leap are illegal. Crawl and Stand are the movement options. Crawl's destination is one square whose enter cost is at most 5 feet under the existing diagonal rule, so a 10-foot diagonal is out of reach. Crawl and Leap leave squares through the same Reactive Strike path as Stride. Leap measures its own distance cap with that foot-cost rule. The landing square must be empty of other conscious creatures and walkable. Leap does not cross other creatures. It can land on difficult terrain. It does not spend Speed past that cap. A prone attacker's circumstance penalty is −2, or the multiple attack penalty when that is more severe. Off-guard remains −2 to the target's Armor Class and applies together with the attacker's penalty.
+
 ## Difficult terrain
 
-- **Rule and source.** Player Core, Step, which bars difficult terrain.
-- **Why it does not operate here.** The hall has no difficult terrain, so the check cannot run.
-- **Substitute.** The check is a walkable square at 5 feet and Speed of at least 10 feet. Step stays a 5-foot action.
-- **Intent kept.** Step is still one action that moves 5 feet onto a square the creature can walk, and it is not a Stride.
+- **Rule and source.** Player Core, difficult terrain and Step. Entering a difficult square costs 5 extra feet. Entering a greater difficult square costs 10 extra feet. Step cannot enter difficult terrain.
+- **Runs.** Each square is normal, difficult, or greater. The default is normal. Entering a square adds that extra cost on top of the square's existing foot cost. Step is illegal when the destination is difficult or greater. Crawl has only 5 feet, so a square whose total cost is above 5 is out of reach. Leap can still land on difficult terrain when the total is within its distance cap. The room-one hall has no difficult or greater squares, so this fight never pays the extra cost.
 
-## Basic actions this encounter does not run
+## Seek
 
-- **Rule and source.** Player Core: Delay, Ready, Drop Prone, Stand, Seek, Interact, Release, Take Cover, and Point Out.
-- **Why it does not operate here.** The level-1 fight can start, act, and end without them, so there is no procedure here for those actions to advance.
-- **Substitute.** The closed set is Stride, Step, Strike, and End Turn. The 3-action turn still spends Stride, Step, and Strike as written.
-- **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those three actions do at the table.
+- **Rule and source.** Player Core, Seek. Seek is one action. For each enemy who is hidden or undetected, the seeker rolls Perception against that creature's Stealth DC. A critical success makes them observed. A success makes an undetected enemy hidden and a hidden enemy observed. A concealed enemy stays concealed. Failure and critical failure change nothing. A natural 20 improves the degree by one step and a natural 1 worsens it by one.
+- **Runs.** `Action::Seek` rolls d20 plus the seeker's Perception, through `Dice`, against each enemy who is Hidden or Undetected to that seeker and has a Stealth DC. The rolls go in `CombatantId` order and use the same degree helper as other checks. Detection is stored per observer and subject. Observed is not stored. A missing pair means Observed. Concealed, Hidden, and Undetected are the stored variants. A creature with no Stealth DC cannot be Hidden or Undetected. The Hall Guard and the fighters leave it absent.
+
+## Point Out
+
+- **Rule and source.** Player Core, Point Out. One action. You indicate a creature you observe. Each ally who had that creature undetected now has them hidden. It does not make the creature observed, and it does not change what you yourself detect.
+- **Runs.** `Action::PointOut { target }` is legal when the actor Observes the target and at least one ally has that target Undetected. Those allies then have the target Hidden. The actor's own detection is unchanged.
+
+## Cover and Take Cover
+
+- **Rule and source.** Player Core, cover and Take Cover. Another creature between you and the attacker gives lesser cover, a +1 circumstance bonus to AC. A wall or other obstacle gives standard cover, +2. Greater cover is +4. If more than one source applies, use the higher bonus. Take Cover is one action. It improves that cover by one step: no cover becomes lesser only when you are prone or next to a wall, lesser becomes standard, standard becomes greater, and greater stays +4. The benefit lasts until you move, Strike, or your next turn starts. A shield's +2 and a cover bonus are both circumstance bonuses to AC, so the strike uses the larger and does not add them.
+- **Runs.** Cover is derived for each attack from the attacker's square to the target's square, using the same center-line segment test as flanking. Another creature's square on that segment is lesser cover. An unwalkable square on that segment is standard cover. Both together are +2. The attacker and the target do not grant cover to themselves. No cover rank is stored. The combatant stores `taking_cover`. `Action::TakeCover` is legal when the creature is prone, adjacent to an unwalkable square, or would already have cover against at least one enemy. While the flag is set, the derived bonus improves one step, and no cover becomes +1 only when the creature is prone or adjacent to an unwalkable square. The flag clears when that creature Strides, Steps, Crawls, Leaps, Drops Prone, Stands, or Strikes, and at the start of their next turn.
+
+## Interact and Release
+
+- **Rule and source.** Player Core, Interact and Release. Release is a free action with the manipulate trait. It drops something you are holding into your square. Interact is one action with the manipulate trait. It picks up an object in your square.
+- **Runs.** A combatant holds a weapon, a shield, both, or neither. Fighters start holding the weapon and the shield. The Hall Guard starts holding the weapon and has no shield. A dropped object lies in a square. A square holds at most one dropped weapon and one dropped shield. `Action::Release { item }` is legal only when that item is held and the square does not already hold that kind. It does not spend one of the three actions. `Action::Interact` picks up one dropped object in the actor's square. A shield there is the object even when a weapon is there too. It is illegal when the square has nothing to pick up, or when the actor already holds that kind. It spends one action. Strike is illegal without a held weapon. Raise a Shield is illegal unless the shield is held, and a broken or destroyed shield still cannot be raised.
+
+## Hidden and concealed Strikes
+
+- **Rule and source.** Player Core, concealed and hidden. A Strike cannot target an undetected creature. A concealed target requires a DC 5 flat check before the attack roll. A hidden target requires DC 11. A failed flat check misses and does not count toward the multiple attack penalty.
+- **Runs.** A Strike is absent from the legal list when the target is Undetected to the attacker. Concealed rolls a DC 5 flat check through `Dice` before the attack roll. Hidden rolls DC 11. The flat check is its own roll, and it comes first. Failure spends the action, deals no damage, and does not increase the strike count. A passed check continues into the normal attack roll.
+
+## Delay and Ready
+
+- **Rule and source.** Player Core, Delay and Ready. Delay is a free action, legal only before you have acted on your turn. You leave the active slot. After another creature ends its turn, you may resume, which spends your reaction. The turn that then starts gives that reaction back, with three actions. If your original slot comes up again while you are still delaying, the delayed turn is lost and the reaction is not spent. Ready costs two actions. You store one action or a free action, and one trigger. Before your next turn, when the trigger happens, you take that action as a reaction. It spends the reaction and does not spend one of the three actions. A readied Strike uses the current strike count and then increases it. If the trigger never happens, the readied action is lost at the start of your next turn. Delay and a readied action share the one reaction.
+- **Runs.** A combatant stores `delaying`, and at most one readied action with one trigger. The initiative order is the list that already exists. No second initiative number is stored. A creature who resumes is inserted immediately after the creature who just ended. `Action::Delay` is legal only on your turn, when `actions_remaining` is 3, and when you are not already delaying. It does not spend one of the three actions. Unconscious and dead creatures are not offered Delay. The reaction stays ready. After another creature ends its turn, and before the next turn starts, a delaying conscious creature with a ready reaction may resume. Resuming spends the reaction, clears `delaying`, inserts the creature, and then runs turn start, which readies the reaction again. If play returns to that creature's slot while `delaying` is still set, the flag clears, the reaction is not spent, and they do not take a turn. They act in that slot next round. `Action::Ready { action, trigger }` costs 2 actions. The readied action is Stride to a chosen square, Step to a chosen square, Strike a chosen target, Raise Shield, Drop Prone, Stand, Seek, Interact, or Release of a chosen item. Delay, Ready, Crawl, Leap, Take Cover, and Point Out cannot be readied. Triggers are `EntersReach` (an enemy enters a square inside your melee reach), `LeavesReach` (a creature leaves a square inside your melee reach), and `ManipulateInReach` (a creature inside your reach uses Interact or Release). Taking the readied action spends the reaction, clears it, and does not spend one of the three actions. A readied Strike uses `strikes_this_turn` for the multiple attack penalty and then increases that count. Reactive Strike still uses a penalty of 0 and does not increase the count. Turn start clears a readied action that is still stored.
+
+## Aid
+
+- **Rule and source.** Player Core, Aid. Aid is a reaction. The trigger is an ally about to roll a Strike. The aider attempts a skill check or an attack roll, usually against DC 15. Critical success is a +2 circumstance bonus on that roll. Success is +1. Failure changes nothing. Critical failure is a −1 circumstance penalty.
+- **Runs.** There is no skill list. The substitute is explicit: the aider rolls d20 plus their Strike attack bonus against DC 15. The degree helper applies, including a natural 20 and a natural 1. The pause is before that Strike's attack roll. A conscious ally who is adjacent to the attacker (5 feet, including a 5-foot diagonal), has a ready reaction, and is not the attacker may Aid. The player is asked only about party members. Circumstance bonuses do not stack, so two aids keep the larger bonus. Circumstance penalties do not stack, so the worse penalty is the one that applies. A bonus and a penalty both apply. The multiple attack penalty is a circumstance penalty on the same roll and applies beside an Aid bonus. Aid spends the same reaction Delay and Ready spend. A second Aid before the aider's next turn is illegal.
 
 ## Reactions this iteration does not run
 
 - **Rule and source.** Player Core, reactions, including free reactions and conditions that remove a reaction.
 - **Why it does not operate here.** Those tracks are absent, so they cannot advance.
 - **Substitute.** One reaction per creature, regained at the start of that creature's turn. A spent reaction stays spent until that turn starts.
-- **Intent kept.** Each creature still has one reaction. Spending it is separate from Stride, Step, and Strike, and the reaction is ready again when that creature's turn starts.
+- **Intent kept.** Each creature still has one reaction. Spending it is separate from Stride, Step, and Strike, and the reaction is ready again when that creature's turn starts. Delay's resume, a readied action, and Aid spend this same reaction, so using one means the others cannot.
 
 ## Disruption
 
-- **Rule and source.** Player Core, Reactive Strike, disrupts a manipulate action on a critical hit.
-- **Why it does not operate here.** This encounter has no manipulate action, so that cancel cannot run.
-- **Substitute.** The critical hit deals its damage and the Stride continues unless the mover is at 0 HP. The reaction still punishes leaving a square.
-- **Intent kept.** A critical Reactive Strike still deals double damage. Leaving a threatened square still draws the reaction.
+- **Rule and source.** Player Core, Reactive Strike. A critical success disrupts a manipulate action. A strike that drops the creature to 0 Hit Points also stops that action. Stride, Step, Crawl, and Leap do not have the manipulate trait.
+- **Runs.** Release and Interact have the manipulate trait. A creature with Reactive Strike, a ready reaction, and the actor inside melee reach strikes before the effect, at multiple attack penalty 0. That strike does not increase the reactor's strike count. It is the same reaction as leaving a square, and one reactor strikes once for the action. A critical success disrupts it: Release does not drop the item, and Interact does not pick it up. Interact still spends its action. Dropping the actor to 0 Hit Points also cancels the effect. A normal hit does not disrupt. A critical Reactive Strike does not cancel Stride, Step, Crawl, or Leap. The move continues unless the mover is at 0 Hit Points.
 
-## Shield Block
+## Raise a Shield and Shield Block
 
-- **Rule and source.** Player Core gives Shield Block to a fighter.
-- **Why it does not operate here.** This encounter has no shield, and the fight can start, act, and end without that action.
-- **Substitute.** No shield action is offered. The fighter still has Reactive Strike, Stride, Step, and Strike.
-- **Intent kept.** The fighter's reaction in this fight is Reactive Strike. Stride, Step, and Strike still spend the turn.
+- **Rule and source.** Player Core, Raise a Shield and Shield Block. Raising a shield is one action. A raised shield gives a +2 circumstance bonus to Armor Class until the start of your next turn. Shield Block is a reaction with the trigger that you would take damage from a physical attack while your shield is raised. The shield prevents damage up to its Hardness. You and the shield each take the remaining damage. A shield at its Broken Threshold is broken. At 0 Hit Points it is destroyed. A broken or destroyed shield grants no bonus and cannot be raised or used to Shield Block.
+- **Runs.** A wielded shield stores hardness, hit points, maximum hit points, broken threshold, and raised. Shield Block is a bool on the creature. `ClassFeature` stays Reactive Strike. Raise a Shield is `Action::RaiseShield`, legal only while the shield is held and is not broken and not destroyed. It sets raised until that creature's next turn starts, and the turn start clears it before actions. The +2 circumstance bonus applies while the shield is raised and neither broken nor destroyed. Cover is the other circumstance bonus to Armor Class. The strike uses the larger of the two and does not add them. Every strike in this engine deals physical damage. Shield Block is legal when the creature has the flag, the shield is raised, the shield is not broken and not destroyed, and the reaction is ready. Remaining damage is `max(0, damage - hardness)`. The creature and the shield each take that much. Hit points at or below the broken threshold break the shield. 0 destroys it. Shield Block spends the same reaction Reactive Strike spends, so the other is unavailable until that creature's next turn. The fighter fixture has the flag and a steel shield (Hardness 5, 20 Hit Points, Broken Threshold 10). The Hall Guard has neither.
