@@ -8,6 +8,7 @@ use crate::combatant::{
 use crate::dice::Dice;
 use crate::grid::{
     minimum_feet, reachable_destinations, squares_within_feet, stride_leaves, Grid, GridPos,
+    Terrain,
 };
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
@@ -73,6 +74,18 @@ pub enum Action {
     },
     /// One action. Legal only with a shield that is not broken and not destroyed.
     RaiseShield,
+    /// One action. Sets prone. Illegal when already prone, unconscious, or dead.
+    DropProne,
+    /// One action. Clears prone. Illegal unless the creature is prone and conscious.
+    Stand,
+    /// One action. One square that costs 5 feet, and only while prone.
+    Crawl {
+        destination: GridPos,
+    },
+    /// One action. Horizontal leap. Illegal below Speed 15 and while prone.
+    Leap {
+        destination: GridPos,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +106,28 @@ pub enum Event {
         actions_remaining: u8,
     },
     Stepped {
+        id: CombatantId,
+        from: GridPos,
+        to: GridPos,
+        feet: u32,
+        actions_remaining: u8,
+    },
+    DroppedProne {
+        id: CombatantId,
+        actions_remaining: u8,
+    },
+    Stood {
+        id: CombatantId,
+        actions_remaining: u8,
+    },
+    Crawled {
+        id: CombatantId,
+        from: GridPos,
+        to: GridPos,
+        feet: u32,
+        actions_remaining: u8,
+    },
+    Leapt {
         id: CombatantId,
         from: GridPos,
         to: GridPos,
@@ -456,14 +491,19 @@ fn insert_combatant(
     Ok(())
 }
 
-/// Legal Stride, Step, Strike, and Raise a Shield actions for `id` on their turn.
+/// Legal actions for `id` on their turn.
 ///
-/// Stride lists every square up to Speed that can be reached. Step lists each walkable square
-/// whose open-plane distance is 5 feet, and only when Speed is at least 10. Allies can be crossed
-/// and not ended on. Conscious enemies cannot be entered. Strike lists each living opponent
-/// in reach, including an unconscious one. A dead creature is not a target. Raise a Shield is
-/// legal when the creature is wielding a shield that is not broken and not destroyed. Unconscious
-/// and dead creatures have no legal actions. None are legal while a Shield Block offer is open.
+/// Stride lists every square up to Speed that can be reached. Step lists each walkable normal
+/// square whose open-plane distance is 5 feet, and only when Speed is at least 10. Difficult and
+/// greater squares are not Step destinations. Allies can be crossed and not ended on. Conscious
+/// enemies cannot be entered. While prone, Stride, Step, and Leap are absent. Crawl lists one
+/// square whose enter cost is at most 5 feet, and Stand is legal. Leap lists squares up to its
+/// own distance within the foot-cost rule, and it does not enter another creature's square.
+/// Strike lists each living opponent in reach, including an unconscious one. A dead creature is
+/// not a target. Raise a Shield is legal when the creature is wielding a shield that is not
+/// broken and not destroyed. Drop Prone is legal when the creature is not already prone.
+/// Unconscious and dead creatures have no legal actions. None are legal while a Shield Block
+/// offer is open.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     if encounter.pending.is_some()
         || encounter.outcome.is_some()
@@ -481,47 +521,66 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
         return Vec::new();
     }
 
-    let mut cannot_enter = HashSet::new();
-    let mut cannot_end = HashSet::new();
-    for other in encounter.combatants.values() {
-        if other.id == id || !other.is_conscious() {
-            continue;
-        }
-        cannot_end.insert(other.position);
-        if other.side != actor.side {
-            cannot_enter.insert(other.position);
-        }
-    }
-
+    let (cannot_enter, cannot_end) = blockers(encounter, id);
     let mut actions = Vec::new();
-    for (destination, _) in reachable_destinations(
-        &encounter.grid,
-        actor.position,
-        actor.speed_feet,
-        &cannot_enter,
-        &cannot_end,
-    ) {
-        actions.push(Action::Stride { destination });
-    }
-
-    if actor.speed_feet >= 10 {
-        for destination in squares_within_feet(
+    if actor.prone {
+        for (destination, _) in reachable_destinations(
+            &encounter.grid,
             actor.position,
             5,
-            encounter.grid.width(),
-            encounter.grid.height(),
+            &cannot_enter,
+            &cannot_end,
         ) {
-            if minimum_feet(actor.position, destination) != 5 {
-                continue;
-            }
-            if !encounter.grid.walkable(destination)
-                || cannot_enter.contains(&destination)
-                || cannot_end.contains(&destination)
-            {
-                continue;
-            }
-            actions.push(Action::Step { destination });
+            actions.push(Action::Crawl { destination });
         }
+        actions.push(Action::Stand);
+    } else {
+        for (destination, _) in reachable_destinations(
+            &encounter.grid,
+            actor.position,
+            actor.speed_feet,
+            &cannot_enter,
+            &cannot_end,
+        ) {
+            actions.push(Action::Stride { destination });
+        }
+
+        if actor.speed_feet >= 10 {
+            for destination in squares_within_feet(
+                actor.position,
+                5,
+                encounter.grid.width(),
+                encounter.grid.height(),
+            ) {
+                if minimum_feet(actor.position, destination) != 5 {
+                    continue;
+                }
+                if encounter.grid.terrain(destination) != Terrain::Normal {
+                    continue;
+                }
+                if !encounter.grid.walkable(destination)
+                    || cannot_enter.contains(&destination)
+                    || cannot_end.contains(&destination)
+                {
+                    continue;
+                }
+                actions.push(Action::Step { destination });
+            }
+        }
+
+        if let Some(budget) = leap_feet(actor.speed_feet) {
+            let occupied = creature_squares(encounter, id);
+            for (destination, _) in reachable_destinations(
+                &encounter.grid,
+                actor.position,
+                budget,
+                &occupied,
+                &occupied,
+            ) {
+                actions.push(Action::Leap { destination });
+            }
+        }
+        actions.push(Action::DropProne);
     }
 
     let reach = squares_within_feet(
@@ -578,17 +637,68 @@ pub fn declare_action(
     let mut events = Vec::new();
     match action {
         Action::Stride { destination } => {
-            resolve_move(encounter, id, destination, rng, &mut events)
+            let speed = encounter.combatants[&id].speed_feet;
+            let (cannot_enter, cannot_end) = blockers(encounter, id);
+            resolve_travel(
+                encounter,
+                id,
+                destination,
+                speed,
+                &cannot_enter,
+                &cannot_end,
+                Travel::Stride,
+                rng,
+                &mut events,
+            );
         }
         Action::Step { destination } => resolve_step(encounter, id, destination, &mut events),
         Action::Strike { target } => resolve_strike(encounter, id, target, rng, &mut events),
         Action::RaiseShield => resolve_raise_shield(encounter, id, &mut events),
+        Action::DropProne => resolve_drop_prone(encounter, id, &mut events),
+        Action::Stand => resolve_stand(encounter, id, &mut events),
+        Action::Crawl { destination } => {
+            let (cannot_enter, cannot_end) = blockers(encounter, id);
+            resolve_travel(
+                encounter,
+                id,
+                destination,
+                5,
+                &cannot_enter,
+                &cannot_end,
+                Travel::Crawl,
+                rng,
+                &mut events,
+            );
+        }
+        Action::Leap { destination } => {
+            let budget = leap_feet(encounter.combatants[&id].speed_feet)
+                .expect("a legal leap has a distance");
+            let occupied = creature_squares(encounter, id);
+            resolve_travel(
+                encounter,
+                id,
+                destination,
+                budget,
+                &occupied,
+                &occupied,
+                Travel::Leap,
+                rng,
+                &mut events,
+            );
+        }
     }
     if let Some(outcome) = encounter.detect_outcome() {
         encounter.outcome = Some(outcome);
         events.push(Event::EncounterEnded { outcome });
     }
     Ok(events)
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Travel {
+    Stride,
+    Crawl,
+    Leap,
 }
 
 #[derive(Clone, Debug)]
@@ -599,6 +709,18 @@ struct MoveResume {
     feet: u32,
     squares: Vec<GridPos>,
     index: usize,
+    travel: Travel,
+}
+
+/// Leap distance is its own cap. It does not spend the creature's Speed.
+fn leap_feet(speed_feet: u32) -> Option<u32> {
+    if speed_feet >= 30 {
+        Some(15)
+    } else if speed_feet >= 15 {
+        Some(10)
+    } else {
+        None
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -626,26 +748,27 @@ struct PendingShieldBlock {
     kind: PendingKind,
 }
 
-fn resolve_move(
+fn resolve_travel(
     encounter: &mut Encounter,
     id: CombatantId,
     destination: GridPos,
+    budget_feet: u32,
+    cannot_enter: &HashSet<GridPos>,
+    cannot_end: &HashSet<GridPos>,
+    travel: Travel,
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
-    let actor = &encounter.combatants[&id];
-    let from = actor.position;
-    let speed = actor.speed_feet;
-    let (cannot_enter, cannot_end) = blockers(encounter, id);
+    let from = encounter.combatants[&id].position;
     let (feet, left) = stride_leaves(
         &encounter.grid,
         from,
         destination,
-        speed,
-        &cannot_enter,
-        &cannot_end,
+        budget_feet,
+        cannot_enter,
+        cannot_end,
     )
-    .expect("legal destination has a stride cost");
+    .expect("legal destination has a foot cost");
 
     let mut squares: Vec<GridPos> = left.into_iter().map(|(pos, _)| pos).collect();
     squares.push(destination);
@@ -658,10 +781,29 @@ fn resolve_move(
             feet,
             squares,
             index: 0,
+            travel,
         },
         rng,
         events,
     );
+}
+
+fn resolve_drop_prone(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
+    encounter.combatants.get_mut(&id).unwrap().prone = true;
+    encounter.actions_remaining -= 1;
+    events.push(Event::DroppedProne {
+        id,
+        actions_remaining: encounter.actions_remaining,
+    });
+}
+
+fn resolve_stand(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
+    encounter.combatants.get_mut(&id).unwrap().prone = false;
+    encounter.actions_remaining -= 1;
+    events.push(Event::Stood {
+        id,
+        actions_remaining: encounter.actions_remaining,
+    });
 }
 
 fn continue_move(
@@ -698,12 +840,29 @@ fn continue_move(
     }
 
     encounter.actions_remaining -= 1;
-    events.push(Event::Moved {
-        id: resume.mover,
-        from: resume.from,
-        to: resume.destination,
-        feet: resume.feet,
-        actions_remaining: encounter.actions_remaining,
+    let actions_remaining = encounter.actions_remaining;
+    events.push(match resume.travel {
+        Travel::Stride => Event::Moved {
+            id: resume.mover,
+            from: resume.from,
+            to: resume.destination,
+            feet: resume.feet,
+            actions_remaining,
+        },
+        Travel::Crawl => Event::Crawled {
+            id: resume.mover,
+            from: resume.from,
+            to: resume.destination,
+            feet: resume.feet,
+            actions_remaining,
+        },
+        Travel::Leap => Event::Leapt {
+            id: resume.mover,
+            from: resume.from,
+            to: resume.destination,
+            feet: resume.feet,
+            actions_remaining,
+        },
     });
 }
 
@@ -905,16 +1064,20 @@ fn roll_attack(
     rng: &mut impl Dice,
 ) -> RolledAttack {
     let armor_class = defense_ac(encounter, attacker, target);
-    let (attack_bonus, formula, unconscious) = {
+    let (attack_bonus, formula, unconscious, prone) = {
         let actor = &encounter.combatants[&attacker];
         let defender = &encounter.combatants[&target];
         (
             actor.strike.attack_bonus,
             actor.strike.damage.clone(),
             defender.is_unconscious(),
+            actor.prone,
         )
     };
     let natural = rng.d20();
+    // Prone (−2) and the multiple attack penalty are circumstance penalties on this roll.
+    // They do not stack. Off-guard stays on Armor Class.
+    let map = if prone { map.min(-2) } else { map };
     let total = i32::from(natural) + attack_bonus + map;
     let mut degree = degree_of_success(natural, total, armor_class);
     if unconscious && degree == Degree::Success {
@@ -1266,6 +1429,16 @@ fn roll_damage(rng: &mut impl Dice, formula: &DamageFormula) -> i32 {
         total += i32::from(rng.roll(formula.faces));
     }
     total.max(0)
+}
+
+/// Conscious creatures other than `id`. A leap cannot enter or land on these squares.
+fn creature_squares(encounter: &Encounter, id: CombatantId) -> HashSet<GridPos> {
+    encounter
+        .combatants
+        .values()
+        .filter(|other| other.id != id && other.is_conscious())
+        .map(|other| other.position)
+        .collect()
 }
 
 fn blockers(encounter: &Encounter, id: CombatantId) -> (HashSet<GridPos>, HashSet<GridPos>) {

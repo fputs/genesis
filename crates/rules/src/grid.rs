@@ -16,12 +16,33 @@ impl GridPos {
     }
 }
 
-/// Walkable 5-foot squares. Blocked cells are walls.
+/// Ground in one square. Missing entries are [`Terrain::Normal`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Terrain {
+    #[default]
+    Normal,
+    Difficult,
+    Greater,
+}
+
+impl Terrain {
+    /// Extra feet to enter this square, on top of its diagonal or orthogonal cost.
+    pub fn extra_feet(self) -> u32 {
+        match self {
+            Terrain::Normal => 0,
+            Terrain::Difficult => 5,
+            Terrain::Greater => 10,
+        }
+    }
+}
+
+/// Walkable 5-foot squares. Blocked cells are walls. Terrain defaults to normal.
 #[derive(Clone, Debug)]
 pub struct Grid {
     width: i32,
     height: i32,
     blocked: HashSet<GridPos>,
+    terrain: HashMap<GridPos, Terrain>,
 }
 
 impl Grid {
@@ -30,6 +51,20 @@ impl Grid {
             width,
             height,
             blocked: blocked.into_iter().collect(),
+            terrain: HashMap::new(),
+        }
+    }
+
+    pub fn terrain(&self, pos: GridPos) -> Terrain {
+        self.terrain.get(&pos).copied().unwrap_or_default()
+    }
+
+    /// Marks one square. [`Terrain::Normal`] clears a previous mark.
+    pub fn set_terrain(&mut self, pos: GridPos, terrain: Terrain) {
+        if terrain == Terrain::Normal {
+            self.terrain.remove(&pos);
+        } else {
+            self.terrain.insert(pos, terrain);
         }
     }
 
@@ -155,7 +190,7 @@ fn stride_search(
                 continue;
             }
             let (next_diagonals, step) = step_cost(diagonals, pos, next);
-            let next_cost = cost + step;
+            let next_cost = cost + step + grid.terrain(next).extra_feet();
             if next_cost > speed_feet {
                 continue;
             }
@@ -251,6 +286,19 @@ mod tests {
         assert_eq!(minimum_feet(origin, GridPos::new(4, 4)), 30);
         assert_eq!(minimum_feet(origin, GridPos::new(5, 0)), 25);
         assert_eq!(minimum_feet(origin, GridPos::new(3, 1)), 15);
+    }
+
+    #[test]
+    fn squares_start_normal_until_marked() {
+        let mut grid = Grid::new(3, 3, []);
+        assert_eq!(grid.terrain(GridPos::new(1, 1)), Terrain::Normal);
+        grid.set_terrain(GridPos::new(1, 1), Terrain::Difficult);
+        grid.set_terrain(GridPos::new(2, 2), Terrain::Greater);
+        assert_eq!(grid.terrain(GridPos::new(1, 1)), Terrain::Difficult);
+        assert_eq!(grid.terrain(GridPos::new(2, 2)), Terrain::Greater);
+        assert_eq!(grid.terrain(GridPos::new(0, 0)), Terrain::Normal);
+        assert_eq!(Terrain::Difficult.extra_feet(), 5);
+        assert_eq!(Terrain::Greater.extra_feet(), 10);
     }
 
     #[test]

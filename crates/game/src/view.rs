@@ -44,6 +44,10 @@ enum HudButton {
     Step,
     Strike,
     RaiseShield,
+    DropProne,
+    Stand,
+    Crawl,
+    Leap,
     EndTurn,
     ShieldYes,
     ShieldNo,
@@ -257,6 +261,8 @@ fn sync_highlights(
         let show = match (session.aim, action) {
             (Aim::Stride, Action::Stride { destination }) => Some((destination.x, destination.y)),
             (Aim::Step, Action::Step { destination }) => Some((destination.x, destination.y)),
+            (Aim::Crawl, Action::Crawl { destination }) => Some((destination.x, destination.y)),
+            (Aim::Leap, Action::Leap { destination }) => Some((destination.x, destination.y)),
             (Aim::Strike, Action::Strike { target }) => encounter
                 .combatant(target)
                 .map(|c| (c.position.x, c.position.y)),
@@ -345,6 +351,18 @@ fn read_keys(
         if keys.just_pressed(KeyCode::KeyR) {
             queue_raise(&mut session, &mut pending, &mut aim_bump);
         }
+        if keys.just_pressed(KeyCode::KeyP) {
+            queue_immediate(&mut session, &mut pending, &mut aim_bump, Action::DropProne);
+        }
+        if keys.just_pressed(KeyCode::KeyG) {
+            queue_immediate(&mut session, &mut pending, &mut aim_bump, Action::Stand);
+        }
+        if keys.just_pressed(KeyCode::KeyC) {
+            aim_move(&mut session, &mut aim_bump, Aim::Crawl);
+        }
+        if keys.just_pressed(KeyCode::KeyL) {
+            aim_move(&mut session, &mut aim_bump, Aim::Leap);
+        }
         if keys.just_pressed(KeyCode::Space) {
             end_turn.0 = true;
         }
@@ -356,6 +374,45 @@ fn read_keys(
             session.aim = Aim::None;
         }
         aim_bump.0 += 1;
+    }
+}
+
+fn party_legal(session: &Session) -> Vec<Action> {
+    let Some(encounter) = &session.encounter else {
+        return Vec::new();
+    };
+    let Some(active) = encounter.active() else {
+        return Vec::new();
+    };
+    if encounter.combatant(active).map(|combatant| combatant.side) != Some(Side::Party) {
+        return Vec::new();
+    }
+    legal_actions(encounter, active)
+}
+
+fn queue_immediate(
+    session: &mut Session,
+    pending: &mut PendingOrder,
+    hud: &mut HudBump,
+    action: Action,
+) {
+    if party_legal(session).contains(&action) {
+        pending.0 = Some(action);
+        session.aim = Aim::None;
+        hud.0 += 1;
+    }
+}
+
+fn aim_move(session: &mut Session, hud: &mut HudBump, aim: Aim) {
+    let legal = party_legal(session);
+    let available = legal.iter().any(|action| match (aim, action) {
+        (Aim::Crawl, Action::Crawl { .. }) => true,
+        (Aim::Leap, Action::Leap { .. }) => true,
+        _ => false,
+    });
+    if available {
+        session.aim = aim;
+        hud.0 += 1;
     }
 }
 
@@ -437,11 +494,17 @@ fn aim_click(
         Aim::Step => legal.into_iter().find(|action| {
             matches!(action, Action::Step { destination } if destination.x == x && destination.y == y)
         }),
+        Aim::Crawl => legal.into_iter().find(|action| {
+            matches!(action, Action::Crawl { destination } if destination.x == x && destination.y == y)
+        }),
+        Aim::Leap => legal.into_iter().find(|action| {
+            matches!(action, Action::Leap { destination } if destination.x == x && destination.y == y)
+        }),
         Aim::Strike => legal.into_iter().find(|action| match action {
             Action::Strike { target } => encounter
                 .combatant(*target)
                 .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
-            Action::Stride { .. } | Action::Step { .. } | Action::RaiseShield => false,
+            _ => false,
         }),
         Aim::None => None,
     };
@@ -451,6 +514,8 @@ fn aim_click(
         session.modal = Some(match session.aim {
             Aim::Stride => "That square is out of the stride.".into(),
             Aim::Step => "That square is out of the step.".into(),
+            Aim::Crawl => "That square is out of the crawl.".into(),
+            Aim::Leap => "That square is out of the leap.".into(),
             Aim::Strike => "No enemy in reach on that square.".into(),
             Aim::None => "Nothing to confirm.".into(),
         });
@@ -504,6 +569,20 @@ fn hud_clicks(
             }
             HudButton::RaiseShield => {
                 queue_raise(&mut session, &mut pending, &mut hud);
+            }
+            HudButton::DropProne => {
+                queue_immediate(&mut session, &mut pending, &mut hud, Action::DropProne);
+            }
+            HudButton::Stand => {
+                queue_immediate(&mut session, &mut pending, &mut hud, Action::Stand);
+            }
+            HudButton::Crawl => {
+                session.aim = Aim::Crawl;
+                hud.0 += 1;
+            }
+            HudButton::Leap => {
+                session.aim = Aim::Leap;
+                hud.0 += 1;
             }
             HudButton::ShieldYes | HudButton::ShieldNo => {}
             HudButton::EndTurn => {
@@ -628,6 +707,8 @@ fn sync_hud(
                 },
             ))
             .with_children(|bar| {
+                let legal = party_legal(&session);
+                let offers = |kind: fn(&Action) -> bool| legal.iter().any(kind);
                 action_button(
                     bar,
                     "Stride (M)",
@@ -635,6 +716,23 @@ fn sync_hud(
                     session.aim == Aim::Stride,
                 );
                 action_button(bar, "Step (T)", HudButton::Step, session.aim == Aim::Step);
+                if offers(|action| matches!(action, Action::DropProne)) {
+                    action_button(bar, "Drop Prone (P)", HudButton::DropProne, false);
+                }
+                if offers(|action| matches!(action, Action::Stand)) {
+                    action_button(bar, "Stand (G)", HudButton::Stand, false);
+                }
+                if offers(|action| matches!(action, Action::Crawl { .. })) {
+                    action_button(
+                        bar,
+                        "Crawl (C)",
+                        HudButton::Crawl,
+                        session.aim == Aim::Crawl,
+                    );
+                }
+                if offers(|action| matches!(action, Action::Leap { .. })) {
+                    action_button(bar, "Leap (L)", HudButton::Leap, session.aim == Aim::Leap);
+                }
                 action_button(
                     bar,
                     "Strike  (F)",

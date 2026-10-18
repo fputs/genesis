@@ -32,6 +32,8 @@ pub enum Aim {
     Stride,
     Step,
     Strike,
+    Crawl,
+    Leap,
 }
 
 #[derive(Resource)]
@@ -484,7 +486,13 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
         .iter()
         .filter_map(|action| match action {
             Action::Strike { target } => Some(*target),
-            Action::Stride { .. } | Action::Step { .. } | Action::RaiseShield => None,
+            Action::Stride { .. }
+            | Action::Step { .. }
+            | Action::Crawl { .. }
+            | Action::Leap { .. }
+            | Action::DropProne
+            | Action::Stand
+            | Action::RaiseShield => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -516,7 +524,13 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
         .into_iter()
         .filter_map(|action| match action {
             Action::Stride { destination } => Some(destination),
-            Action::Step { .. } | Action::Strike { .. } | Action::RaiseShield => None,
+            Action::Step { .. }
+            | Action::Crawl { .. }
+            | Action::Leap { .. }
+            | Action::Strike { .. }
+            | Action::DropProne
+            | Action::Stand
+            | Action::RaiseShield => None,
         })
         .filter_map(|destination| {
             let dist = living
@@ -535,7 +549,13 @@ fn strike_unconscious(encounter: &Encounter, legal: &[Action]) -> Option<Action>
         Action::Strike { target } => encounter
             .combatant(*target)
             .is_some_and(|combatant| combatant.is_unconscious()),
-        Action::Stride { .. } | Action::Step { .. } | Action::RaiseShield => false,
+        Action::Stride { .. }
+        | Action::Step { .. }
+        | Action::Crawl { .. }
+        | Action::Leap { .. }
+        | Action::DropProne
+        | Action::Stand
+        | Action::RaiseShield => false,
     })
 }
 
@@ -564,7 +584,13 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
         .iter()
         .filter_map(|action| match *action {
             Action::Stride { destination } => Some(destination),
-            Action::Step { .. } | Action::Strike { .. } | Action::RaiseShield => None,
+            Action::Step { .. }
+            | Action::Crawl { .. }
+            | Action::Leap { .. }
+            | Action::Strike { .. }
+            | Action::DropProne
+            | Action::Stand
+            | Action::RaiseShield => None,
         })
         .filter(|destination| {
             reaches
@@ -623,6 +649,38 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             ..
         } => format!(
             "{} steps to ({}, {}), {feet} ft. {actions_remaining} left.",
+            name(*id),
+            to.x,
+            to.y
+        ),
+        Event::DroppedProne {
+            id,
+            actions_remaining,
+        } => format!("{} drops prone. {actions_remaining} left.", name(*id)),
+        Event::Stood {
+            id,
+            actions_remaining,
+        } => format!("{} stands. {actions_remaining} left.", name(*id)),
+        Event::Crawled {
+            id,
+            to,
+            feet,
+            actions_remaining,
+            ..
+        } => format!(
+            "{} crawls to ({}, {}), {feet} ft. {actions_remaining} left.",
+            name(*id),
+            to.x,
+            to.y
+        ),
+        Event::Leapt {
+            id,
+            to,
+            feet,
+            actions_remaining,
+            ..
+        } => format!(
+            "{} leaps to ({}, {}), {feet} ft. {actions_remaining} left.",
             name(*id),
             to.x,
             to.y
@@ -756,7 +814,36 @@ fn grid_of(fixture: &EncounterFixture) -> Grid {
     )
 }
 
-/// Strike if one is legal. Otherwise Stride to the square that ends closest to an opponent.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProneScript {
+    Await,
+    Stand,
+    Done,
+}
+
+/// The first party turn drops prone and stands, once. Later turns use the normal fight.
+fn headless_action(
+    encounter: &Encounter,
+    id: CombatantId,
+    script: &mut ProneScript,
+) -> Option<Action> {
+    let party = encounter
+        .combatant(id)
+        .is_some_and(|combatant| combatant.side == Side::Party);
+    if party && *script != ProneScript::Done {
+        let legal = legal_actions(encounter, id);
+        if *script == ProneScript::Await && legal.contains(&Action::DropProne) {
+            *script = ProneScript::Stand;
+            return Some(Action::DropProne);
+        }
+        if *script == ProneScript::Stand && legal.contains(&Action::Stand) {
+            *script = ProneScript::Done;
+            return Some(Action::Stand);
+        }
+    }
+    closing_action(encounter, id)
+}
+
 fn shield_is_down(encounter: &Encounter, id: CombatantId) -> bool {
     encounter
         .combatant(id)
@@ -764,6 +851,7 @@ fn shield_is_down(encounter: &Encounter, id: CombatantId) -> bool {
         .is_none_or(|shield| !shield.raised)
 }
 
+/// Strike if one is legal. Otherwise Stride to the square that ends closest to an opponent.
 fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
     let legal = legal_actions(encounter, id);
     if shield_is_down(encounter, id) {
@@ -792,7 +880,13 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         .into_iter()
         .filter_map(|action| match action {
             Action::Stride { destination } => Some(destination),
-            Action::Step { .. } | Action::Strike { .. } | Action::RaiseShield => None,
+            Action::Step { .. }
+            | Action::Crawl { .. }
+            | Action::Leap { .. }
+            | Action::Strike { .. }
+            | Action::DropProne
+            | Action::Stand
+            | Action::RaiseShield => None,
         })
         .min_by_key(|destination| {
             let dist = foes
@@ -877,6 +971,7 @@ pub fn headless_report() -> Result<String, String> {
         .join(", ");
     lines.push(format!("initiative: {order}"));
 
+    let mut prone_script = ProneScript::Await;
     for _ in 0..800 {
         if encounter.outcome().is_some() {
             break;
@@ -894,7 +989,7 @@ pub fn headless_report() -> Result<String, String> {
         let Some(active) = encounter.active() else {
             break;
         };
-        let action = closing_action(&encounter, active);
+        let action = headless_action(&encounter, active, &mut prone_script);
         let events = if let Some(action) = action {
             declare_action(&mut encounter, active, action, &mut rng)
                 .map_err(|error| error.to_string())?

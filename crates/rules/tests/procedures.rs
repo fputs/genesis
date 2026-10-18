@@ -1,11 +1,11 @@
-//! Seeded encounter sequences for Stride, Step, Strike, Raise a Shield, Shield Block,
-//! Reactive Strike, and the dying track.
+//! Seeded encounter sequences for Stride, Step, Crawl, Leap, Drop Prone, Stand, Strike,
+//! Raise a Shield, Shield Block, Reactive Strike, difficult terrain, and the dying track.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
     reactors_for_left_square, resolve_pending_shield_block, start_encounter, Action, ClassFeature,
     CombatantId, CreatureTemplate, DamageFormula, Degree, Encounter, Event, Grid, GridPos, Illegal,
-    Outcome, ScriptedDice, Shield, Side, StrikeTemplate,
+    Outcome, ScriptedDice, Shield, Side, StrikeTemplate, Terrain,
 };
 
 fn strike(name: &str, attack: i32, dice: u8, faces: u8, bonus: i32) -> StrikeTemplate {
@@ -2339,4 +2339,641 @@ fn fighter_without_shield_block_cannot_block() {
         resolve_pending_shield_block(&mut encounter, true, &mut dice),
         Err(Illegal::NotLegal)
     );
+}
+
+fn corner_party() -> [GridPos; 4] {
+    [
+        GridPos::new(2, 2),
+        GridPos::new(6, 6),
+        GridPos::new(6, 7),
+        GridPos::new(7, 6),
+    ]
+}
+
+/// Player Core, Drop Prone: one action, no movement, and it does not provoke.
+#[test]
+fn drop_prone_sets_prone_without_moving_or_provoking() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[reactor],
+        &corner_party(),
+        &[GridPos::new(3, 2)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    let start = encounter.combatant(CombatantId(0)).unwrap().position;
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::DropProne));
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Stand));
+
+    let events =
+        declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::DroppedProne {
+            id: CombatantId(0),
+            actions_remaining: 2,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(actor.prone);
+    assert!(actor.is_conscious());
+    assert_eq!(actor.position, start);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::DropProne));
+    assert_eq!(
+        declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A prone attacker's −2 and a −5 multiple attack penalty are circumstance penalties.
+/// The more severe one applies. Off-guard still lowers the target's Armor Class.
+#[test]
+fn prone_attack_penalty_does_not_stack_with_map() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    declare_action(&mut encounter, CombatantId(4), Action::DropProne, &mut dice).unwrap();
+    end_until(&mut encounter, CombatantId(0), &mut dice);
+    assert!(encounter.combatant(CombatantId(0)).unwrap().prone);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().prone);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().is_conscious());
+
+    // 6 + 7 − 2 = 11 vs off-guard AC 12. A standing roll would be 13.
+    let mut dice = ScriptedDice::new([6, 8]);
+    let first = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &first[0] {
+        Event::StrikeResolved {
+            map,
+            total,
+            armor_class,
+            degree,
+            damage,
+            ..
+        } => {
+            assert_eq!(*map, -2);
+            assert_eq!(*total, 11);
+            assert_eq!(*armor_class, 12);
+            assert_eq!(*degree, Degree::Failure);
+            assert_eq!(*damage, 0);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+
+    // 8 + 7 − 5 = 10. Stacking the prone penalty would make this 8.
+    let second = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &second[0] {
+        Event::StrikeResolved {
+            map,
+            total,
+            armor_class,
+            ..
+        } => {
+            assert_eq!(*map, -5);
+            assert_eq!(*total, 10);
+            assert_eq!(*armor_class, 12);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Stand: one action, clears prone, no movement, and it does not provoke.
+#[test]
+fn stand_clears_prone_without_moving_or_provoking() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[reactor],
+        &corner_party(),
+        &[GridPos::new(3, 2)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Stand));
+    declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    let start = encounter.combatant(CombatantId(0)).unwrap().position;
+
+    let events = declare_action(&mut encounter, CombatantId(0), Action::Stand, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Stood {
+            id: CombatantId(0),
+            actions_remaining: 1,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(!actor.prone);
+    assert_eq!(actor.position, start);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+    assert!(
+        legal_actions(&encounter, CombatantId(0)).contains(&Action::Stride {
+            destination: GridPos::new(2, 3)
+        })
+    );
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Stand));
+    assert_eq!(
+        declare_action(&mut encounter, CombatantId(0), Action::Stand, &mut dice).unwrap_err(),
+        Illegal::NotLegal
+    );
+}
+
+/// While prone, Stride, Step, and Leap are illegal. Crawl and Stand are the movement options.
+#[test]
+fn prone_creature_cannot_stride_step_or_leap() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.iter().all(|action| !matches!(
+        action,
+        Action::Stride { .. } | Action::Step { .. } | Action::Leap { .. }
+    )));
+    assert!(legal
+        .iter()
+        .any(|action| matches!(action, Action::Crawl { .. })));
+    assert!(legal.contains(&Action::Stand));
+    assert_eq!(
+        declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::Stride {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert_eq!(
+        declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::Step {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+    assert_eq!(
+        declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::Leap {
+                destination: GridPos::new(4, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+}
+
+/// Player Core, Crawl: one square that costs 5 feet. A 10-foot diagonal, and any square above 5, is out of reach.
+#[test]
+fn crawl_moves_five_feet_and_refuses_a_costlier_square() {
+    let mut grid = open(8, 8);
+    grid.set_terrain(GridPos::new(2, 3), Terrain::Difficult);
+    grid.set_terrain(GridPos::new(2, 1), Terrain::Greater);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        grid,
+        &mut dice,
+    )
+    .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Crawl {
+        destination: GridPos::new(3, 2)
+    }));
+    assert!(legal.contains(&Action::Crawl {
+        destination: GridPos::new(3, 3)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(4, 2)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(4, 4)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(2, 3)
+    }));
+    assert!(!legal.contains(&Action::Crawl {
+        destination: GridPos::new(2, 1)
+    }));
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Crawl {
+            destination: GridPos::new(3, 2),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Crawled {
+            id: CombatantId(0),
+            from: GridPos::new(2, 2),
+            to: GridPos::new(3, 2),
+            feet: 5,
+            actions_remaining: 1,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(actor.prone);
+    assert_eq!(actor.position, GridPos::new(3, 2));
+}
+
+/// Crawl leaves the start square, so it uses the same Reactive Strike path as Stride.
+#[test]
+fn crawl_provokes_reactive_strike() {
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[reactor],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::DropProne, &mut dice).unwrap();
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(true));
+
+    let mut dice = ScriptedDice::new([1]);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Crawl {
+            destination: GridPos::new(1, 2),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::ReactiveStrike {
+            attacker: CombatantId(4),
+            target: CombatantId(0),
+            map: 0,
+            ..
+        }
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Crawled {
+            id: CombatantId(0),
+            to: GridPos { x: 1, y: 2 },
+            feet: 5,
+            ..
+        }
+    )));
+    assert_eq!(
+        encounter.combatant(CombatantId(0)).unwrap().position,
+        GridPos::new(1, 2)
+    );
+    assert!(encounter.combatant(CombatantId(0)).unwrap().prone);
+    assert_eq!(encounter.reaction_ready(CombatantId(4)), Some(false));
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Leap: Speed 25 reaches 10 feet and not 15. The leap can land on difficult terrain and does not cross a creature.
+#[test]
+fn leap_reaches_ten_feet_at_speed_25() {
+    let mut grid = open(8, 8);
+    grid.set_terrain(GridPos::new(1, 2), Terrain::Difficult);
+    grid.set_terrain(GridPos::new(2, 1), Terrain::Greater);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(3, 2)],
+        grid,
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().speed_feet, 25);
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 4)
+    }));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(1, 2)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(4, 2)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 5)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 1)
+    }));
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Leap {
+            destination: GridPos::new(2, 4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Leapt {
+            id: CombatantId(0),
+            from: GridPos::new(2, 2),
+            to: GridPos::new(2, 4),
+            feet: 10,
+            actions_remaining: 2,
+        }]
+    );
+    let actor = encounter.combatant(CombatantId(0)).unwrap();
+    assert_eq!(actor.position, GridPos::new(2, 4));
+    assert!(!actor.prone);
+
+    let mut fast = fighter("Sera Voss");
+    fast.speed_feet = 30;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &[
+            fast,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(3, 0)
+    }));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 2)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(4, 0)
+    }));
+}
+
+/// Speed below 15 cannot Leap. Speed 15 leaps 10 feet and not 15.
+#[test]
+fn leap_is_illegal_below_speed_15() {
+    let mut slow = fighter("Sera Voss");
+    slow.speed_feet = 10;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &[
+            slow,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0))
+        .iter()
+        .all(|action| !matches!(action, Action::Leap { .. })));
+    assert_eq!(
+        declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::Leap {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+
+    let mut edged = fighter("Sera Voss");
+    edged.speed_feet = 15;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &[
+            edged,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 6),
+            GridPos::new(0, 7),
+            GridPos::new(7, 0),
+        ],
+        &[GridPos::new(7, 7)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Leap {
+        destination: GridPos::new(2, 0)
+    }));
+    assert!(!legal.contains(&Action::Leap {
+        destination: GridPos::new(3, 0)
+    }));
+}
+
+/// Player Core, Step: the destination cannot be difficult or greater difficult terrain.
+#[test]
+fn step_refuses_difficult_and_greater_terrain() {
+    let mut grid = open(8, 8);
+    grid.set_terrain(GridPos::new(3, 2), Terrain::Difficult);
+    grid.set_terrain(GridPos::new(2, 3), Terrain::Greater);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &corner_party(),
+        &[GridPos::new(7, 7)],
+        grid,
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(!legal.contains(&Action::Step {
+        destination: GridPos::new(3, 2)
+    }));
+    assert!(!legal.contains(&Action::Step {
+        destination: GridPos::new(2, 3)
+    }));
+    assert!(legal.contains(&Action::Step {
+        destination: GridPos::new(1, 2)
+    }));
+    assert_eq!(
+        declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::Step {
+                destination: GridPos::new(3, 2)
+            },
+            &mut dice,
+        )
+        .unwrap_err(),
+        Illegal::NotLegal
+    );
+}
+
+fn corridor(mark: GridPos, terrain: Terrain) -> Grid {
+    let blocked: Vec<GridPos> = (0..12)
+        .flat_map(|x| [GridPos::new(x, 0), GridPos::new(x, 2)])
+        .collect();
+    let mut grid = Grid::new(12, 3, blocked);
+    grid.set_terrain(mark, terrain);
+    grid
+}
+
+/// Entering difficult terrain costs 5 extra feet, so a Stride stops short of the square Speed would otherwise reach.
+#[test]
+fn difficult_terrain_stops_a_stride_short() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 1),
+            GridPos::new(9, 1),
+            GridPos::new(10, 1),
+            GridPos::new(11, 1),
+        ],
+        &[GridPos::new(8, 1)],
+        corridor(GridPos::new(3, 1), Terrain::Difficult),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(3, 1)
+    }));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(4, 1)
+    }));
+    assert!(!legal.contains(&Action::Stride {
+        destination: GridPos::new(5, 1)
+    }));
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(4, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Moved {
+            id: CombatantId(0),
+            from: GridPos::new(0, 1),
+            to: GridPos::new(4, 1),
+            feet: 25,
+            actions_remaining: 2,
+        }]
+    );
+
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let encounter = start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 1),
+            GridPos::new(9, 1),
+            GridPos::new(10, 1),
+            GridPos::new(11, 1),
+        ],
+        &[GridPos::new(8, 1)],
+        corridor(GridPos::new(1, 1), Terrain::Greater),
+        &mut dice,
+    )
+    .unwrap();
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.contains(&Action::Stride {
+        destination: GridPos::new(3, 1)
+    }));
+    assert!(!legal.contains(&Action::Stride {
+        destination: GridPos::new(4, 1)
+    }));
 }

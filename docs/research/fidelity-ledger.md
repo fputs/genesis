@@ -1,6 +1,6 @@
 # Fidelity ledger
 
-Principle III records. Knocked out, dying, Raise a Shield, and Shield Block run as written. The other entries are procedures this slice does not run as written at the table.
+Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Prone, Stand, Crawl, Leap, and difficult terrain run as written. The other entries are procedures this slice does not run as written at the table.
 
 ## Knocked out and dying
 
@@ -17,20 +17,23 @@ Principle III records. Knocked out, dying, Raise a Shield, and Shield Block run 
 ## Downed space
 
 - **Rule and source.** A dying creature is prone in its space; other creatures treat that space under the normal movement rules.
-- **Why it does not operate here.** Prone, difficult terrain, and forced movement are outside Stride-to-a-square and Strike.
+- **Why it does not operate here.** Forced movement is outside this fight, so a square with a creature at 0 HP is not given a separate blocking rule.
 - **Substitute.** A creature at 0 HP does not block movement or the square another creature stops in.
 - **Intent kept.** A body does not erase the slot or the grid. It also does not stall the remaining turns in a room with no forced-movement action.
 
+## Drop Prone, Stand, Crawl, and Leap
+
+- **Rule and source.** Player Core, Drop Prone, Stand, Crawl, and Leap. Drop Prone is one action and makes you prone. Stand is one action and ends prone. Neither moves you, and neither provokes. Crawl requires prone and moves 5 feet. Leap is one horizontal action: Speed below 15 feet cannot leap, Speed of at least 15 feet leaps up to 10 feet, and Speed of at least 30 feet leaps up to 15 feet. A prone creature takes a −2 circumstance penalty on attack rolls. That penalty and the multiple attack penalty do not stack.
+- **Runs.** `Action::DropProne` sets prone and is illegal when the creature is already prone, unconscious, or dead. `Action::Stand` clears prone and is illegal unless the creature is prone and conscious. While prone, Stride, Step, and Leap are illegal. Crawl and Stand are the movement options. Crawl's destination is one square whose enter cost is at most 5 feet under the existing diagonal rule, so a 10-foot diagonal is out of reach. Crawl and Leap leave squares through the same Reactive Strike path as Stride. Leap measures its own distance cap with that foot-cost rule. The landing square must be empty of other conscious creatures and walkable. Leap does not cross other creatures. It can land on difficult terrain. It does not spend Speed past that cap. A prone attacker's circumstance penalty is −2, or the multiple attack penalty when that is more severe. Off-guard remains −2 to the target's Armor Class and applies together with the attacker's penalty.
+
 ## Difficult terrain
 
-- **Rule and source.** Player Core, Step, which bars difficult terrain.
-- **Why it does not operate here.** The hall has no difficult terrain, so the check cannot run.
-- **Substitute.** The check is a walkable square at 5 feet and Speed of at least 10 feet. Step stays a 5-foot action.
-- **Intent kept.** Step is still one action that moves 5 feet onto a square the creature can walk, and it is not a Stride.
+- **Rule and source.** Player Core, difficult terrain and Step. Entering a difficult square costs 5 extra feet. Entering a greater difficult square costs 10 extra feet. Step cannot enter difficult terrain.
+- **Runs.** Each square is normal, difficult, or greater. The default is normal. Entering a square adds that extra cost on top of the square's existing foot cost. Step is illegal when the destination is difficult or greater. Crawl has only 5 feet, so a square whose total cost is above 5 is out of reach. Leap can still land on difficult terrain when the total is within its distance cap. The room-one hall has no difficult or greater squares, so this fight never pays the extra cost.
 
 ## Basic actions this encounter does not run
 
-- **Rule and source.** Player Core: Delay, Ready, Drop Prone, Stand, Seek, Interact, Release, Take Cover, and Point Out.
+- **Rule and source.** Player Core: Delay, Ready, Seek, Interact, Release, Take Cover, and Point Out.
 - **Why it does not operate here.** The level-1 fight can start, act, and end without them, so there is no procedure here for those actions to advance.
 - **Substitute.** The closed set is Stride, Step, Strike, Raise a Shield, and End Turn. The 3-action turn still spends those actions as written.
 - **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those actions do at the table.
