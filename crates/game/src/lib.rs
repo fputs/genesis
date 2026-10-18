@@ -1,4 +1,4 @@
-//! Bevy host: real-time exploration, then turn-based Move and Strike.
+//! Bevy host: real-time exploration, then turn-based Stride and Strike.
 //!
 //! `GameMode` is the only mode switch. Rules and fixture loading live in `rules` and `content`.
 

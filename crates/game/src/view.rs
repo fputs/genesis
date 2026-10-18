@@ -40,7 +40,7 @@ struct HudRoot;
 #[derive(Component, Clone, Copy)]
 enum HudButton {
     Portrait(usize),
-    Move,
+    Stride,
     Strike,
     EndTurn,
     Dismiss,
@@ -251,7 +251,7 @@ fn sync_highlights(
         .clone();
     for action in legal_actions(encounter, active) {
         let show = match (session.aim, action) {
-            (Aim::Move, Action::Move { destination }) => Some((destination.x, destination.y)),
+            (Aim::Stride, Action::Stride { destination }) => Some((destination.x, destination.y)),
             (Aim::Strike, Action::Strike { target }) => encounter
                 .combatant(target)
                 .map(|c| (c.position.x, c.position.y)),
@@ -317,7 +317,7 @@ fn read_keys(
 
     if mode == GameMode::Combat && session.modal.is_none() {
         if keys.just_pressed(KeyCode::KeyM) {
-            session.aim = Aim::Move;
+            session.aim = Aim::Stride;
             aim_bump.0 += 1;
         }
         if keys.just_pressed(KeyCode::KeyF) {
@@ -387,14 +387,14 @@ fn aim_click(
     };
     let legal = legal_actions(encounter, active);
     let chosen = match session.aim {
-        Aim::Move => legal.into_iter().find(|action| {
-            matches!(action, Action::Move { destination } if destination.x == x && destination.y == y)
+        Aim::Stride => legal.into_iter().find(|action| {
+            matches!(action, Action::Stride { destination } if destination.x == x && destination.y == y)
         }),
         Aim::Strike => legal.into_iter().find(|action| match action {
             Action::Strike { target } => encounter
                 .combatant(*target)
                 .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
-            Action::Move { .. } => false,
+            Action::Stride { .. } => false,
         }),
         Aim::None => None,
     };
@@ -402,7 +402,7 @@ fn aim_click(
         pending.0 = Some(action);
     } else {
         session.modal = Some(match session.aim {
-            Aim::Move => "That square is out of the stride.".into(),
+            Aim::Stride => "That square is out of the stride.".into(),
             Aim::Strike => "No enemy in reach on that square.".into(),
             Aim::None => "Nothing to confirm.".into(),
         });
@@ -432,8 +432,8 @@ fn hud_clicks(
                     hud.0 += 1;
                 }
             }
-            HudButton::Move => {
-                session.aim = Aim::Move;
+            HudButton::Stride => {
+                session.aim = Aim::Stride;
                 hud.0 += 1;
             }
             HudButton::Strike => {
@@ -554,7 +554,12 @@ fn sync_hud(
                 },
             ))
             .with_children(|bar| {
-                action_button(bar, "Move  (M)", HudButton::Move, session.aim == Aim::Move);
+                action_button(
+                    bar,
+                    "Stride (M)",
+                    HudButton::Stride,
+                    session.aim == Aim::Stride,
+                );
                 action_button(
                     bar,
                     "Strike  (F)",

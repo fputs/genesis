@@ -8,7 +8,7 @@ Callers inject dice through `Dice`. `SeededDice` is the gameplay stream. `Script
 
 - `prepare_combatant` copies a `CreatureTemplate` through an empty synthetics pass into derived stats (HP, Armor Class, Perception, Speed, Strike).
 - `start_encounter` requires four party templates, places everyone on a `Grid` of 5-foot squares, and rolls Perception initiative.
-- `legal_actions` lists `Action::Move { destination }` and `Action::Strike { target }` for the active combatant.
+- `legal_actions` lists `Action::Stride { destination }` and `Action::Strike { target }` for the active combatant.
 - `declare_action` spends one action. A Stride moves up to Speed. A Strike rolls against Armor Class and applies multiple attack penalty −5 / −10 on later Strikes that turn.
 - `advance_if_turn_done` / `end_turn` walk the initiative order. A creature at 0 HP is skipped and a party member stays in one of the four slots.
 - The encounter ends in `Victory` when every enemy is at 0 HP, or `Defeat` when every party slot is at 0 HP.

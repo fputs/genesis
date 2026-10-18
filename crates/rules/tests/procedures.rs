@@ -1,4 +1,4 @@
-//! Seeded encounter sequences for the Move + Strike subset.
+//! Seeded encounter sequences for the Stride + Strike subset.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
@@ -127,23 +127,23 @@ fn stride_spends_one_action_and_respects_speed_including_diagonals() {
     assert_eq!(encounter.active(), Some(CombatantId(0)));
 
     let legal = legal_actions(&encounter, CombatantId(0));
-    assert!(legal.contains(&Action::Move {
+    assert!(legal.contains(&Action::Stride {
         destination: GridPos::new(5, 0)
     }));
-    assert!(!legal.contains(&Action::Move {
+    assert!(!legal.contains(&Action::Stride {
         destination: GridPos::new(6, 0)
     }));
-    assert!(legal.contains(&Action::Move {
+    assert!(legal.contains(&Action::Stride {
         destination: GridPos::new(3, 3)
     }));
-    assert!(!legal.contains(&Action::Move {
+    assert!(!legal.contains(&Action::Stride {
         destination: GridPos::new(4, 4)
     }));
 
     let events = declare_action(
         &mut encounter,
         CombatantId(0),
-        Action::Move {
+        Action::Stride {
             destination: GridPos::new(3, 3),
         },
         &mut dice,
@@ -184,7 +184,7 @@ fn three_strides_spend_the_turn() {
         declare_action(
             &mut encounter,
             CombatantId(0),
-            Action::Move {
+            Action::Stride {
                 destination: GridPos::new(step, 1),
             },
             &mut dice,
@@ -195,7 +195,7 @@ fn three_strides_spend_the_turn() {
     let err = declare_action(
         &mut encounter,
         CombatantId(0),
-        Action::Move {
+        Action::Stride {
             destination: GridPos::new(4, 1),
         },
         &mut dice,
@@ -253,13 +253,13 @@ fn enemies_block_passage_and_overlapping_spawns_are_rejected() {
     .unwrap();
     assert_eq!(encounter.active(), Some(CombatantId(0)));
     let legal = legal_actions(&encounter, CombatantId(0));
-    assert!(legal.contains(&Action::Move {
+    assert!(legal.contains(&Action::Stride {
         destination: GridPos::new(1, 1)
     }));
-    assert!(!legal.contains(&Action::Move {
+    assert!(!legal.contains(&Action::Stride {
         destination: GridPos::new(3, 1)
     }));
-    assert!(!legal.contains(&Action::Move {
+    assert!(!legal.contains(&Action::Stride {
         destination: GridPos::new(2, 1)
     }));
 }
@@ -485,7 +485,7 @@ fn strike_out_of_reach_and_another_creatures_turn_are_illegal() {
     let err = declare_action(
         &mut encounter,
         CombatantId(1),
-        Action::Move {
+        Action::Stride {
             destination: GridPos::new(1, 2),
         },
         &mut dice,
@@ -662,7 +662,7 @@ fn ending_the_turn_early_advances_and_resets_the_action_economy() {
     declare_action(
         &mut encounter,
         first,
-        Action::Move {
+        Action::Stride {
             destination: GridPos::new(0, 1),
         },
         &mut dice,
@@ -700,7 +700,7 @@ fn a_move_does_not_increase_map() {
     declare_action(
         &mut encounter,
         CombatantId(0),
-        Action::Move {
+        Action::Stride {
             destination: GridPos::new(2, 1),
         },
         &mut dice,
