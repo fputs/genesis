@@ -217,6 +217,8 @@ pub enum Event {
         natural: u8,
         attack_bonus: i32,
         map: i32,
+        /// Circumstance modifier from Aid. A bonus stays here even when `map` is −5 or −10.
+        aid: i32,
         total: i32,
         armor_class: i32,
         degree: Degree,
@@ -324,6 +326,24 @@ pub enum Event {
     ReadiedExpired {
         id: CombatantId,
     },
+    /// An ally's Aid check, rolled before the Strike's attack roll.
+    Aided {
+        aider: CombatantId,
+        attacker: CombatantId,
+        natural: u8,
+        attack_bonus: i32,
+        total: i32,
+        dc: i32,
+        degree: Degree,
+    },
+}
+
+/// One ally who may Aid the Strike that is about to roll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AidOffer {
+    pub aider: CombatantId,
+    pub attacker: CombatantId,
+    pub target: CombatantId,
 }
 
 /// One Perception roll from Seek.
@@ -413,6 +433,22 @@ pub struct Encounter {
     dropped: BTreeMap<GridPos, Dropped>,
     /// A delaying creature may resume before the next turn starts.
     resume_offer: Option<ResumeOffer>,
+    /// An ally may Aid before this Strike's attack roll.
+    aid: Option<PendingAid>,
+}
+
+#[derive(Clone, Debug)]
+struct PendingAid {
+    attacker: CombatantId,
+    target: CombatantId,
+    spend: bool,
+    current: CombatantId,
+    rest: Vec<CombatantId>,
+    /// Best circumstance bonus from Aid so far. Bonuses do not stack.
+    bonus: i32,
+    /// Worst circumstance penalty from Aid so far. `0` when no ally has critically failed.
+    penalty: i32,
+    follow: Vec<ReadyPause>,
 }
 
 #[derive(Clone, Debug)]
@@ -485,6 +521,15 @@ impl Encounter {
     /// The delaying creature who may resume now. The caller accepts or declines.
     pub fn pending_delay_resume(&self) -> Option<CombatantId> {
         self.resume_offer.as_ref().map(|offer| offer.id)
+    }
+
+    /// The ally who may Aid the Strike that has not rolled yet.
+    pub fn pending_aid(&self) -> Option<AidOffer> {
+        self.aid.as_ref().map(|aid| AidOffer {
+            aider: aid.current,
+            attacker: aid.attacker,
+            target: aid.target,
+        })
     }
 
     /// Spends `id`'s reaction. A second spend before that creature's next turn returns [`Illegal::NoReaction`].
@@ -658,6 +703,7 @@ pub fn start_encounter(
         detection: BTreeMap::new(),
         dropped: BTreeMap::new(),
         resume_offer: None,
+        aid: None,
     };
     if let Some(outcome) = encounter.detect_outcome() {
         encounter.outcome = Some(outcome);
@@ -744,12 +790,13 @@ fn insert_combatant(
 /// remain and the creature is not already delaying. Ready costs two actions. Its readied action
 /// is one currently legal Stride, Step, Strike, Raise Shield, Drop Prone, Stand, Seek, Interact,
 /// or Release, with one of the three triggers. Unconscious and dead creatures have no legal
-/// actions. None are legal while a Shield Block offer is open, or while a delaying creature is
-/// being asked to resume.
+/// actions. None are legal while a Shield Block offer is open, while a delaying creature is
+/// being asked to resume, or while an ally is being asked to Aid.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     if encounter.pending.is_some()
         || encounter.outcome.is_some()
         || encounter.resume_offer.is_some()
+        || encounter.aid.is_some()
     {
         return Vec::new();
     }
@@ -924,7 +971,7 @@ pub fn declare_action(
     if encounter.outcome.is_some() {
         return Err(Illegal::EncounterOver);
     }
-    if encounter.pending.is_some() || encounter.resume_offer.is_some() {
+    if encounter.pending.is_some() || encounter.resume_offer.is_some() || encounter.aid.is_some() {
         return Err(Illegal::NotLegal);
     }
     if !encounter.combatants.contains_key(&id) {
@@ -1056,6 +1103,8 @@ struct RolledAttack {
     natural: u8,
     attack_bonus: i32,
     map: i32,
+    /// Circumstance modifier from Aid, kept apart from `map` so a bonus is not folded into a penalty.
+    aid: i32,
     total: i32,
     armor_class: i32,
     degree: Degree,
@@ -1363,7 +1412,7 @@ fn roll_reactive(
         });
         return Some(Degree::Failure);
     }
-    let rolled = roll_attack(encounter, reactor, target, 0, rng);
+    let rolled = roll_attack(encounter, reactor, target, 0, 0, 0, rng);
     if rolled.damage > 0 && shield_block_legal(encounter, target) {
         encounter.pending = Some(PendingShieldBlock {
             attacker: reactor,
@@ -1485,8 +1534,125 @@ fn resolve_strike(
         });
         return;
     }
+    if open_aid(encounter, id, target, spend) {
+        return;
+    }
+    finish_strike(encounter, id, target, spend, 0, 0, Vec::new(), rng, events);
+}
+
+/// `true` when at least one ally may Aid, so the attack roll waits.
+fn open_aid(
+    encounter: &mut Encounter,
+    attacker: CombatantId,
+    target: CombatantId,
+    spend: bool,
+) -> bool {
+    let mut candidates = aid_candidates(encounter, attacker);
+    if candidates.is_empty() {
+        return false;
+    }
+    let current = candidates.remove(0);
+    encounter.aid = Some(PendingAid {
+        attacker,
+        target,
+        spend,
+        current,
+        rest: candidates,
+        bonus: 0,
+        penalty: 0,
+        follow: Vec::new(),
+    });
+    true
+}
+
+const AID_DC: i32 = 15;
+
+/// Accepts or declines the open Aid. Accepting rolls d20 plus the aider's Strike attack bonus
+/// against DC 15 and spends that reaction. When no ally remains, the Strike's attack roll is made.
+pub fn resolve_pending_aid(
+    encounter: &mut Encounter,
+    accept: bool,
+    rng: &mut impl Dice,
+) -> Result<Vec<Event>, Illegal> {
+    if encounter.outcome.is_some() {
+        return Err(Illegal::EncounterOver);
+    }
+    let Some(mut aid) = encounter.aid.take() else {
+        return Err(Illegal::NotLegal);
+    };
+    let mut events = Vec::new();
+    if accept {
+        if encounter.reaction_ready(aid.current) != Some(true) {
+            encounter.aid = Some(aid);
+            return Err(Illegal::NoReaction);
+        }
+        if !aid_candidate(encounter, aid.attacker, aid.current) {
+            encounter.aid = Some(aid);
+            return Err(Illegal::NotLegal);
+        }
+        let attack_bonus = encounter.combatants[&aid.current].strike.attack_bonus;
+        let natural = rng.d20();
+        let total = i32::from(natural) + attack_bonus;
+        let degree = degree_of_success(natural, total, AID_DC);
+        match degree {
+            Degree::CriticalSuccess => aid.bonus = aid.bonus.max(2),
+            Degree::Success => aid.bonus = aid.bonus.max(1),
+            Degree::Failure => {}
+            Degree::CriticalFailure => aid.penalty = aid.penalty.min(-1),
+        }
+        encounter
+            .spend_reaction(aid.current)
+            .expect("the aider had a ready reaction");
+        events.push(Event::Aided {
+            aider: aid.current,
+            attacker: aid.attacker,
+            natural,
+            attack_bonus,
+            total,
+            dc: AID_DC,
+            degree,
+        });
+    }
+    if let Some(next) = aid.rest.first().copied() {
+        aid.rest.remove(0);
+        aid.current = next;
+        encounter.aid = Some(aid);
+        return Ok(events);
+    }
+    let follow = aid.follow;
+    finish_strike(
+        encounter,
+        aid.attacker,
+        aid.target,
+        aid.spend,
+        aid.bonus,
+        aid.penalty,
+        follow,
+        rng,
+        &mut events,
+    );
+    if let Some(outcome) = encounter.detect_outcome() {
+        if encounter.outcome.is_none() {
+            encounter.outcome = Some(outcome);
+            events.push(Event::EncounterEnded { outcome });
+        }
+    }
+    Ok(events)
+}
+
+fn finish_strike(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    target: CombatantId,
+    spend: bool,
+    aid_bonus: i32,
+    aid_penalty: i32,
+    follow: Vec<ReadyPause>,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
     let map = multiple_attack_penalty(encounter.strikes_this_turn);
-    let rolled = roll_attack(encounter, id, target, map, rng);
+    let rolled = roll_attack(encounter, id, target, map, aid_bonus, aid_penalty, rng);
     encounter.strikes_this_turn += 1;
     if spend {
         encounter.actions_remaining -= 1;
@@ -1497,12 +1663,13 @@ fn resolve_strike(
             defender: target,
             rolled,
             kind: PendingKind::Strike,
-            follow: Vec::new(),
+            follow,
         });
         return;
     }
     let attack = commit_attack(encounter, id, target, rolled, false);
     publish_strike(encounter, events, id, target, &attack);
+    settle_follow(encounter, follow, rng, events);
 }
 
 /// Applies or declines the open Shield Block, then finishes the strike that was waiting.
@@ -1580,6 +1747,7 @@ struct ResolvedAttack {
     natural: u8,
     attack_bonus: i32,
     map: i32,
+    aid: i32,
     total: i32,
     armor_class: i32,
     degree: Degree,
@@ -1603,11 +1771,41 @@ enum Harm {
     Dead,
 }
 
+fn aid_candidates(encounter: &Encounter, attacker: CombatantId) -> Vec<CombatantId> {
+    let mut ids: Vec<CombatantId> = encounter
+        .combatants
+        .keys()
+        .copied()
+        .filter(|id| aid_candidate(encounter, attacker, *id))
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Conscious, adjacent, reaction ready, and an ally. The attacker is not a candidate.
+fn aid_candidate(encounter: &Encounter, attacker: CombatantId, aider: CombatantId) -> bool {
+    if aider == attacker {
+        return false;
+    }
+    let Some(actor) = encounter.combatants.get(&attacker) else {
+        return false;
+    };
+    let Some(ally) = encounter.combatants.get(&aider) else {
+        return false;
+    };
+    ally.side == actor.side
+        && ally.is_conscious()
+        && ally.reaction_ready
+        && minimum_feet(ally.position, actor.position) == 5
+}
+
 fn roll_attack(
     encounter: &Encounter,
     attacker: CombatantId,
     target: CombatantId,
     map: i32,
+    aid_bonus: i32,
+    aid_penalty: i32,
     rng: &mut impl Dice,
 ) -> RolledAttack {
     let armor_class = defense_ac(encounter, attacker, target);
@@ -1622,10 +1820,14 @@ fn roll_attack(
         )
     };
     let natural = rng.d20();
-    // Prone (−2) and the multiple attack penalty are circumstance penalties on this roll.
-    // They do not stack. Off-guard stays on Armor Class.
-    let map = if prone { map.min(-2) } else { map };
-    let total = i32::from(natural) + attack_bonus + map;
+    // MAP and prone are circumstance penalties, and so is a critical failure on Aid.
+    // Only the worst of those penalties applies. Aid's bonus is a circumstance bonus,
+    // so it is added beside that penalty instead of being folded into it.
+    let shown_map = if prone { map.min(-2) } else { map };
+    let penalty = shown_map.min(aid_penalty);
+    let aid = aid_bonus + (penalty - shown_map);
+    let total = i32::from(natural) + attack_bonus + shown_map + aid;
+    let map = shown_map;
     let mut degree = degree_of_success(natural, total, armor_class);
     if unconscious && degree == Degree::Success {
         degree = Degree::CriticalSuccess;
@@ -1639,6 +1841,7 @@ fn roll_attack(
         natural,
         attack_bonus,
         map,
+        aid,
         total,
         armor_class,
         degree,
@@ -1681,6 +1884,7 @@ fn commit_attack(
         natural: rolled.natural,
         attack_bonus: rolled.attack_bonus,
         map: rolled.map,
+        aid: rolled.aid,
         total: rolled.total,
         armor_class: rolled.armor_class,
         degree: rolled.degree,
@@ -1705,6 +1909,7 @@ fn publish_strike(
         natural: attack.natural,
         attack_bonus: attack.attack_bonus,
         map: attack.map,
+        aid: attack.aid,
         total: attack.total,
         armor_class: attack.armor_class,
         degree: attack.degree,
@@ -2457,7 +2662,7 @@ pub fn advance_if_turn_done(encounter: &mut Encounter, rng: &mut impl Dice) -> V
     if finish_if_over(encounter, &mut events) {
         return events;
     }
-    if encounter.pending.is_some() || encounter.resume_offer.is_some() {
+    if encounter.pending.is_some() || encounter.resume_offer.is_some() || encounter.aid.is_some() {
         return events;
     }
 
@@ -2493,7 +2698,7 @@ pub fn end_turn(encounter: &mut Encounter, rng: &mut impl Dice) -> Result<Vec<Ev
     if encounter.outcome.is_some() {
         return Err(Illegal::EncounterOver);
     }
-    if encounter.pending.is_some() || encounter.resume_offer.is_some() {
+    if encounter.pending.is_some() || encounter.resume_offer.is_some() || encounter.aid.is_some() {
         return Err(Illegal::NotLegal);
     }
     if encounter.active().is_none() {
@@ -2760,14 +2965,19 @@ fn dispatch_ids(
         if !fire_readied(encounter, reactor, rng, events) {
             continue;
         }
-        if encounter.pending.is_some() {
-            encounter.pending.as_mut().unwrap().follow.push(ReadyPause {
+        if encounter.pending.is_some() || encounter.aid.is_some() {
+            let pause = ReadyPause {
                 rest: reactors[index + 1..].to_vec(),
                 trigger,
                 cause,
                 square,
                 after,
-            });
+            };
+            if let Some(pending) = encounter.pending.as_mut() {
+                pending.follow.push(pause);
+            } else if let Some(aid) = encounter.aid.as_mut() {
+                aid.follow.push(pause);
+            }
             return true;
         }
     }

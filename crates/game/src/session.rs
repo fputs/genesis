@@ -4,9 +4,9 @@ use bevy::prelude::*;
 use content::{load_encounter, EncounterFixture, Feature, Spawn};
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, reactors_for_left_square,
-    resolve_delay_resume, resolve_pending_shield_block, start_encounter, Action, ClassFeature,
-    CombatantId, CreatureTemplate, DamageFormula, Encounter, Event, Gear, Grid, GridPos, Outcome,
-    ReadyTrigger, Shield, Side, StrikeTemplate,
+    resolve_delay_resume, resolve_pending_aid, resolve_pending_shield_block, start_encounter,
+    Action, ClassFeature, CombatantId, CreatureTemplate, DamageFormula, Encounter, Event, Gear,
+    Grid, GridPos, Outcome, ReadyTrigger, Shield, Side, StrikeTemplate,
 };
 
 use crate::world::{cell_in_trigger, cell_to_world, member_world, snap_to_grid, world_to_cell};
@@ -79,6 +79,7 @@ pub struct Session {
     pub modal: Option<String>,
     pub shield_prompt: bool,
     pub delay_prompt: bool,
+    pub aid_prompt: bool,
     pub ready: Option<ReadyUi>,
     pub log: Vec<String>,
     pub rng: rules::SeededDice,
@@ -128,6 +129,10 @@ pub struct ShieldAnswer(pub Option<bool>);
 #[derive(Resource, Default)]
 pub struct DelayAnswer(pub Option<bool>);
 
+/// `Some(true)` uses Aid. `Some(false)` declines it.
+#[derive(Resource, Default)]
+pub struct AidAnswer(pub Option<bool>);
+
 pub struct SessionPlugin;
 
 impl Plugin for SessionPlugin {
@@ -138,6 +143,7 @@ impl Plugin for SessionPlugin {
             .init_resource::<EndTurnRequest>()
             .init_resource::<ShieldAnswer>()
             .init_resource::<DelayAnswer>()
+            .init_resource::<AidAnswer>()
             .init_resource::<EnemyClock>()
             .init_resource::<EnemyTurnOrigin>()
             .init_resource::<HudBump>()
@@ -174,6 +180,7 @@ pub fn load_session(path: Res<EncounterPath>, mut commands: Commands) {
         modal: None,
         shield_prompt: false,
         delay_prompt: false,
+        aid_prompt: false,
         ready: None,
         log: vec!["The hall is quiet. Walk east.".into()],
     });
@@ -317,6 +324,7 @@ fn combat_tick(
     mut end_turn_request: ResMut<EndTurnRequest>,
     mut shield_answer: ResMut<ShieldAnswer>,
     mut delay_answer: ResMut<DelayAnswer>,
+    mut aid_answer: ResMut<AidAnswer>,
     mut clock: ResMut<EnemyClock>,
     mut turn_origin: ResMut<EnemyTurnOrigin>,
     mut next: ResMut<NextState<GameMode>>,
@@ -331,6 +339,45 @@ fn combat_tick(
     }
 
     let mut events = Vec::new();
+    if encounter.pending_aid().is_some() {
+        let offer = encounter.pending_aid().unwrap();
+        let party = encounter
+            .combatant(offer.aider)
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        let answer = if party {
+            aid_answer.0.take()
+        } else {
+            Some(false)
+        };
+        if let Some(accept) = answer {
+            match resolve_pending_aid(&mut encounter, accept, &mut session.rng) {
+                Ok(resolved) => events.extend(resolved),
+                Err(error) => session.modal = Some(error.to_string()),
+            }
+            if session.aid_prompt {
+                session.aid_prompt = false;
+                hud.0 += 1;
+            }
+        } else {
+            if !session.aid_prompt {
+                session.aid_prompt = true;
+                hud.0 += 1;
+            }
+            session.encounter = Some(encounter);
+            return;
+        }
+    }
+
+    if encounter.pending_aid().is_some() {
+        session.aid_prompt = encounter
+            .pending_aid()
+            .and_then(|offer| encounter.combatant(offer.aider))
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        log_events(&mut session, &encounter, &events, &mut hud);
+        session.encounter = Some(encounter);
+        return;
+    }
+
     if encounter.pending_shield_block().is_some() {
         let offer = encounter.pending_shield_block().unwrap();
         let party = encounter
@@ -449,6 +496,19 @@ fn combat_tick(
         }
     } else if session.shield_prompt {
         session.shield_prompt = false;
+        hud.0 += 1;
+    }
+    if encounter.pending_aid().is_some() {
+        let party = encounter
+            .pending_aid()
+            .and_then(|offer| encounter.combatant(offer.aider))
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        if party && !session.aid_prompt {
+            session.aid_prompt = true;
+            hud.0 += 1;
+        }
+    } else if session.aid_prompt {
+        session.aid_prompt = false;
         hud.0 += 1;
     }
     log_events(&mut session, &encounter, &events, &mut hud);
@@ -932,6 +992,9 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             name(*id)
         ),
         Event::ReadiedExpired { id } => format!("{} loses the readied action.", name(*id)),
+        Event::Aided { aider, attacker, .. } => {
+            format!("{} aids {}.", name(*aider), name(*attacker))
+        }
     }
 }
 
@@ -1229,6 +1292,7 @@ pub fn headless_report() -> Result<String, String> {
         gear: GearScript::Ready,
         delay: DelayScript::Await,
     };
+    let mut aided = false;
     for _ in 0..800 {
         if encounter.outcome().is_some() {
             break;
@@ -1255,6 +1319,22 @@ pub fn headless_report() -> Result<String, String> {
         };
         for event in &events {
             lines.push(describe(&encounter, event));
+        }
+        while encounter.pending_aid().is_some() {
+            let accept = !aided
+                && encounter.pending_aid().is_some_and(|offer| {
+                    encounter
+                        .combatant(offer.attacker)
+                        .is_some_and(|combatant| combatant.side == Side::Party)
+                });
+            if accept {
+                aided = true;
+            }
+            let resolved = resolve_pending_aid(&mut encounter, accept, &mut rng)
+                .map_err(|error| error.to_string())?;
+            for event in &resolved {
+                lines.push(describe(&encounter, event));
+            }
         }
         let more = advance_if_turn_done(&mut encounter, &mut rng);
         for event in &more {
@@ -1352,6 +1432,13 @@ mod tests {
                 acted = true;
             }
             app.update();
+            for _ in 0..4 {
+                if !app.world().resource::<Session>().aid_prompt {
+                    break;
+                }
+                app.world_mut().resource_mut::<AidAnswer>().0 = Some(false);
+                app.update();
+            }
             if acted {
                 let log = app.world().resource::<Session>().log.join("\n");
                 assert!(

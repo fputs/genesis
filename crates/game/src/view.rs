@@ -7,8 +7,8 @@ use content::Floor;
 use rules::{legal_actions, Action, Detection, Gear, ReadiedAction, ReadyTrigger, Side};
 
 use crate::session::{
-    Aim, DelayAnswer, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, ReadyUi,
-    Session, ShieldAnswer,
+    AidAnswer, Aim, DelayAnswer, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder,
+    ReadyUi, Session, ShieldAnswer,
 };
 use crate::world::{cell_to_world, world_to_cell, TILE_H, TILE_W};
 
@@ -64,6 +64,8 @@ enum HudButton {
     ReadyManipulate,
     ShieldYes,
     ShieldNo,
+    AidYes,
+    AidNo,
     Dismiss,
 }
 
@@ -338,6 +340,7 @@ fn read_keys(
     mut pending: ResMut<PendingOrder>,
     mut shield_answer: ResMut<ShieldAnswer>,
     mut delay_answer: ResMut<DelayAnswer>,
+    mut aid_answer: ResMut<AidAnswer>,
 ) {
     let mode = *mode.get();
     if mode != GameMode::Explore {
@@ -387,6 +390,13 @@ fn read_keys(
         }
         if keys.just_pressed(KeyCode::KeyH) {
             delay_answer.0 = Some(false);
+        }
+    } else if mode == GameMode::Combat && session.aid_prompt {
+        if keys.just_pressed(KeyCode::KeyA) {
+            aid_answer.0 = Some(true);
+        }
+        if keys.just_pressed(KeyCode::KeyJ) {
+            aid_answer.0 = Some(false);
         }
     } else if mode == GameMode::Combat && session.ready.is_some() && session.modal.is_none() {
         read_ready_keys(&keys, &mut session, &mut pending, &mut aim_bump);
@@ -817,6 +827,7 @@ fn hud_clicks(
     mut end_turn: ResMut<EndTurnRequest>,
     mut shield_answer: ResMut<ShieldAnswer>,
     mut delay_answer: ResMut<DelayAnswer>,
+    mut aid_answer: ResMut<AidAnswer>,
     mut hud: ResMut<HudBump>,
     buttons: Query<(&Interaction, &HudButton), Changed<Interaction>>,
 ) {
@@ -828,6 +839,14 @@ fn hud_clicks(
             match button {
                 HudButton::ShieldYes => shield_answer.0 = Some(true),
                 HudButton::ShieldNo => shield_answer.0 = Some(false),
+                _ => {}
+            }
+            continue;
+        }
+        if session.aid_prompt {
+            match button {
+                HudButton::AidYes => aid_answer.0 = Some(true),
+                HudButton::AidNo => aid_answer.0 = Some(false),
                 _ => {}
             }
             continue;
@@ -980,7 +999,7 @@ fn hud_clicks(
             HudButton::ReadyManipulate => {
                 pick_trigger(&mut session, &mut hud, ReadyTrigger::ManipulateInReach)
             }
-            HudButton::ShieldYes | HudButton::ShieldNo => {}
+            HudButton::ShieldYes | HudButton::ShieldNo | HudButton::AidYes | HudButton::AidNo => {}
             HudButton::EndTurn => {
                 end_turn.0 = true;
             }
@@ -1268,7 +1287,61 @@ fn sync_hud(
             });
     }
 
-    if session.modal.is_none() && !session.delay_prompt && !session.shield_prompt {
+    if session.aid_prompt {
+        let (aider, attacker) = session
+            .encounter
+            .as_ref()
+            .and_then(|encounter| {
+                let offer = encounter.pending_aid()?;
+                let aider = encounter.combatant(offer.aider)?.name.clone();
+                let attacker = encounter.combatant(offer.attacker)?.name.clone();
+                Some((aider, attacker))
+            })
+            .unwrap_or_else(|| ("Someone".into(), "an ally".into()));
+        commands
+            .spawn((
+                HudRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(28.0),
+                    top: Val::Percent(32.0),
+                    width: Val::Px(520.0),
+                    padding: UiRect::all(Val::Px(16.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(12.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.10, 0.08, 0.06)),
+                BorderColor(GOLD),
+            ))
+            .with_children(|modal| {
+                text(
+                    modal,
+                    &format!("{aider} can Aid {attacker}'s strike."),
+                    20.0,
+                    INK,
+                );
+                text(modal, "A aids. J lets the strike stand.", 16.0, INK);
+                modal
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(8.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        action_button(row, "Aid (A)", HudButton::AidYes, false);
+                        action_button(row, "Decline (J)", HudButton::AidNo, false);
+                    });
+            });
+    }
+
+    if session.modal.is_none()
+        && !session.delay_prompt
+        && !session.shield_prompt
+        && !session.aid_prompt
+    {
         if let Some(ready) = session.ready {
             ready_panel(&mut commands, &session, ready);
         }
