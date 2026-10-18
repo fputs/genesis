@@ -7,7 +7,7 @@ Bevy 0.15.3 host for the explore-to-combat loop. `rules` and `content` stay engi
 ## What you see
 
 - Orthographic diamond room. Walkable squares use the room floor (stone, grass, or dirt). Walls are darker tiles. Tokens are Y-sorted by grid depth.
-- Four portrait slots on the left, always, including a slot at 0 HP.
+- Four portrait slots on the left, always, including a dying or dead party member. A portrait at 0 HP reads Dying or Dead. The fight ends when one side is dead.
 - Combat bar: Stride, Step, Strike, End Turn. Feedback and the initiative line sit in the upper right. When the Hall Guard leaves a fighter's reach, the log adds a reactive strike line. A modal covers the end of the fight and illegal clicks.
 - Player chrome is Bevy UI.
 

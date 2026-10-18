@@ -208,7 +208,7 @@ fn party_pose(session: &Session, mode: GameMode, slot: usize) -> (Vec2, (i32, i3
 fn enemy_pose(session: &Session) -> ((i32, i32), bool) {
     if let Some(encounter) = &session.encounter {
         if let Some(enemy) = encounter.combatants().find(|c| c.side == Side::Enemy) {
-            return ((enemy.position.x, enemy.position.y), !enemy.is_conscious());
+            return ((enemy.position.x, enemy.position.y), enemy.dead);
         }
     }
     (
@@ -692,8 +692,17 @@ fn portrait(parent: &mut ChildBuilder, session: &Session, mode: GameMode, slot: 
                         INK
                     },
                 );
-                let line = if down {
-                    "Down".to_string()
+                let line = if let Some(encounter) = &session.encounter {
+                    let combatant = encounter.combatant(encounter.party()[slot]).unwrap();
+                    if combatant.dead {
+                        "Dead".to_string()
+                    } else if combatant.dying > 0 {
+                        format!("Dying {}", combatant.dying)
+                    } else if down {
+                        "Unconscious".to_string()
+                    } else {
+                        format!("{hp} / {max_hp} HP")
+                    }
                 } else {
                     format!("{hp} / {max_hp} HP")
                 };

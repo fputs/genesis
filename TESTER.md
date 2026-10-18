@@ -65,9 +65,9 @@ The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, and **
 - **Space** or **End Turn** passes the rest of the turn. **Esc** cancels a target or dismisses a modal.
 - An illegal click opens a modal. **Continue** or **Esc** closes it.
 
-Repeat until the guard is at 0 HP. The modal reads `The guard falls. The hall is quiet.` **Continue** returns to Explore. The red token is gone. **D** moves the party again. The trigger does not start a second fight.
+Repeat until the log says the guard `is dead`. A drop to 0 HP writes `is dying` and the fight continues. Keep Striking the dying guard. The red token stays until that death. The modal then reads `The guard falls. The hall is quiet.` **Continue** returns to Explore. The red token is gone. **D** moves the party again. The trigger does not start a second fight.
 
-A wiped party shows `The party is down.` Portraits stay at four slots and read **Down**.
+A wiped party shows `The party is down.` Portraits stay at four slots. A dying character reads **Dying** and a dead character reads **Dead**. The window driver `control-genesis` is not in this tree, so this walkthrough has no scripted window pass. Use the headless log until that script is restored.
 
 ## Map editor
 

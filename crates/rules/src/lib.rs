@@ -1,5 +1,5 @@
 //! Pathfinder Remaster procedures used by the encounter: preparation, initiative,
-//! action economy, Stride, Step, Strike, and Reactive Strike.
+//! action economy, Stride, Step, Strike, Reactive Strike, and the dying track.
 //!
 //! Rendering and engine types stay outside this crate. Callers supply dice.
 
