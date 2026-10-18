@@ -11,5 +11,6 @@
     "attack_bonus": 7,
     "damage": { "dice": 1, "faces": 8, "bonus": 4 },
     "reach_feet": 5
-  }
+  },
+  "features": ["reactive_strike"]
 }

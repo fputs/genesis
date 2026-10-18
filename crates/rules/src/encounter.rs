@@ -2,9 +2,13 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use crate::check::{degree_of_success, multiple_attack_penalty, Degree};
-use crate::combatant::{prepare_combatant, CreatureTemplate, DamageFormula, PreparedStrike, Side};
+use crate::combatant::{
+    prepare_combatant, ClassFeature, CreatureTemplate, DamageFormula, PreparedStrike, Side,
+};
 use crate::dice::Dice;
-use crate::grid::{minimum_feet, reachable_destinations, squares_within_feet, Grid, GridPos};
+use crate::grid::{
+    minimum_feet, reachable_destinations, squares_within_feet, stride_leaves, Grid, GridPos,
+};
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -33,6 +37,7 @@ pub struct Combatant {
     pub initiative_roll: u8,
     pub initiative_total: i32,
     pub reaction_ready: bool,
+    pub features: Vec<ClassFeature>,
 }
 
 impl Combatant {
@@ -85,6 +90,19 @@ pub enum Event {
         damage: i32,
         target_hit_points: i32,
         actions_remaining: u8,
+    },
+    /// A Reactive Strike resolved before the mover entered the next square.
+    ReactiveStrike {
+        attacker: CombatantId,
+        target: CombatantId,
+        natural: u8,
+        attack_bonus: i32,
+        map: i32,
+        total: i32,
+        armor_class: i32,
+        degree: Degree,
+        damage: i32,
+        target_hit_points: i32,
     },
     CombatantDowned {
         id: CombatantId,
@@ -365,6 +383,7 @@ fn insert_combatant(
             initiative_roll: natural,
             initiative_total: total,
             reaction_ready: true,
+            features: prepared.features,
         },
     );
     Ok(())
@@ -478,7 +497,9 @@ pub fn declare_action(
 
     let mut events = Vec::new();
     match action {
-        Action::Stride { destination } => resolve_move(encounter, id, destination, &mut events),
+        Action::Stride { destination } => {
+            resolve_move(encounter, id, destination, rng, &mut events)
+        }
         Action::Step { destination } => resolve_step(encounter, id, destination, &mut events),
         Action::Strike { target } => resolve_strike(encounter, id, target, rng, &mut events),
     }
@@ -493,24 +514,39 @@ fn resolve_move(
     encounter: &mut Encounter,
     id: CombatantId,
     destination: GridPos,
+    rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
     let actor = &encounter.combatants[&id];
     let from = actor.position;
+    let speed = actor.speed_feet;
     let (cannot_enter, cannot_end) = blockers(encounter, id);
-    let feet = reachable_destinations(
+    let (feet, left) = stride_leaves(
         &encounter.grid,
         from,
-        actor.speed_feet,
+        destination,
+        speed,
         &cannot_enter,
         &cannot_end,
     )
-    .into_iter()
-    .find(|(pos, _)| *pos == destination)
-    .map(|(_, feet)| feet)
     .expect("legal destination has a stride cost");
 
-    encounter.combatants.get_mut(&id).unwrap().position = destination;
+    let mut squares: Vec<GridPos> = left.into_iter().map(|(pos, _)| pos).collect();
+    squares.push(destination);
+    for index in 0..squares.len() - 1 {
+        let leaving = squares[index];
+        let entering = squares[index + 1];
+        for reactor in reactors_for_left_square(encounter, id, leaving) {
+            if resolve_reactive_strike(encounter, reactor, id, rng, events) {
+                encounter.combatants.get_mut(&id).unwrap().position = leaving;
+                encounter.actions_remaining -= 1;
+                events.push(Event::CombatantDowned { id });
+                return;
+            }
+        }
+        encounter.combatants.get_mut(&id).unwrap().position = entering;
+    }
+
     encounter.actions_remaining -= 1;
     events.push(Event::Moved {
         id,
@@ -519,6 +555,86 @@ fn resolve_move(
         feet,
         actions_remaining: encounter.actions_remaining,
     });
+}
+
+/// Opponents who can Reactive Strike a creature leaving `square`.
+///
+/// Each has [`ClassFeature::ReactiveStrike`], a ready reaction, and `square` inside their reach.
+/// The ids are in [`CombatantId`] order.
+pub fn reactors_for_left_square(
+    encounter: &Encounter,
+    mover: CombatantId,
+    square: GridPos,
+) -> Vec<CombatantId> {
+    let Some(mover) = encounter.combatants.get(&mover) else {
+        return Vec::new();
+    };
+    let mut reactors: Vec<CombatantId> = encounter
+        .combatants
+        .values()
+        .filter(|other| {
+            other.id != mover.id
+                && other.side != mover.side
+                && other.is_conscious()
+                && other.reaction_ready
+                && other.features.contains(&ClassFeature::ReactiveStrike)
+                && other.position != square
+                && minimum_feet(other.position, square) <= other.strike.reach_feet
+        })
+        .map(|other| other.id)
+        .collect();
+    reactors.sort();
+    reactors
+}
+
+fn resolve_reactive_strike(
+    encounter: &mut Encounter,
+    reactor: CombatantId,
+    mover: CombatantId,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) -> bool {
+    encounter
+        .spend_reaction(reactor)
+        .expect("reactor has a ready reaction");
+    let map = 0;
+    let (attack_bonus, armor_class, formula) = {
+        let actor = &encounter.combatants[&reactor];
+        let defender = &encounter.combatants[&mover];
+        (
+            actor.strike.attack_bonus,
+            defender.armor_class,
+            actor.strike.damage.clone(),
+        )
+    };
+    let natural = rng.d20();
+    let total = i32::from(natural) + attack_bonus + map;
+    let degree = degree_of_success(natural, total, armor_class);
+    let damage = match degree {
+        Degree::Success => roll_damage(rng, &formula),
+        Degree::CriticalSuccess => roll_damage(rng, &formula).saturating_mul(2),
+        Degree::Failure | Degree::CriticalFailure => 0,
+    };
+    let target_hp = {
+        let defender = encounter.combatants.get_mut(&mover).unwrap();
+        if damage > 0 {
+            defender.hit_points = (defender.hit_points - damage).max(0);
+        }
+        defender.hit_points
+    };
+    events.push(Event::ReactiveStrike {
+        attacker: reactor,
+        target: mover,
+        natural,
+        attack_bonus,
+        map,
+        total,
+        armor_class,
+        degree,
+        damage,
+        target_hit_points: target_hp,
+    });
+    target_hp == 0
 }
 
 fn resolve_step(

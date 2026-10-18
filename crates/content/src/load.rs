@@ -27,6 +27,13 @@ pub struct DamageSpec {
     pub bonus: i32,
 }
 
+/// A class feature named in a creature fixture. Any other name is rejected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Feature {
+    ReactiveStrike,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StrikeSpec {
@@ -48,6 +55,9 @@ pub struct Creature {
     pub perception: i32,
     pub speed_feet: u32,
     pub strike: StrikeSpec,
+    /// Missing lists stay empty. The only accepted name is `reactive_strike`.
+    #[serde(default)]
+    pub features: Vec<Feature>,
 }
 
 /// One placed creature. `name` is the name used in the encounter, not the template name.
