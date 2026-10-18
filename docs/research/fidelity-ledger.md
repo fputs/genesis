@@ -1,6 +1,6 @@
 # Fidelity ledger
 
-Principle III records. Knocked out and dying runs as written. The other entries are procedures this slice does not run as written at the table.
+Principle III records. Knocked out, dying, Raise a Shield, and Shield Block run as written. The other entries are procedures this slice does not run as written at the table.
 
 ## Knocked out and dying
 
@@ -32,8 +32,8 @@ Principle III records. Knocked out and dying runs as written. The other entries 
 
 - **Rule and source.** Player Core: Delay, Ready, Drop Prone, Stand, Seek, Interact, Release, Take Cover, and Point Out.
 - **Why it does not operate here.** The level-1 fight can start, act, and end without them, so there is no procedure here for those actions to advance.
-- **Substitute.** The closed set is Stride, Step, Strike, and End Turn. The 3-action turn still spends Stride, Step, and Strike as written.
-- **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those three actions do at the table.
+- **Substitute.** The closed set is Stride, Step, Strike, Raise a Shield, and End Turn. The 3-action turn still spends those actions as written.
+- **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those actions do at the table.
 
 ## Reactions this iteration does not run
 
@@ -49,9 +49,7 @@ Principle III records. Knocked out and dying runs as written. The other entries 
 - **Substitute.** The critical hit deals its damage and the Stride continues unless the mover is at 0 HP. The reaction still punishes leaving a square.
 - **Intent kept.** A critical Reactive Strike still deals double damage. Leaving a threatened square still draws the reaction.
 
-## Shield Block
+## Raise a Shield and Shield Block
 
-- **Rule and source.** Player Core gives Shield Block to a fighter.
-- **Why it does not operate here.** This encounter has no shield, and the fight can start, act, and end without that action.
-- **Substitute.** No shield action is offered. The fighter still has Reactive Strike, Stride, Step, and Strike.
-- **Intent kept.** The fighter's reaction in this fight is Reactive Strike. Stride, Step, and Strike still spend the turn.
+- **Rule and source.** Player Core, Raise a Shield and Shield Block. Raising a shield is one action. A raised shield gives a +2 circumstance bonus to Armor Class until the start of your next turn. Shield Block is a reaction with the trigger that you would take damage from a physical attack while your shield is raised. The shield prevents damage up to its Hardness. You and the shield each take the remaining damage. A shield at its Broken Threshold is broken. At 0 Hit Points it is destroyed. A broken or destroyed shield grants no bonus and cannot be raised or used to Shield Block.
+- **Runs.** A wielded shield stores hardness, hit points, maximum hit points, broken threshold, and raised. Shield Block is a bool on the creature. `ClassFeature` stays Reactive Strike. Raise a Shield is `Action::RaiseShield`, legal only with a shield that is not broken and not destroyed. It sets raised until that creature's next turn starts, and the turn start clears it before actions. The +2 circumstance bonus applies while the shield is raised and neither broken nor destroyed. It is the only circumstance bonus to Armor Class, so it does not stack. Every strike in this engine deals physical damage. Shield Block is legal when the creature has the flag, the shield is raised, the shield is not broken and not destroyed, and the reaction is ready. Remaining damage is `max(0, damage - hardness)`. The creature and the shield each take that much. Hit points at or below the broken threshold break the shield. 0 destroys it. Shield Block spends the same reaction Reactive Strike spends, so the other is unavailable until that creature's next turn. The fighter fixture has the flag and a steel shield (Hardness 5, 20 Hit Points, Broken Threshold 10). The Hall Guard has neither.

@@ -10,7 +10,7 @@ Genesis
   cargo run -p game -- --help
 
 Explore: D walks east toward the guard, A west, W north, S south. 1–4 selects a portrait.
-Combat: M then click a lit square to Stride. T then click a lit square to Step. F then click the guard to Strike. Space ends the turn.
+Combat: M then click a lit square to Stride. T then click a lit square to Step. F then click the guard to Strike. R raises a shield. Space ends the turn. When Shield Block is legal, B uses it and N does not.
 Without a display, the process runs the headless smoke and exits."
         );
         return;

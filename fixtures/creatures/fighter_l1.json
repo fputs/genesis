@@ -12,5 +12,12 @@
     "damage": { "dice": 1, "faces": 8, "bonus": 4 },
     "reach_feet": 5
   },
-  "features": ["reactive_strike"]
+  "features": ["reactive_strike"],
+  "shield_block": true,
+  "shield": {
+    "hardness": 5,
+    "hit_points": 20,
+    "max_hit_points": 20,
+    "broken_threshold": 10
+  }
 }

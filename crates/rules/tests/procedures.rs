@@ -1,10 +1,11 @@
-//! Seeded encounter sequences for Stride, Step, Strike, Reactive Strike, and the dying track.
+//! Seeded encounter sequences for Stride, Step, Strike, Raise a Shield, Shield Block,
+//! Reactive Strike, and the dying track.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
-    reactors_for_left_square, start_encounter, Action, ClassFeature, CombatantId, CreatureTemplate,
-    DamageFormula, Degree, Event, Grid, GridPos, Illegal, Outcome, ScriptedDice, Side,
-    StrikeTemplate,
+    reactors_for_left_square, resolve_pending_shield_block, start_encounter, Action, ClassFeature,
+    CombatantId, CreatureTemplate, DamageFormula, Degree, Encounter, Event, Grid, GridPos, Illegal,
+    Outcome, ScriptedDice, Shield, Side, StrikeTemplate,
 };
 
 fn strike(name: &str, attack: i32, dice: u8, faces: u8, bonus: i32) -> StrikeTemplate {
@@ -27,6 +28,8 @@ fn fighter(name: &str) -> CreatureTemplate {
         strike: strike("longsword", 7, 1, 8, 4),
         side: Side::Party,
         features: Vec::new(),
+        shield: None,
+        shield_block: false,
     }
 }
 
@@ -41,7 +44,36 @@ fn guard() -> CreatureTemplate {
         strike: strike("spear", 6, 1, 6, 2),
         side: Side::Enemy,
         features: Vec::new(),
+        shield: None,
+        shield_block: false,
     }
+}
+
+fn steel_shield() -> Shield {
+    Shield {
+        hardness: 5,
+        hit_points: 20,
+        max_hit_points: 20,
+        broken_threshold: 10,
+        raised: false,
+    }
+}
+
+fn shielded(name: &str, shield_block: bool) -> CreatureTemplate {
+    let mut creature = fighter(name);
+    creature.shield = Some(steel_shield());
+    creature.shield_block = shield_block;
+    creature
+}
+
+fn end_until(encounter: &mut Encounter, id: CombatantId, dice: &mut ScriptedDice) {
+    for _ in 0..8 {
+        if encounter.active() == Some(id) {
+            return;
+        }
+        end_turn(encounter, dice).unwrap();
+    }
+    panic!("did not reach {id}");
 }
 
 fn party() -> [CreatureTemplate; 4] {
@@ -1840,4 +1872,471 @@ fn downed_mover_stops_on_the_left_square() {
     assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
     assert!(encounter.outcome().is_none());
     assert_eq!(dice.remaining(), 0);
+}
+
+fn place(sera: CreatureTemplate, foe: CreatureTemplate, dice: &mut ScriptedDice) -> Encounter {
+    start_encounter(
+        &[
+            sera,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[foe],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        dice,
+    )
+    .unwrap()
+}
+
+/// Player Core, Raise a Shield: one action, +2 circumstance bonus to AC.
+#[test]
+fn raise_shield_spends_one_action_and_adds_two_ac() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 2]);
+    let mut encounter = place(shielded("Sera Voss", true), guard(), &mut dice);
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+    let shield = encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .as_ref()
+        .unwrap();
+    assert_eq!(shield.hardness, 5);
+    assert!(!shield.raised);
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::ShieldRaised {
+            id: CombatantId(0),
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .raised
+    );
+
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    match events[0] {
+        Event::StrikeResolved {
+            armor_class,
+            damage,
+            ..
+        } => {
+            assert_eq!(armor_class, 20);
+            assert_eq!(damage, 0);
+        }
+        ref other => panic!("expected the strike, got {other:?}"),
+    }
+}
+
+/// The circumstance bonus lasts until the start of that creature's next turn.
+#[test]
+fn raised_shield_ends_at_the_next_turn() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 2, 2]);
+    let mut encounter = place(shielded("Sera Voss", true), guard(), &mut dice);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 20,
+            ..
+        }
+    ));
+
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert_eq!(encounter.round(), 2);
+    assert!(
+        !encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .raised
+    );
+
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 18,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn broken_shield_cannot_be_raised() {
+    for hit_points in [10, 0] {
+        let mut sera = shielded("Sera Voss", true);
+        sera.shield.as_mut().unwrap().hit_points = hit_points;
+        let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+        let mut encounter = place(sera, guard(), &mut dice);
+        assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+        let err = declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::RaiseShield,
+            &mut dice,
+        )
+        .unwrap_err();
+        assert_eq!(err, Illegal::NotLegal);
+        assert!(
+            !encounter
+                .combatant(CombatantId(0))
+                .unwrap()
+                .shield
+                .as_ref()
+                .unwrap()
+                .raised
+        );
+    }
+}
+
+/// Hardness 5 against 12 damage. Creature and shield each take 7.
+#[test]
+fn shield_block_reduces_by_hardness_and_splits_the_rest() {
+    let mut foe = guard();
+    foe.strike.attack_bonus = 10;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 8,
+        bonus: 4,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 8]);
+    let mut encounter = place(shielded("Sera Voss", true), foe, &mut dice);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.is_empty());
+    assert_eq!(encounter.pending_shield_block().unwrap().damage, 12);
+    let events = resolve_pending_shield_block(&mut encounter, true, &mut dice).unwrap();
+    assert_eq!(
+        events[0],
+        Event::ShieldBlock {
+            defender: CombatantId(0),
+            prevented: 5,
+            damage: 7,
+            shield_hit_points: 13,
+            broken: false,
+            destroyed: false,
+        }
+    );
+    assert!(matches!(
+        events[1],
+        Event::StrikeResolved {
+            damage: 7,
+            target_hit_points: 13,
+            armor_class: 20,
+            ..
+        }
+    ));
+    let sera = encounter.combatant(CombatantId(0)).unwrap();
+    assert_eq!(sera.hit_points, 13);
+    let shield = sera.shield.as_ref().unwrap();
+    assert_eq!(shield.hit_points, 13);
+    assert!(!shield.is_broken());
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
+    assert!(encounter.pending_shield_block().is_none());
+}
+
+/// Remaining damage that lands on the broken threshold breaks the shield.
+#[test]
+fn shield_breaks_when_hit_points_reach_the_threshold() {
+    let mut foe = guard();
+    foe.strike.attack_bonus = 11;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 10,
+        bonus: 5,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 9, 10, 9]);
+    let mut encounter = place(shielded("Sera Voss", true), foe, &mut dice);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    let events = resolve_pending_shield_block(&mut encounter, true, &mut dice).unwrap();
+    assert_eq!(
+        events[0],
+        Event::ShieldBlock {
+            defender: CombatantId(0),
+            prevented: 5,
+            damage: 10,
+            shield_hit_points: 10,
+            broken: true,
+            destroyed: false,
+        }
+    );
+    let shield = encounter
+        .combatant(CombatantId(0))
+        .unwrap()
+        .shield
+        .as_ref()
+        .unwrap();
+    assert_eq!(shield.hit_points, shield.broken_threshold);
+    assert!(shield.is_broken());
+    assert!(!shield.is_destroyed());
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 18,
+            ..
+        }
+    ));
+    assert_eq!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hit_points,
+        10
+    );
+
+    end_until(&mut encounter, CombatantId(0), &mut dice);
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::RaiseShield));
+}
+
+/// Shield Block and Reactive Strike spend one reaction. The second try in the round fails.
+#[test]
+fn shield_block_spends_the_reaction() {
+    let mut sera = shielded("Sera Voss", true);
+    sera.features.push(ClassFeature::ReactiveStrike);
+    let mut foe = guard();
+    foe.strike.attack_bonus = 16;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 8,
+        bonus: 4,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 8, 10, 8]);
+    let mut encounter = place(sera, foe, &mut dice);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    resolve_pending_shield_block(&mut encounter, true, &mut dice).unwrap();
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().hit_points, 13);
+    assert_eq!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hit_points,
+        13
+    );
+    assert_eq!(
+        encounter.spend_reaction(CombatantId(0)),
+        Err(Illegal::NoReaction)
+    );
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            damage: 12,
+            target_hit_points: 1,
+            ..
+        }
+    ));
+    assert_eq!(
+        encounter
+            .combatant(CombatantId(0))
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hit_points,
+        13
+    );
+
+    assert!(reactors_for_left_square(&encounter, CombatantId(4), GridPos::new(2, 1)).is_empty());
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Stride {
+            destination: GridPos::new(5, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::ReactiveStrike { .. })));
+    assert!(matches!(events[0], Event::Moved { .. }));
+}
+
+#[test]
+fn fighter_without_shield_block_cannot_block() {
+    let mut foe = guard();
+    foe.strike.attack_bonus = 10;
+    foe.strike.damage = DamageFormula {
+        dice: 1,
+        faces: 8,
+        bonus: 4,
+    };
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 8]);
+    let mut encounter = place(shielded("Sera Voss", false), foe, &mut dice);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.pending_shield_block().is_none());
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            armor_class: 20,
+            damage: 12,
+            target_hit_points: 8,
+            ..
+        }
+    ));
+    let sera = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(!sera.shield_block);
+    assert!(sera.features.is_empty());
+    assert_eq!(sera.shield.as_ref().unwrap().hit_points, 20);
+    assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(true));
+    assert_eq!(
+        resolve_pending_shield_block(&mut encounter, true, &mut dice),
+        Err(Illegal::NotLegal)
+    );
 }

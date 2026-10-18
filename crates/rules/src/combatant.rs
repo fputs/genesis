@@ -5,6 +5,26 @@ pub enum Side {
     Enemy,
 }
 
+/// A shield the creature is wielding. `raised` lasts until that creature's next turn starts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shield {
+    pub hardness: i32,
+    pub hit_points: i32,
+    pub max_hit_points: i32,
+    pub broken_threshold: i32,
+    pub raised: bool,
+}
+
+impl Shield {
+    pub fn is_broken(&self) -> bool {
+        self.hit_points <= self.broken_threshold
+    }
+
+    pub fn is_destroyed(&self) -> bool {
+        self.hit_points <= 0
+    }
+}
+
 /// One class feature. This encounter resolves Reactive Strike and no other.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClassFeature {
@@ -38,6 +58,9 @@ pub struct CreatureTemplate {
     pub strike: StrikeTemplate,
     pub side: Side,
     pub features: Vec<ClassFeature>,
+    pub shield: Option<Shield>,
+    /// Fighter feat. It is not a [`ClassFeature`].
+    pub shield_block: bool,
 }
 
 /// Modifiers gathered before derived stats are written.
@@ -72,6 +95,8 @@ pub struct PreparedCombatant {
     pub strike: PreparedStrike,
     pub side: Side,
     pub features: Vec<ClassFeature>,
+    pub shield: Option<Shield>,
+    pub shield_block: bool,
 }
 
 /// Copies class features onto `synthetics`. Numeric modifiers stay at zero.
@@ -103,5 +128,10 @@ fn derive(defn: &CreatureTemplate, synthetics: &Synthetics) -> PreparedCombatant
         },
         side: defn.side,
         features: synthetics.features.clone(),
+        shield: defn.shield.clone().map(|mut shield| {
+            shield.raised = false;
+            shield
+        }),
+        shield_block: defn.shield_block,
     }
 }

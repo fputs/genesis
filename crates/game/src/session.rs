@@ -4,8 +4,9 @@ use bevy::prelude::*;
 use content::{load_encounter, EncounterFixture, Feature, Spawn};
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, reactors_for_left_square,
-    start_encounter, Action, ClassFeature, CombatantId, CreatureTemplate, DamageFormula, Encounter,
-    Event, Grid, GridPos, Outcome, Side, StrikeTemplate,
+    resolve_pending_shield_block, start_encounter, Action, ClassFeature, CombatantId,
+    CreatureTemplate, DamageFormula, Encounter, Event, Grid, GridPos, Outcome, Shield, Side,
+    StrikeTemplate,
 };
 
 use crate::world::{cell_in_trigger, cell_to_world, member_world, snap_to_grid, world_to_cell};
@@ -63,6 +64,7 @@ pub struct Session {
     pub trigger: TriggerState,
     pub aim: Aim,
     pub modal: Option<String>,
+    pub shield_prompt: bool,
     pub log: Vec<String>,
     pub rng: rules::SeededDice,
 }
@@ -103,6 +105,10 @@ impl Default for EnemyClock {
 #[derive(Resource, Default)]
 pub struct EndTurnRequest(pub bool);
 
+/// `Some(true)` uses Shield Block. `Some(false)` declines it.
+#[derive(Resource, Default)]
+pub struct ShieldAnswer(pub Option<bool>);
+
 pub struct SessionPlugin;
 
 impl Plugin for SessionPlugin {
@@ -111,6 +117,7 @@ impl Plugin for SessionPlugin {
             .init_resource::<ExploreDirection>()
             .init_resource::<PendingOrder>()
             .init_resource::<EndTurnRequest>()
+            .init_resource::<ShieldAnswer>()
             .init_resource::<EnemyClock>()
             .init_resource::<EnemyTurnOrigin>()
             .init_resource::<HudBump>()
@@ -145,6 +152,7 @@ pub fn load_session(path: Res<EncounterPath>, mut commands: Commands) {
         trigger: TriggerState::Armed,
         aim: Aim::None,
         modal: None,
+        shield_prompt: false,
         log: vec!["The hall is quiet. Walk east.".into()],
     });
 }
@@ -285,6 +293,7 @@ fn combat_tick(
     mut session: ResMut<Session>,
     mut pending: ResMut<PendingOrder>,
     mut end_turn_request: ResMut<EndTurnRequest>,
+    mut shield_answer: ResMut<ShieldAnswer>,
     mut clock: ResMut<EnemyClock>,
     mut turn_origin: ResMut<EnemyTurnOrigin>,
     mut next: ResMut<NextState<GameMode>>,
@@ -298,7 +307,47 @@ fn combat_tick(
         return;
     }
 
-    let mut events = advance_if_turn_done(&mut encounter, &mut session.rng);
+    let mut events = Vec::new();
+    if encounter.pending_shield_block().is_some() {
+        let offer = encounter.pending_shield_block().unwrap();
+        let party = encounter
+            .combatant(offer.defender)
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        let answer = if party {
+            shield_answer.0.take()
+        } else {
+            Some(true)
+        };
+        if let Some(accept) = answer {
+            match resolve_pending_shield_block(&mut encounter, accept, &mut session.rng) {
+                Ok(resolved) => events.extend(resolved),
+                Err(error) => session.modal = Some(error.to_string()),
+            }
+            if session.shield_prompt {
+                session.shield_prompt = false;
+                hud.0 += 1;
+            }
+        } else {
+            if !session.shield_prompt {
+                session.shield_prompt = true;
+                hud.0 += 1;
+            }
+            session.encounter = Some(encounter);
+            return;
+        }
+    }
+
+    if encounter.pending_shield_block().is_some() {
+        session.shield_prompt = encounter
+            .pending_shield_block()
+            .and_then(|offer| encounter.combatant(offer.defender))
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        log_events(&mut session, &encounter, &events, &mut hud);
+        session.encounter = Some(encounter);
+        return;
+    }
+
+    events.extend(advance_if_turn_done(&mut encounter, &mut session.rng));
     let mut waiting = false;
     if events.is_empty() {
         if end_turn_request.0 {
@@ -345,16 +394,20 @@ fn combat_tick(
     }
 
     let outcome = encounter.outcome();
-    for event in &events {
-        session.log.push(describe(&encounter, event));
-    }
-    if session.log.len() > 12 {
-        let drain = session.log.len() - 12;
-        session.log.drain(0..drain);
-    }
-    if !events.is_empty() || session.modal.is_some() {
+    if encounter.pending_shield_block().is_some() {
+        let party = encounter
+            .pending_shield_block()
+            .and_then(|offer| encounter.combatant(offer.defender))
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        if party && !session.shield_prompt {
+            session.shield_prompt = true;
+            hud.0 += 1;
+        }
+    } else if session.shield_prompt {
+        session.shield_prompt = false;
         hud.0 += 1;
     }
+    log_events(&mut session, &encounter, &events, &mut hud);
     if outcome.is_some() {
         session.aim = Aim::None;
         session.modal = Some(match outcome {
@@ -420,11 +473,18 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             return Some(action);
         }
     }
+    if shield_is_down(encounter, id)
+        && legal
+            .iter()
+            .any(|action| matches!(action, Action::RaiseShield))
+    {
+        return Some(Action::RaiseShield);
+    }
     let mut strikes: Vec<CombatantId> = legal
         .iter()
         .filter_map(|action| match action {
             Action::Strike { target } => Some(*target),
-            Action::Stride { .. } | Action::Step { .. } => None,
+            Action::Stride { .. } | Action::Step { .. } | Action::RaiseShield => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -456,7 +516,7 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
         .into_iter()
         .filter_map(|action| match action {
             Action::Stride { destination } => Some(destination),
-            Action::Step { .. } | Action::Strike { .. } => None,
+            Action::Step { .. } | Action::Strike { .. } | Action::RaiseShield => None,
         })
         .filter_map(|destination| {
             let dist = living
@@ -475,7 +535,7 @@ fn strike_unconscious(encounter: &Encounter, legal: &[Action]) -> Option<Action>
         Action::Strike { target } => encounter
             .combatant(*target)
             .is_some_and(|combatant| combatant.is_unconscious()),
-        Action::Stride { .. } | Action::Step { .. } => false,
+        Action::Stride { .. } | Action::Step { .. } | Action::RaiseShield => false,
     })
 }
 
@@ -504,7 +564,7 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
         .iter()
         .filter_map(|action| match *action {
             Action::Stride { destination } => Some(destination),
-            Action::Step { .. } | Action::Strike { .. } => None,
+            Action::Step { .. } | Action::Strike { .. } | Action::RaiseShield => None,
         })
         .filter(|destination| {
             reaches
@@ -520,6 +580,19 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
             (dist, destination.x, destination.y)
         })
         .map(|destination| Action::Stride { destination })
+}
+
+fn log_events(session: &mut Session, encounter: &Encounter, events: &[Event], hud: &mut HudBump) {
+    for event in events {
+        session.log.push(describe(encounter, event));
+    }
+    if session.log.len() > 12 {
+        let drain = session.log.len() - 12;
+        session.log.drain(0..drain);
+    }
+    if !events.is_empty() || session.modal.is_some() {
+        hud.0 += 1;
+    }
 }
 
 fn describe(encounter: &Encounter, event: &Event) -> String {
@@ -608,6 +681,23 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
         Event::TurnStarted { id, round, actions } => {
             format!("Round {round}. {} — {actions} actions.", name(*id))
         }
+        Event::ShieldRaised {
+            id,
+            actions_remaining,
+        } => format!(
+            "{} raises a shield. {actions_remaining} left.",
+            name(*id)
+        ),
+        Event::ShieldBlock {
+            defender,
+            prevented,
+            damage,
+            shield_hit_points,
+            ..
+        } => format!(
+            "{} — shield block stops {prevented}. {damage} gets through. Shield {shield_hit_points} HP.",
+            name(*defender)
+        ),
         Event::EncounterEnded { outcome } => match outcome {
             Outcome::Victory => "Victory.".into(),
             Outcome::Defeat => "Defeat.".into(),
@@ -643,6 +733,14 @@ fn template_of(spawn: &Spawn, side: Side) -> CreatureTemplate {
                 Feature::ReactiveStrike => ClassFeature::ReactiveStrike,
             })
             .collect(),
+        shield: spawn.creature.shield.as_ref().map(|shield| Shield {
+            hardness: shield.hardness,
+            hit_points: shield.hit_points,
+            max_hit_points: shield.max_hit_points,
+            broken_threshold: shield.broken_threshold,
+            raised: false,
+        }),
+        shield_block: spawn.creature.shield_block,
     }
 }
 
@@ -659,8 +757,24 @@ fn grid_of(fixture: &EncounterFixture) -> Grid {
 }
 
 /// Strike if one is legal. Otherwise Stride to the square that ends closest to an opponent.
+fn shield_is_down(encounter: &Encounter, id: CombatantId) -> bool {
+    encounter
+        .combatant(id)
+        .and_then(|combatant| combatant.shield.as_ref())
+        .is_none_or(|shield| !shield.raised)
+}
+
 fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
     let legal = legal_actions(encounter, id);
+    if shield_is_down(encounter, id) {
+        if let Some(action) = legal
+            .iter()
+            .copied()
+            .find(|action| matches!(action, Action::RaiseShield))
+        {
+            return Some(action);
+        }
+    }
     if let Some(action) = legal
         .iter()
         .copied()
@@ -678,7 +792,7 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         .into_iter()
         .filter_map(|action| match action {
             Action::Stride { destination } => Some(destination),
-            Action::Step { .. } | Action::Strike { .. } => None,
+            Action::Step { .. } | Action::Strike { .. } | Action::RaiseShield => None,
         })
         .min_by_key(|destination| {
             let dist = foes
@@ -763,7 +877,17 @@ pub fn headless_report() -> Result<String, String> {
         .join(", ");
     lines.push(format!("initiative: {order}"));
 
-    for _ in 0..400 {
+    for _ in 0..800 {
+        if encounter.outcome().is_some() {
+            break;
+        }
+        while encounter.pending_shield_block().is_some() {
+            let events = resolve_pending_shield_block(&mut encounter, true, &mut rng)
+                .map_err(|error| error.to_string())?;
+            for event in &events {
+                lines.push(describe(&encounter, event));
+            }
+        }
         if encounter.outcome().is_some() {
             break;
         }
@@ -902,6 +1026,8 @@ mod tests {
             },
             side: Side::Party,
             features,
+            shield: None,
+            shield_block: false,
         };
         let party = [
             fighter("Sera Voss", vec![ClassFeature::ReactiveStrike]),
@@ -928,6 +1054,8 @@ mod tests {
             },
             side: Side::Enemy,
             features: Vec::new(),
+            shield: None,
+            shield_block: false,
         };
         let mut dice = rules::ScriptedDice::new([1, 1, 1, 1, 1]);
         let mut encounter = start_encounter(
@@ -1031,6 +1159,8 @@ mod tests {
             },
             side: Side::Party,
             features: vec![ClassFeature::ReactiveStrike],
+            shield: None,
+            shield_block: false,
         };
         let party = [
             fighter("Sera Voss", 20),
@@ -1057,6 +1187,8 @@ mod tests {
             },
             side: Side::Enemy,
             features: Vec::new(),
+            shield: None,
+            shield_block: false,
         };
         let mut dice = rules::ScriptedDice::new([1, 1, 1, 1, 20]);
         let mut encounter = start_encounter(

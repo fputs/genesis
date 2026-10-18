@@ -39,11 +39,19 @@ fn room_one_loads_four_fighters_and_one_guard() {
     assert_eq!(sera.strike.damage.dice, 1);
     assert_eq!(sera.strike.damage.faces, 8);
     assert_eq!(sera.strike.damage.bonus, 4);
+    assert!(sera.shield_block);
+    let shield = sera.shield.as_ref().unwrap();
+    assert_eq!(shield.hardness, 5);
+    assert_eq!(shield.hit_points, 20);
+    assert_eq!(shield.max_hit_points, 20);
+    assert_eq!(shield.broken_threshold, 10);
 
     let guard = &encounter.enemies[0];
     assert_eq!(guard.name, "Hall Guard");
     assert_eq!(guard.creature.armor_class, 14);
     assert_eq!(guard.creature.hit_points, 18);
+    assert!(!guard.creature.shield_block);
+    assert!(guard.creature.shield.is_none());
     assert_eq!(guard.x, 9);
     assert_eq!(guard.y, 4);
 

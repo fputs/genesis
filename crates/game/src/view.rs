@@ -7,7 +7,7 @@ use content::Floor;
 use rules::{legal_actions, Action, Side};
 
 use crate::session::{
-    Aim, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, Session,
+    Aim, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, Session, ShieldAnswer,
 };
 use crate::world::{cell_to_world, world_to_cell, TILE_H, TILE_W};
 
@@ -43,7 +43,10 @@ enum HudButton {
     Stride,
     Step,
     Strike,
+    RaiseShield,
     EndTurn,
+    ShieldYes,
+    ShieldNo,
     Dismiss,
 }
 
@@ -281,6 +284,8 @@ fn read_keys(
     mut direction: ResMut<ExploreDirection>,
     mut aim_bump: ResMut<HudBump>,
     mut end_turn: ResMut<EndTurnRequest>,
+    mut pending: ResMut<PendingOrder>,
+    mut shield_answer: ResMut<ShieldAnswer>,
 ) {
     let mode = *mode.get();
     if mode != GameMode::Explore {
@@ -317,7 +322,14 @@ fn read_keys(
         direction.0 = Vec2::ZERO;
     }
 
-    if mode == GameMode::Combat && session.modal.is_none() {
+    if mode == GameMode::Combat && session.shield_prompt {
+        if keys.just_pressed(KeyCode::KeyB) {
+            shield_answer.0 = Some(true);
+        }
+        if keys.just_pressed(KeyCode::KeyN) {
+            shield_answer.0 = Some(false);
+        }
+    } else if mode == GameMode::Combat && session.modal.is_none() {
         if keys.just_pressed(KeyCode::KeyM) {
             session.aim = Aim::Stride;
             aim_bump.0 += 1;
@@ -330,6 +342,9 @@ fn read_keys(
             session.aim = Aim::Strike;
             aim_bump.0 += 1;
         }
+        if keys.just_pressed(KeyCode::KeyR) {
+            queue_raise(&mut session, &mut pending, &mut aim_bump);
+        }
         if keys.just_pressed(KeyCode::Space) {
             end_turn.0 = true;
         }
@@ -341,6 +356,29 @@ fn read_keys(
             session.aim = Aim::None;
         }
         aim_bump.0 += 1;
+    }
+}
+
+fn queue_raise(session: &mut Session, pending: &mut PendingOrder, hud: &mut HudBump) {
+    let Some(encounter) = &session.encounter else {
+        return;
+    };
+    let Some(active) = encounter.active() else {
+        return;
+    };
+    let party = encounter
+        .combatant(active)
+        .is_some_and(|combatant| combatant.side == Side::Party);
+    if !party {
+        return;
+    }
+    if legal_actions(encounter, active).contains(&Action::RaiseShield) {
+        pending.0 = Some(Action::RaiseShield);
+        session.aim = Aim::None;
+        hud.0 += 1;
+    } else {
+        session.modal = Some("That shield cannot be raised.".into());
+        hud.0 += 1;
     }
 }
 
@@ -403,7 +441,7 @@ fn aim_click(
             Action::Strike { target } => encounter
                 .combatant(*target)
                 .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
-            Action::Stride { .. } | Action::Step { .. } => false,
+            Action::Stride { .. } | Action::Step { .. } | Action::RaiseShield => false,
         }),
         Aim::None => None,
     };
@@ -423,12 +461,22 @@ fn aim_click(
 fn hud_clicks(
     mode: Res<State<GameMode>>,
     mut session: ResMut<Session>,
+    mut pending: ResMut<PendingOrder>,
     mut end_turn: ResMut<EndTurnRequest>,
+    mut shield_answer: ResMut<ShieldAnswer>,
     mut hud: ResMut<HudBump>,
     buttons: Query<(&Interaction, &HudButton), Changed<Interaction>>,
 ) {
     for (interaction, button) in &buttons {
         if *interaction != Interaction::Pressed {
+            continue;
+        }
+        if session.shield_prompt {
+            match button {
+                HudButton::ShieldYes => shield_answer.0 = Some(true),
+                HudButton::ShieldNo => shield_answer.0 = Some(false),
+                _ => {}
+            }
             continue;
         }
         match button {
@@ -454,6 +502,10 @@ fn hud_clicks(
                 session.aim = Aim::Strike;
                 hud.0 += 1;
             }
+            HudButton::RaiseShield => {
+                queue_raise(&mut session, &mut pending, &mut hud);
+            }
+            HudButton::ShieldYes | HudButton::ShieldNo => {}
             HudButton::EndTurn => {
                 end_turn.0 = true;
             }
@@ -567,8 +619,11 @@ fn sync_hud(
                     position_type: PositionType::Absolute,
                     left: Val::Px(230.0),
                     bottom: Val::Px(18.0),
+                    right: Val::Px(16.0),
                     flex_direction: FlexDirection::Row,
+                    flex_wrap: FlexWrap::Wrap,
                     column_gap: Val::Px(8.0),
+                    row_gap: Val::Px(8.0),
                     ..default()
                 },
             ))
@@ -586,8 +641,61 @@ fn sync_hud(
                     HudButton::Strike,
                     session.aim == Aim::Strike,
                 );
+                action_button(bar, "Raise Shield (R)", HudButton::RaiseShield, false);
                 action_button(bar, "End Turn  (Space)", HudButton::EndTurn, false);
             });
+    }
+
+    if session.shield_prompt {
+        if let Some(offer) = session
+            .encounter
+            .as_ref()
+            .and_then(|encounter| encounter.pending_shield_block())
+        {
+            let name = session
+                .encounter
+                .as_ref()
+                .and_then(|encounter| encounter.combatant(offer.defender))
+                .map(|combatant| combatant.name.clone())
+                .unwrap_or_else(|| "Someone".into());
+            commands
+                .spawn((
+                    HudRoot,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(30.0),
+                        top: Val::Percent(34.0),
+                        width: Val::Px(480.0),
+                        padding: UiRect::all(Val::Px(16.0)),
+                        border: UiRect::all(Val::Px(2.0)),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(12.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.10, 0.08, 0.06)),
+                    BorderColor(GOLD),
+                ))
+                .with_children(|modal| {
+                    text(
+                        modal,
+                        &format!("{name} would take {} damage. Shield Block?", offer.damage),
+                        20.0,
+                        INK,
+                    );
+                    text(modal, "B blocks. N takes the hit.", 16.0, INK);
+                    modal
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Row,
+                            column_gap: Val::Px(8.0),
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            action_button(row, "Block (B)", HudButton::ShieldYes, false);
+                            action_button(row, "Take the hit (N)", HudButton::ShieldNo, false);
+                        });
+                });
+        }
     }
 
     if let Some(message) = &session.modal {
