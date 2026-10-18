@@ -22,3 +22,17 @@ Principle III records for procedures that this slice does not run as written at 
 - **Why it does not operate here.** Prone, difficult terrain, and forced movement are outside Stride-to-a-square and Strike.
 - **Substitute.** A creature at 0 HP does not block movement or the square another creature stops in.
 - **Intent kept.** A body does not erase the slot or the grid. It also does not stall the remaining turns in a room with no forced-movement action.
+
+## Difficult terrain
+
+- **Rule and source.** Player Core, Step, which bars difficult terrain.
+- **Why it does not operate here.** The hall has no difficult terrain, so the check cannot run.
+- **Substitute.** The check is a walkable square at 5 feet and Speed of at least 10 feet. Step stays a 5-foot action.
+- **Intent kept.** Step is still one action that moves 5 feet onto a square the creature can walk, and it is not a Stride.
+
+## Basic actions this encounter does not run
+
+- **Rule and source.** Player Core: Delay, Ready, Drop Prone, Stand, Seek, Interact, Release, Take Cover, and Point Out.
+- **Why it does not operate here.** The level-1 fight can start, act, and end without them, so there is no procedure here for those actions to advance.
+- **Substitute.** The closed set is Stride, Step, Strike, and End Turn. The 3-action turn still spends Stride, Step, and Strike as written.
+- **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those three actions do at the table.

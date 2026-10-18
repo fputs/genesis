@@ -29,6 +29,7 @@ pub enum Aim {
     #[default]
     None,
     Stride,
+    Step,
     Strike,
 }
 
@@ -379,7 +380,7 @@ fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         .iter()
         .filter_map(|action| match action {
             Action::Strike { target } => Some(*target),
-            Action::Stride { .. } => None,
+            Action::Stride { .. } | Action::Step { .. } => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -411,7 +412,7 @@ fn enemy_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         .into_iter()
         .filter_map(|action| match action {
             Action::Stride { destination } => Some(destination),
-            Action::Strike { .. } => None,
+            Action::Step { .. } | Action::Strike { .. } => None,
         })
         .filter_map(|destination| {
             let dist = living
@@ -441,6 +442,18 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             ..
         } => format!(
             "{} strides to ({}, {}), {feet} ft. {actions_remaining} left.",
+            name(*id),
+            to.x,
+            to.y
+        ),
+        Event::Stepped {
+            id,
+            to,
+            feet,
+            actions_remaining,
+            ..
+        } => format!(
+            "{} steps to ({}, {}), {feet} ft. {actions_remaining} left.",
             name(*id),
             to.x,
             to.y
@@ -534,7 +547,7 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
         .into_iter()
         .filter_map(|action| match action {
             Action::Stride { destination } => Some(destination),
-            Action::Strike { .. } => None,
+            Action::Step { .. } | Action::Strike { .. } => None,
         })
         .min_by_key(|destination| {
             let dist = foes

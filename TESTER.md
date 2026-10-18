@@ -56,10 +56,11 @@ What you should see:
 
 ### Combat
 
-The bar at the bottom shows **Stride (M)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, and actions remaining.
+The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, and actions remaining.
 
-- On the guard's turn, wait. The guard Strides or Strikes on its own, about half a second per action.
-- On a player turn, press **M**. Gold squares are legal Strides (one action, up to Speed 25). Click one. The log records the square and the feet spent.
+- On the guard's turn, wait. The guard Strides or Strikes on its own, about half a second per action. The guard does not Step.
+- On a player turn, press **M**. Gold squares are legal Strides (one action, up to Speed 25). Click one. The log records `strides to`, the square, and the feet spent.
+- Press **T**. Gold squares are legal Steps: one action, 5 feet, and only when Speed is at least 10. Click one. The log records `steps to` and `5 ft`, and the action count drops by one.
 - Press **F** and click the guard when a gold square is on them. The log records the d20, the total against Armor Class, and HP left. A second and third Strike in the same turn show the multiple attack penalty in the total.
 - **Space** or **End Turn** passes the rest of the turn. **Esc** cancels a target or dismisses a modal.
 - An illegal click opens a modal. **Continue** or **Esc** closes it.

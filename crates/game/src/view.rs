@@ -41,6 +41,7 @@ struct HudRoot;
 enum HudButton {
     Portrait(usize),
     Stride,
+    Step,
     Strike,
     EndTurn,
     Dismiss,
@@ -252,6 +253,7 @@ fn sync_highlights(
     for action in legal_actions(encounter, active) {
         let show = match (session.aim, action) {
             (Aim::Stride, Action::Stride { destination }) => Some((destination.x, destination.y)),
+            (Aim::Step, Action::Step { destination }) => Some((destination.x, destination.y)),
             (Aim::Strike, Action::Strike { target }) => encounter
                 .combatant(target)
                 .map(|c| (c.position.x, c.position.y)),
@@ -318,6 +320,10 @@ fn read_keys(
     if mode == GameMode::Combat && session.modal.is_none() {
         if keys.just_pressed(KeyCode::KeyM) {
             session.aim = Aim::Stride;
+            aim_bump.0 += 1;
+        }
+        if keys.just_pressed(KeyCode::KeyT) {
+            session.aim = Aim::Step;
             aim_bump.0 += 1;
         }
         if keys.just_pressed(KeyCode::KeyF) {
@@ -390,11 +396,14 @@ fn aim_click(
         Aim::Stride => legal.into_iter().find(|action| {
             matches!(action, Action::Stride { destination } if destination.x == x && destination.y == y)
         }),
+        Aim::Step => legal.into_iter().find(|action| {
+            matches!(action, Action::Step { destination } if destination.x == x && destination.y == y)
+        }),
         Aim::Strike => legal.into_iter().find(|action| match action {
             Action::Strike { target } => encounter
                 .combatant(*target)
                 .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
-            Action::Stride { .. } => false,
+            Action::Stride { .. } | Action::Step { .. } => false,
         }),
         Aim::None => None,
     };
@@ -403,6 +412,7 @@ fn aim_click(
     } else {
         session.modal = Some(match session.aim {
             Aim::Stride => "That square is out of the stride.".into(),
+            Aim::Step => "That square is out of the step.".into(),
             Aim::Strike => "No enemy in reach on that square.".into(),
             Aim::None => "Nothing to confirm.".into(),
         });
@@ -434,6 +444,10 @@ fn hud_clicks(
             }
             HudButton::Stride => {
                 session.aim = Aim::Stride;
+                hud.0 += 1;
+            }
+            HudButton::Step => {
+                session.aim = Aim::Step;
                 hud.0 += 1;
             }
             HudButton::Strike => {
@@ -560,6 +574,7 @@ fn sync_hud(
                     HudButton::Stride,
                     session.aim == Aim::Stride,
                 );
+                action_button(bar, "Step (T)", HudButton::Step, session.aim == Aim::Step);
                 action_button(
                     bar,
                     "Strike  (F)",

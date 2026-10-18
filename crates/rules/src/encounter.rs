@@ -4,7 +4,7 @@ use std::fmt;
 use crate::check::{degree_of_success, multiple_attack_penalty, Degree};
 use crate::combatant::{prepare_combatant, CreatureTemplate, DamageFormula, PreparedStrike, Side};
 use crate::dice::Dice;
-use crate::grid::{reachable_destinations, squares_within_feet, Grid, GridPos};
+use crate::grid::{minimum_feet, reachable_destinations, squares_within_feet, Grid, GridPos};
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -44,6 +44,7 @@ impl Combatant {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Stride { destination: GridPos },
+    Step { destination: GridPos },
     Strike { target: CombatantId },
 }
 
@@ -58,6 +59,13 @@ pub enum Outcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     Moved {
+        id: CombatantId,
+        from: GridPos,
+        to: GridPos,
+        feet: u32,
+        actions_remaining: u8,
+    },
+    Stepped {
         id: CombatantId,
         from: GridPos,
         to: GridPos,
@@ -339,10 +347,12 @@ fn insert_combatant(
     Ok(())
 }
 
-/// Legal Stride and Strike actions for `id` on their turn.
+/// Legal Stride, Step, and Strike actions for `id` on their turn.
 ///
-/// Stride lists every square up to Speed that can be reached. Allies can be crossed and not
-/// ended on. Conscious enemies cannot be entered. Strike lists each conscious opponent in reach.
+/// Stride lists every square up to Speed that can be reached. Step lists each walkable square
+/// whose open-plane distance is 5 feet, and only when Speed is at least 10. Allies can be crossed
+/// and not ended on. Conscious enemies cannot be entered. Strike lists each conscious opponent
+/// in reach.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     if encounter.outcome.is_some() || encounter.actions_remaining == 0 {
         return Vec::new();
@@ -378,6 +388,26 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
         &cannot_end,
     ) {
         actions.push(Action::Stride { destination });
+    }
+
+    if actor.speed_feet >= 10 {
+        for destination in squares_within_feet(
+            actor.position,
+            5,
+            encounter.grid.width(),
+            encounter.grid.height(),
+        ) {
+            if minimum_feet(actor.position, destination) != 5 {
+                continue;
+            }
+            if !encounter.grid.walkable(destination)
+                || cannot_enter.contains(&destination)
+                || cannot_end.contains(&destination)
+            {
+                continue;
+            }
+            actions.push(Action::Step { destination });
+        }
     }
 
     let reach = squares_within_feet(
@@ -426,6 +456,7 @@ pub fn declare_action(
     let mut events = Vec::new();
     match action {
         Action::Stride { destination } => resolve_move(encounter, id, destination, &mut events),
+        Action::Step { destination } => resolve_step(encounter, id, destination, &mut events),
         Action::Strike { target } => resolve_strike(encounter, id, target, rng, &mut events),
     }
     if let Some(outcome) = encounter.detect_outcome() {
@@ -463,6 +494,24 @@ fn resolve_move(
         from,
         to: destination,
         feet,
+        actions_remaining: encounter.actions_remaining,
+    });
+}
+
+fn resolve_step(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    destination: GridPos,
+    events: &mut Vec<Event>,
+) {
+    let from = encounter.combatants[&id].position;
+    encounter.combatants.get_mut(&id).unwrap().position = destination;
+    encounter.actions_remaining -= 1;
+    events.push(Event::Stepped {
+        id,
+        from,
+        to: destination,
+        feet: 5,
         actions_remaining: encounter.actions_remaining,
     });
 }
