@@ -1,6 +1,6 @@
 # Fidelity ledger
 
-Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Prone, Stand, Crawl, Leap, and difficult terrain run as written. The other entries are procedures this slice does not run as written at the table.
+Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Prone, Stand, Crawl, Leap, difficult terrain, Seek, Point Out, Take Cover, and cover run as written. The other entries are procedures this slice does not run as written at the table.
 
 ## Knocked out and dying
 
@@ -31,11 +31,31 @@ Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Pr
 - **Rule and source.** Player Core, difficult terrain and Step. Entering a difficult square costs 5 extra feet. Entering a greater difficult square costs 10 extra feet. Step cannot enter difficult terrain.
 - **Runs.** Each square is normal, difficult, or greater. The default is normal. Entering a square adds that extra cost on top of the square's existing foot cost. Step is illegal when the destination is difficult or greater. Crawl has only 5 feet, so a square whose total cost is above 5 is out of reach. Leap can still land on difficult terrain when the total is within its distance cap. The room-one hall has no difficult or greater squares, so this fight never pays the extra cost.
 
+## Seek
+
+- **Rule and source.** Player Core, Seek. Seek is one action. For each enemy who is hidden or undetected, the seeker rolls Perception against that creature's Stealth DC. A critical success makes them observed. A success makes an undetected enemy hidden and a hidden enemy observed. A concealed enemy stays concealed. Failure and critical failure change nothing. A natural 20 improves the degree by one step and a natural 1 worsens it by one.
+- **Runs.** `Action::Seek` rolls d20 plus the seeker's Perception, through `Dice`, against each enemy who is Hidden or Undetected to that seeker and has a Stealth DC. The rolls go in `CombatantId` order and use the same degree helper as other checks. Detection is stored per observer and subject. Observed is not stored. A missing pair means Observed. Concealed, Hidden, and Undetected are the stored variants. A creature with no Stealth DC cannot be Hidden or Undetected. The Hall Guard and the fighters leave it absent.
+
+## Point Out
+
+- **Rule and source.** Player Core, Point Out. One action. You indicate a creature you observe. Each ally who had that creature undetected now has them hidden. It does not make the creature observed, and it does not change what you yourself detect.
+- **Runs.** `Action::PointOut { target }` is legal when the actor Observes the target and at least one ally has that target Undetected. Those allies then have the target Hidden. The actor's own detection is unchanged.
+
+## Cover and Take Cover
+
+- **Rule and source.** Player Core, cover and Take Cover. Another creature between you and the attacker gives lesser cover, a +1 circumstance bonus to AC. A wall or other obstacle gives standard cover, +2. Greater cover is +4. If more than one source applies, use the higher bonus. Take Cover is one action. It improves that cover by one step: no cover becomes lesser only when you are prone or next to a wall, lesser becomes standard, standard becomes greater, and greater stays +4. The benefit lasts until you move, Strike, or your next turn starts. A shield's +2 and a cover bonus are both circumstance bonuses to AC, so the strike uses the larger and does not add them.
+- **Runs.** Cover is derived for each attack from the attacker's square to the target's square, using the same center-line segment test as flanking. Another creature's square on that segment is lesser cover. An unwalkable square on that segment is standard cover. Both together are +2. The attacker and the target do not grant cover to themselves. No cover rank is stored. The combatant stores `taking_cover`. `Action::TakeCover` is legal when the creature is prone, adjacent to an unwalkable square, or would already have cover against at least one enemy. While the flag is set, the derived bonus improves one step, and no cover becomes +1 only when the creature is prone or adjacent to an unwalkable square. The flag clears when that creature Strides, Steps, Crawls, Leaps, Drops Prone, Stands, or Strikes, and at the start of their next turn.
+
+## Hidden and concealed Strikes
+
+- **Rule and source.** Player Core, concealed and hidden. A Strike cannot target an undetected creature. A concealed target requires a DC 5 flat check before the attack roll. A hidden target requires DC 11. A failed flat check misses and does not count toward the multiple attack penalty.
+- **Runs.** A Strike is absent from the legal list when the target is Undetected to the attacker. Concealed rolls a DC 5 flat check through `Dice` before the attack roll. Hidden rolls DC 11. The flat check is its own roll, and it comes first. Failure spends the action, deals no damage, and does not increase the strike count. A passed check continues into the normal attack roll.
+
 ## Basic actions this encounter does not run
 
-- **Rule and source.** Player Core: Delay, Ready, Seek, Interact, Release, Take Cover, and Point Out.
+- **Rule and source.** Player Core: Delay, Ready, Interact, and Release.
 - **Why it does not operate here.** The level-1 fight can start, act, and end without them, so there is no procedure here for those actions to advance.
-- **Substitute.** The closed set is Stride, Step, Strike, Raise a Shield, and End Turn. The 3-action turn still spends those actions as written.
+- **Substitute.** The closed set is Stride, Step, Strike, Raise a Shield, Drop Prone, Stand, Crawl, Leap, Seek, Point Out, Take Cover, and End Turn. The 3-action turn still spends those actions as written.
 - **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those actions do at the table.
 
 ## Reactions this iteration does not run
@@ -55,4 +75,4 @@ Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Pr
 ## Raise a Shield and Shield Block
 
 - **Rule and source.** Player Core, Raise a Shield and Shield Block. Raising a shield is one action. A raised shield gives a +2 circumstance bonus to Armor Class until the start of your next turn. Shield Block is a reaction with the trigger that you would take damage from a physical attack while your shield is raised. The shield prevents damage up to its Hardness. You and the shield each take the remaining damage. A shield at its Broken Threshold is broken. At 0 Hit Points it is destroyed. A broken or destroyed shield grants no bonus and cannot be raised or used to Shield Block.
-- **Runs.** A wielded shield stores hardness, hit points, maximum hit points, broken threshold, and raised. Shield Block is a bool on the creature. `ClassFeature` stays Reactive Strike. Raise a Shield is `Action::RaiseShield`, legal only with a shield that is not broken and not destroyed. It sets raised until that creature's next turn starts, and the turn start clears it before actions. The +2 circumstance bonus applies while the shield is raised and neither broken nor destroyed. It is the only circumstance bonus to Armor Class, so it does not stack. Every strike in this engine deals physical damage. Shield Block is legal when the creature has the flag, the shield is raised, the shield is not broken and not destroyed, and the reaction is ready. Remaining damage is `max(0, damage - hardness)`. The creature and the shield each take that much. Hit points at or below the broken threshold break the shield. 0 destroys it. Shield Block spends the same reaction Reactive Strike spends, so the other is unavailable until that creature's next turn. The fighter fixture has the flag and a steel shield (Hardness 5, 20 Hit Points, Broken Threshold 10). The Hall Guard has neither.
+- **Runs.** A wielded shield stores hardness, hit points, maximum hit points, broken threshold, and raised. Shield Block is a bool on the creature. `ClassFeature` stays Reactive Strike. Raise a Shield is `Action::RaiseShield`, legal only with a shield that is not broken and not destroyed. It sets raised until that creature's next turn starts, and the turn start clears it before actions. The +2 circumstance bonus applies while the shield is raised and neither broken nor destroyed. Cover is the other circumstance bonus to Armor Class. The strike uses the larger of the two and does not add them. Every strike in this engine deals physical damage. Shield Block is legal when the creature has the flag, the shield is raised, the shield is not broken and not destroyed, and the reaction is ready. Remaining damage is `max(0, damage - hardness)`. The creature and the shield each take that much. Hit points at or below the broken threshold break the shield. 0 destroys it. Shield Block spends the same reaction Reactive Strike spends, so the other is unavailable until that creature's next turn. The fighter fixture has the flag and a steel shield (Hardness 5, 20 Hit Points, Broken Threshold 10). The Hall Guard has neither.

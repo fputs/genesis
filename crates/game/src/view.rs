@@ -4,7 +4,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use content::Floor;
-use rules::{legal_actions, Action, Side};
+use rules::{legal_actions, Action, Detection, Side};
 
 use crate::session::{
     Aim, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, Session, ShieldAnswer,
@@ -48,6 +48,9 @@ enum HudButton {
     Stand,
     Crawl,
     Leap,
+    TakeCover,
+    Seek,
+    PointOut,
     EndTurn,
     ShieldYes,
     ShieldNo,
@@ -215,7 +218,13 @@ fn party_pose(session: &Session, mode: GameMode, slot: usize) -> (Vec2, (i32, i3
 fn enemy_pose(session: &Session) -> ((i32, i32), bool) {
     if let Some(encounter) = &session.encounter {
         if let Some(enemy) = encounter.combatants().find(|c| c.side == Side::Enemy) {
-            return ((enemy.position.x, enemy.position.y), enemy.dead);
+            let undetected = encounter.active().is_some_and(|active| {
+                encounter.detection(active, enemy.id) == Some(Detection::Undetected)
+            });
+            return (
+                (enemy.position.x, enemy.position.y),
+                enemy.dead || undetected,
+            );
         }
     }
     (
@@ -264,6 +273,9 @@ fn sync_highlights(
             (Aim::Crawl, Action::Crawl { destination }) => Some((destination.x, destination.y)),
             (Aim::Leap, Action::Leap { destination }) => Some((destination.x, destination.y)),
             (Aim::Strike, Action::Strike { target }) => encounter
+                .combatant(target)
+                .map(|c| (c.position.x, c.position.y)),
+            (Aim::PointOut, Action::PointOut { target }) => encounter
                 .combatant(target)
                 .map(|c| (c.position.x, c.position.y)),
             _ => None,
@@ -363,6 +375,15 @@ fn read_keys(
         if keys.just_pressed(KeyCode::KeyL) {
             aim_move(&mut session, &mut aim_bump, Aim::Leap);
         }
+        if keys.just_pressed(KeyCode::KeyV) {
+            queue_immediate(&mut session, &mut pending, &mut aim_bump, Action::TakeCover);
+        }
+        if keys.just_pressed(KeyCode::KeyK) {
+            queue_immediate(&mut session, &mut pending, &mut aim_bump, Action::Seek);
+        }
+        if keys.just_pressed(KeyCode::KeyO) {
+            aim_point_out(&mut session, &mut aim_bump);
+        }
         if keys.just_pressed(KeyCode::Space) {
             end_turn.0 = true;
         }
@@ -412,6 +433,16 @@ fn aim_move(session: &mut Session, hud: &mut HudBump, aim: Aim) {
     });
     if available {
         session.aim = aim;
+        hud.0 += 1;
+    }
+}
+
+fn aim_point_out(session: &mut Session, hud: &mut HudBump) {
+    if party_legal(session)
+        .iter()
+        .any(|action| matches!(action, Action::PointOut { .. }))
+    {
+        session.aim = Aim::PointOut;
         hud.0 += 1;
     }
 }
@@ -506,6 +537,12 @@ fn aim_click(
                 .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
             _ => false,
         }),
+        Aim::PointOut => legal.into_iter().find(|action| match action {
+            Action::PointOut { target } => encounter
+                .combatant(*target)
+                .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
+            _ => false,
+        }),
         Aim::None => None,
     };
     if let Some(action) = chosen {
@@ -517,6 +554,7 @@ fn aim_click(
             Aim::Crawl => "That square is out of the crawl.".into(),
             Aim::Leap => "That square is out of the leap.".into(),
             Aim::Strike => "No enemy in reach on that square.".into(),
+            Aim::PointOut => "You cannot point out a creature on that square.".into(),
             Aim::None => "Nothing to confirm.".into(),
         });
         hud.0 += 1;
@@ -583,6 +621,15 @@ fn hud_clicks(
             HudButton::Leap => {
                 session.aim = Aim::Leap;
                 hud.0 += 1;
+            }
+            HudButton::TakeCover => {
+                queue_immediate(&mut session, &mut pending, &mut hud, Action::TakeCover);
+            }
+            HudButton::Seek => {
+                queue_immediate(&mut session, &mut pending, &mut hud, Action::Seek);
+            }
+            HudButton::PointOut => {
+                aim_point_out(&mut session, &mut hud);
             }
             HudButton::ShieldYes | HudButton::ShieldNo => {}
             HudButton::EndTurn => {
@@ -732,6 +779,20 @@ fn sync_hud(
                 }
                 if offers(|action| matches!(action, Action::Leap { .. })) {
                     action_button(bar, "Leap (L)", HudButton::Leap, session.aim == Aim::Leap);
+                }
+                if offers(|action| matches!(action, Action::TakeCover)) {
+                    action_button(bar, "Take Cover (V)", HudButton::TakeCover, false);
+                }
+                if offers(|action| matches!(action, Action::Seek)) {
+                    action_button(bar, "Seek (K)", HudButton::Seek, false);
+                }
+                if offers(|action| matches!(action, Action::PointOut { .. })) {
+                    action_button(
+                        bar,
+                        "Point Out (O)",
+                        HudButton::PointOut,
+                        session.aim == Aim::PointOut,
+                    );
                 }
                 action_button(
                     bar,

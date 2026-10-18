@@ -61,6 +61,8 @@ pub struct CreatureTemplate {
     pub shield: Option<Shield>,
     /// Fighter feat. It is not a [`ClassFeature`].
     pub shield_block: bool,
+    /// Absent means this creature cannot be Hidden or Undetected.
+    pub stealth_dc: Option<i32>,
 }
 
 /// Modifiers gathered before derived stats are written.
@@ -97,6 +99,7 @@ pub struct PreparedCombatant {
     pub features: Vec<ClassFeature>,
     pub shield: Option<Shield>,
     pub shield_block: bool,
+    pub stealth_dc: Option<i32>,
 }
 
 /// Copies class features onto `synthetics`. Numeric modifiers stay at zero.
@@ -133,5 +136,6 @@ fn derive(defn: &CreatureTemplate, synthetics: &Synthetics) -> PreparedCombatant
             shield
         }),
         shield_block: defn.shield_block,
+        stealth_dc: defn.stealth_dc,
     }
 }

@@ -42,6 +42,10 @@ pub struct Combatant {
     pub shield: Option<Shield>,
     pub shield_block: bool,
     pub prone: bool,
+    /// Absent means this creature cannot be Hidden or Undetected.
+    pub stealth_dc: Option<i32>,
+    /// Set by Take Cover. The bonus is derived per attack and is not stored.
+    pub taking_cover: bool,
     /// Dying value while the creature is on the track. `0` when they are not dying. Death clears it.
     pub dying: u8,
     pub wounded: u32,
@@ -86,6 +90,22 @@ pub enum Action {
     Leap {
         destination: GridPos,
     },
+    /// One action. Perception against each Hidden or Undetected enemy who has a Stealth DC.
+    Seek,
+    /// One action. Allies who had `target` Undetected now have them Hidden.
+    PointOut {
+        target: CombatantId,
+    },
+    /// One action. Sets `taking_cover` when prone, beside a wall, or already in cover.
+    TakeCover,
+}
+
+/// How one observer detects one subject. Observed is not stored; a missing pair means Observed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Detection {
+    Concealed,
+    Hidden,
+    Undetected,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +215,38 @@ pub enum Event {
     EncounterEnded {
         outcome: Outcome,
     },
+    Sought {
+        id: CombatantId,
+        rolls: Vec<SeekRoll>,
+        actions_remaining: u8,
+    },
+    PointedOut {
+        id: CombatantId,
+        target: CombatantId,
+        actions_remaining: u8,
+    },
+    TookCover {
+        id: CombatantId,
+        actions_remaining: u8,
+    },
+    /// The flat check missed. The Strike does not count toward the multiple attack penalty.
+    FlatCheckFailed {
+        attacker: CombatantId,
+        target: CombatantId,
+        natural: u8,
+        dc: i32,
+        actions_remaining: u8,
+    },
+}
+
+/// One Perception roll from Seek.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeekRoll {
+    pub target: CombatantId,
+    pub natural: u8,
+    pub total: i32,
+    pub dc: i32,
+    pub degree: Degree,
 }
 
 /// A strike has rolled damage and is waiting on Shield Block.
@@ -268,6 +320,8 @@ pub struct Encounter {
     strikes_this_turn: u8,
     outcome: Option<Outcome>,
     pending: Option<PendingShieldBlock>,
+    /// `(observer, subject)`. Missing means Observed.
+    detection: BTreeMap<(CombatantId, CombatantId), Detection>,
 }
 
 impl Encounter {
@@ -338,6 +392,43 @@ impl Encounter {
 
     pub fn grid(&self) -> &Grid {
         &self.grid
+    }
+
+    /// `None` means Observed. Observed is never stored.
+    pub fn detection(&self, observer: CombatantId, subject: CombatantId) -> Option<Detection> {
+        self.detection.get(&(observer, subject)).copied()
+    }
+
+    /// Stores Concealed, Hidden, or Undetected. `None` clears the pair back to Observed.
+    ///
+    /// Hidden and Undetected are refused when the subject has no Stealth DC.
+    pub fn set_detection(
+        &mut self,
+        observer: CombatantId,
+        subject: CombatantId,
+        detection: Option<Detection>,
+    ) -> Result<(), Illegal> {
+        if !self.combatants.contains_key(&observer) || !self.combatants.contains_key(&subject) {
+            return Err(Illegal::UnknownCombatant);
+        }
+        if observer == subject {
+            return Err(Illegal::NotLegal);
+        }
+        match detection {
+            Some(Detection::Hidden | Detection::Undetected)
+                if self.combatants[&subject].stealth_dc.is_none() =>
+            {
+                Err(Illegal::NotLegal)
+            }
+            Some(state) => {
+                self.detection.insert((observer, subject), state);
+                Ok(())
+            }
+            None => {
+                self.detection.remove(&(observer, subject));
+                Ok(())
+            }
+        }
     }
 
     /// `None` once the encounter has an outcome.
@@ -432,6 +523,7 @@ pub fn start_encounter(
         strikes_this_turn: 0,
         outcome: None,
         pending: None,
+        detection: BTreeMap::new(),
     };
     if let Some(outcome) = encounter.detect_outcome() {
         encounter.outcome = Some(outcome);
@@ -483,6 +575,8 @@ fn insert_combatant(
             shield: prepared.shield,
             shield_block: prepared.shield_block,
             prone: false,
+            stealth_dc: prepared.stealth_dc,
+            taking_cover: false,
             dying: 0,
             wounded: 0,
             dead: false,
@@ -499,11 +593,14 @@ fn insert_combatant(
 /// enemies cannot be entered. While prone, Stride, Step, and Leap are absent. Crawl lists one
 /// square whose enter cost is at most 5 feet, and Stand is legal. Leap lists squares up to its
 /// own distance within the foot-cost rule, and it does not enter another creature's square.
-/// Strike lists each living opponent in reach, including an unconscious one. A dead creature is
-/// not a target. Raise a Shield is legal when the creature is wielding a shield that is not
-/// broken and not destroyed. Drop Prone is legal when the creature is not already prone.
-/// Unconscious and dead creatures have no legal actions. None are legal while a Shield Block
-/// offer is open.
+/// Strike lists each living opponent in reach, including an unconscious one, except a creature
+/// who is Undetected by this attacker. A dead creature is not a target. Raise a Shield is legal
+/// when the creature is wielding a shield that is not broken and not destroyed. Drop Prone is
+/// legal when the creature is not already prone. Seek is legal. Point Out is legal for each
+/// creature this attacker Observes when at least one ally has that creature Undetected. Take
+/// Cover is legal when the creature is prone, adjacent to an unwalkable square, or would already
+/// have cover against at least one enemy. Unconscious and dead creatures have no legal actions.
+/// None are legal while a Shield Block offer is open.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     if encounter.pending.is_some()
         || encounter.outcome.is_some()
@@ -595,6 +692,7 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
         .filter(|other| other.side != actor.side && !other.dead && reach.contains(&other.position))
         .map(|other| other.id)
         .collect();
+    targets.retain(|target| encounter.detection(id, *target) != Some(Detection::Undetected));
     targets.sort();
     for target in targets {
         actions.push(Action::Strike { target });
@@ -605,6 +703,13 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
         .is_some_and(|shield| !shield.is_broken() && !shield.is_destroyed())
     {
         actions.push(Action::RaiseShield);
+    }
+    if take_cover_legal(encounter, id) {
+        actions.push(Action::TakeCover);
+    }
+    actions.push(Action::Seek);
+    for target in point_out_targets(encounter, id) {
+        actions.push(Action::PointOut { target });
     }
     actions
 }
@@ -686,6 +791,9 @@ pub fn declare_action(
                 &mut events,
             );
         }
+        Action::Seek => resolve_seek(encounter, id, rng, &mut events),
+        Action::PointOut { target } => resolve_point_out(encounter, id, target, &mut events),
+        Action::TakeCover => resolve_take_cover(encounter, id, &mut events),
     }
     if let Some(outcome) = encounter.detect_outcome() {
         encounter.outcome = Some(outcome);
@@ -759,6 +867,7 @@ fn resolve_travel(
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
+    release_cover(encounter, id);
     let from = encounter.combatants[&id].position;
     let (feet, left) = stride_leaves(
         &encounter.grid,
@@ -789,7 +898,9 @@ fn resolve_travel(
 }
 
 fn resolve_drop_prone(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
-    encounter.combatants.get_mut(&id).unwrap().prone = true;
+    let combatant = encounter.combatants.get_mut(&id).unwrap();
+    combatant.taking_cover = false;
+    combatant.prone = true;
     encounter.actions_remaining -= 1;
     events.push(Event::DroppedProne {
         id,
@@ -798,7 +909,9 @@ fn resolve_drop_prone(encounter: &mut Encounter, id: CombatantId, events: &mut V
 }
 
 fn resolve_stand(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
-    encounter.combatants.get_mut(&id).unwrap().prone = false;
+    let combatant = encounter.combatants.get_mut(&id).unwrap();
+    combatant.taking_cover = false;
+    combatant.prone = false;
     encounter.actions_remaining -= 1;
     events.push(Event::Stood {
         id,
@@ -878,12 +991,14 @@ pub fn reactors_for_left_square(
     let Some(mover) = encounter.combatants.get(&mover) else {
         return Vec::new();
     };
+    let mover_id = mover.id;
+    let mover_side = mover.side;
     let mut reactors: Vec<CombatantId> = encounter
         .combatants
         .values()
         .filter(|other| {
-            other.id != mover.id
-                && other.side != mover.side
+            other.id != mover_id
+                && other.side != mover_side
                 && other.is_conscious()
                 && other.reaction_ready
                 && other.features.contains(&ClassFeature::ReactiveStrike)
@@ -892,6 +1007,8 @@ pub fn reactors_for_left_square(
         })
         .map(|other| other.id)
         .collect();
+    reactors
+        .retain(|reactor| encounter.detection(*reactor, mover_id) != Some(Detection::Undetected));
     reactors.sort();
     reactors
 }
@@ -906,6 +1023,17 @@ fn begin_reactive_strike(
     encounter
         .spend_reaction(reactor)
         .expect("reactor has a ready reaction");
+    release_cover(encounter, reactor);
+    if let Some((natural, dc)) = failed_flat_check(encounter, reactor, resume.mover, rng) {
+        events.push(Event::FlatCheckFailed {
+            attacker: reactor,
+            target: resume.mover,
+            natural,
+            dc,
+            actions_remaining: encounter.actions_remaining,
+        });
+        return false;
+    }
     let rolled = roll_attack(encounter, reactor, resume.mover, 0, rng);
     if rolled.damage > 0 && shield_block_legal(encounter, resume.mover) {
         encounter.pending = Some(PendingShieldBlock {
@@ -927,6 +1055,7 @@ fn resolve_step(
     destination: GridPos,
     events: &mut Vec<Event>,
 ) {
+    release_cover(encounter, id);
     let from = encounter.combatants[&id].position;
     encounter.combatants.get_mut(&id).unwrap().position = destination;
     encounter.actions_remaining -= 1;
@@ -957,6 +1086,18 @@ fn resolve_strike(
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
+    release_cover(encounter, id);
+    if let Some((natural, dc)) = failed_flat_check(encounter, id, target, rng) {
+        encounter.actions_remaining -= 1;
+        events.push(Event::FlatCheckFailed {
+            attacker: id,
+            target,
+            natural,
+            dc,
+            actions_remaining: encounter.actions_remaining,
+        });
+        return;
+    }
     let map = multiple_attack_penalty(encounter.strikes_this_turn);
     let rolled = roll_attack(encounter, id, target, map, rng);
     encounter.strikes_this_turn += 1;
@@ -1217,16 +1358,248 @@ fn shield_block_legal(encounter: &Encounter, id: CombatantId) -> bool {
         .is_some_and(|shield| shield.raised && !shield.is_broken() && !shield.is_destroyed())
 }
 
+fn release_cover(encounter: &mut Encounter, id: CombatantId) {
+    if let Some(combatant) = encounter.combatants.get_mut(&id) {
+        combatant.taking_cover = false;
+    }
+}
+
+/// `Some` when a Concealed or Hidden flat check fails. A pass, or no check, is `None`.
+fn failed_flat_check(
+    encounter: &Encounter,
+    attacker: CombatantId,
+    target: CombatantId,
+    rng: &mut impl Dice,
+) -> Option<(u8, i32)> {
+    let dc = match encounter.detection(attacker, target) {
+        Some(Detection::Concealed) => 5,
+        Some(Detection::Hidden) => 11,
+        Some(Detection::Undetected) | None => return None,
+    };
+    let natural = rng.d20();
+    (i32::from(natural) < dc).then_some((natural, dc))
+}
+
+fn resolve_seek(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    let perception = encounter.combatants[&id].perception;
+    let side = encounter.combatants[&id].side;
+    let candidates: Vec<(CombatantId, i32)> = encounter
+        .combatants
+        .values()
+        .filter(|other| other.side != side)
+        .filter_map(|other| other.stealth_dc.map(|dc| (other.id, dc)))
+        .collect();
+    let targets: Vec<(CombatantId, i32)> = candidates
+        .into_iter()
+        .filter(|(target, _)| {
+            matches!(
+                encounter.detection(id, *target),
+                Some(Detection::Hidden | Detection::Undetected)
+            )
+        })
+        .collect();
+    let mut rolls = Vec::new();
+    for (target, dc) in targets {
+        let natural = rng.d20();
+        let total = i32::from(natural) + perception;
+        let degree = degree_of_success(natural, total, dc);
+        let state = encounter.detection(id, target);
+        match degree {
+            Degree::CriticalSuccess => {
+                encounter.detection.remove(&(id, target));
+            }
+            Degree::Success => match state {
+                Some(Detection::Undetected) => {
+                    encounter.detection.insert((id, target), Detection::Hidden);
+                }
+                Some(Detection::Hidden) => {
+                    encounter.detection.remove(&(id, target));
+                }
+                Some(Detection::Concealed) | None => {}
+            },
+            Degree::Failure | Degree::CriticalFailure => {}
+        }
+        rolls.push(SeekRoll {
+            target,
+            natural,
+            total,
+            dc,
+            degree,
+        });
+    }
+    encounter.actions_remaining -= 1;
+    events.push(Event::Sought {
+        id,
+        rolls,
+        actions_remaining: encounter.actions_remaining,
+    });
+}
+
+fn resolve_point_out(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    target: CombatantId,
+    events: &mut Vec<Event>,
+) {
+    let side = encounter.combatants[&id].side;
+    let allies: Vec<CombatantId> = encounter
+        .combatants
+        .values()
+        .filter(|other| other.id != id && other.side == side)
+        .map(|other| other.id)
+        .collect();
+    let allies: Vec<CombatantId> = allies
+        .into_iter()
+        .filter(|ally| encounter.detection(*ally, target) == Some(Detection::Undetected))
+        .collect();
+    for ally in allies {
+        encounter
+            .detection
+            .insert((ally, target), Detection::Hidden);
+    }
+    encounter.actions_remaining -= 1;
+    events.push(Event::PointedOut {
+        id,
+        target,
+        actions_remaining: encounter.actions_remaining,
+    });
+}
+
+fn resolve_take_cover(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
+    encounter.combatants.get_mut(&id).unwrap().taking_cover = true;
+    encounter.actions_remaining -= 1;
+    events.push(Event::TookCover {
+        id,
+        actions_remaining: encounter.actions_remaining,
+    });
+}
+
+fn take_cover_legal(encounter: &Encounter, id: CombatantId) -> bool {
+    let actor = &encounter.combatants[&id];
+    let prone = actor.prone;
+    let position = actor.position;
+    let side = actor.side;
+    if prone || beside_unwalkable(&encounter.grid, position) {
+        return true;
+    }
+    let enemies: Vec<CombatantId> = encounter
+        .combatants
+        .values()
+        .filter(|enemy| enemy.id != id && enemy.side != side && !enemy.dead)
+        .map(|enemy| enemy.id)
+        .collect();
+    enemies
+        .into_iter()
+        .any(|enemy| derived_cover_bonus(encounter, enemy, id) > 0)
+}
+
+fn point_out_targets(encounter: &Encounter, actor: CombatantId) -> Vec<CombatantId> {
+    let Some(side) = encounter
+        .combatants
+        .get(&actor)
+        .map(|combatant| combatant.side)
+    else {
+        return Vec::new();
+    };
+    let ids: Vec<CombatantId> = encounter.combatants.keys().copied().collect();
+    let mut targets: Vec<CombatantId> = ids
+        .iter()
+        .copied()
+        .filter(|subject| {
+            *subject != actor
+                && encounter.detection(actor, *subject).is_none()
+                && ids.iter().any(|ally| {
+                    *ally != actor
+                        && encounter.combatants[ally].side == side
+                        && encounter.detection(*ally, *subject) == Some(Detection::Undetected)
+                })
+        })
+        .collect();
+    targets.sort();
+    targets
+}
+
+fn beside_unwalkable(grid: &Grid, pos: GridPos) -> bool {
+    squares_within_feet(pos, 5, grid.width(), grid.height())
+        .into_iter()
+        .any(|near| !grid.walkable(near))
+}
+
+/// Cover from `attacker` to `target`, after Take Cover's one-step upgrade.
+fn cover_bonus(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> i32 {
+    let derived = derived_cover_bonus(encounter, attacker, target);
+    let defender = &encounter.combatants[&target];
+    if !defender.taking_cover {
+        return derived;
+    }
+    // Nothing becomes lesser only while prone or beside a wall. The flag does not record which.
+    match derived {
+        0 if defender.prone || beside_unwalkable(&encounter.grid, defender.position) => 1,
+        0 => 0,
+        1 => 2,
+        _ => 4,
+    }
+}
+
+fn derived_cover_bonus(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> i32 {
+    let from = encounter.combatants[&attacker].position;
+    let to = encounter.combatants[&target].position;
+    let lesser = encounter.combatants.values().any(|other| {
+        other.id != attacker && other.id != target && square_on_segment(from, to, other.position)
+    });
+    let standard = {
+        let grid = &encounter.grid;
+        let mut found = false;
+        for y in 0..grid.height() {
+            for x in 0..grid.width() {
+                let pos = GridPos::new(x, y);
+                if !grid.walkable(pos) && square_on_segment(from, to, pos) {
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        found
+    };
+    if standard {
+        2
+    } else if lesser {
+        1
+    } else {
+        0
+    }
+}
+
+fn square_on_segment(from: GridPos, to: GridPos, square: GridPos) -> bool {
+    if square == from || square == to {
+        return false;
+    }
+    // Same center-line test as flanking, with the intervening square in the middle.
+    centers_cross_opposite(from, square, to)
+}
+
 fn defense_ac(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> i32 {
     let defender = &encounter.combatants[&target];
     let mut armor_class = defender.armor_class;
-    if defender
+    let shield_bonus = if defender
         .shield
         .as_ref()
         .is_some_and(|shield| shield.raised && !shield.is_broken() && !shield.is_destroyed())
     {
-        armor_class += 2;
-    }
+        2
+    } else {
+        0
+    };
+    // The shield and cover are both circumstance bonuses, so only the larger applies.
+    armor_class += shield_bonus.max(cover_bonus(encounter, attacker, target));
     if off_guard(encounter, attacker, target) {
         armor_class -= 2;
     }
@@ -1546,6 +1919,7 @@ fn advance_to_next(
         {
             let combatant = encounter.combatants.get_mut(&id).unwrap();
             combatant.reaction_ready = true;
+            combatant.taking_cover = false;
             if let Some(shield) = combatant.shield.as_mut() {
                 shield.raised = false;
             }

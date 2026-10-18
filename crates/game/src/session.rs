@@ -34,6 +34,7 @@ pub enum Aim {
     Strike,
     Crawl,
     Leap,
+    PointOut,
 }
 
 #[derive(Resource)]
@@ -492,7 +493,10 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             | Action::Leap { .. }
             | Action::DropProne
             | Action::Stand
-            | Action::RaiseShield => None,
+            | Action::RaiseShield
+            | Action::Seek
+            | Action::PointOut { .. }
+            | Action::TakeCover => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -530,7 +534,10 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             | Action::Strike { .. }
             | Action::DropProne
             | Action::Stand
-            | Action::RaiseShield => None,
+            | Action::RaiseShield
+            | Action::Seek
+            | Action::PointOut { .. }
+            | Action::TakeCover => None,
         })
         .filter_map(|destination| {
             let dist = living
@@ -555,7 +562,10 @@ fn strike_unconscious(encounter: &Encounter, legal: &[Action]) -> Option<Action>
         | Action::Leap { .. }
         | Action::DropProne
         | Action::Stand
-        | Action::RaiseShield => false,
+        | Action::RaiseShield
+        | Action::Seek
+        | Action::PointOut { .. }
+        | Action::TakeCover => false,
     })
 }
 
@@ -590,7 +600,10 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
             | Action::Strike { .. }
             | Action::DropProne
             | Action::Stand
-            | Action::RaiseShield => None,
+            | Action::RaiseShield
+            | Action::Seek
+            | Action::PointOut { .. }
+            | Action::TakeCover => None,
         })
         .filter(|destination| {
             reaches
@@ -760,6 +773,35 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             Outcome::Victory => "Victory.".into(),
             Outcome::Defeat => "Defeat.".into(),
         },
+        Event::Sought {
+            id,
+            actions_remaining,
+            ..
+        } => format!("{} seeks. {actions_remaining} left.", name(*id)),
+        Event::PointedOut {
+            id,
+            target,
+            actions_remaining,
+        } => format!(
+            "{} points out {}. {actions_remaining} left.",
+            name(*id),
+            name(*target)
+        ),
+        Event::TookCover {
+            id,
+            actions_remaining,
+        } => format!("{} takes cover. {actions_remaining} left.", name(*id)),
+        Event::FlatCheckFailed {
+            attacker,
+            target,
+            natural,
+            dc,
+            actions_remaining,
+        } => format!(
+            "{} misses {} (flat check {natural} vs DC {dc}). {actions_remaining} left.",
+            name(*attacker),
+            name(*target)
+        ),
     }
 }
 
@@ -799,6 +841,7 @@ fn template_of(spawn: &Spawn, side: Side) -> CreatureTemplate {
             raised: false,
         }),
         shield_block: spawn.creature.shield_block,
+        stealth_dc: None,
     }
 }
 
@@ -818,10 +861,11 @@ fn grid_of(fixture: &EncounterFixture) -> Grid {
 enum ProneScript {
     Await,
     Stand,
+    Seek,
     Done,
 }
 
-/// The first party turn drops prone and stands, once. Later turns use the normal fight.
+/// The first party turn drops prone and stands, once. A later party turn Seeks once.
 fn headless_action(
     encounter: &Encounter,
     id: CombatantId,
@@ -837,8 +881,15 @@ fn headless_action(
             return Some(Action::DropProne);
         }
         if *script == ProneScript::Stand && legal.contains(&Action::Stand) {
-            *script = ProneScript::Done;
+            *script = ProneScript::Seek;
             return Some(Action::Stand);
+        }
+        if *script == ProneScript::Seek
+            && encounter.actions_remaining() == 3
+            && legal.contains(&Action::Seek)
+        {
+            *script = ProneScript::Done;
+            return Some(Action::Seek);
         }
     }
     closing_action(encounter, id)
@@ -886,7 +937,10 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
             | Action::Strike { .. }
             | Action::DropProne
             | Action::Stand
-            | Action::RaiseShield => None,
+            | Action::RaiseShield
+            | Action::Seek
+            | Action::PointOut { .. }
+            | Action::TakeCover => None,
         })
         .min_by_key(|destination| {
             let dist = foes
@@ -1123,6 +1177,7 @@ mod tests {
             features,
             shield: None,
             shield_block: false,
+            stealth_dc: None,
         };
         let party = [
             fighter("Sera Voss", vec![ClassFeature::ReactiveStrike]),
@@ -1151,6 +1206,7 @@ mod tests {
             features: Vec::new(),
             shield: None,
             shield_block: false,
+            stealth_dc: None,
         };
         let mut dice = rules::ScriptedDice::new([1, 1, 1, 1, 1]);
         let mut encounter = start_encounter(
@@ -1256,6 +1312,7 @@ mod tests {
             features: vec![ClassFeature::ReactiveStrike],
             shield: None,
             shield_block: false,
+            stealth_dc: None,
         };
         let party = [
             fighter("Sera Voss", 20),
@@ -1284,6 +1341,7 @@ mod tests {
             features: Vec::new(),
             shield: None,
             shield_block: false,
+            stealth_dc: None,
         };
         let mut dice = rules::ScriptedDice::new([1, 1, 1, 1, 20]);
         let mut encounter = start_encounter(

@@ -1,11 +1,12 @@
-//! Seeded encounter sequences for Stride, Step, Crawl, Leap, Drop Prone, Stand, Strike,
-//! Raise a Shield, Shield Block, Reactive Strike, difficult terrain, and the dying track.
+//! Seeded encounter sequences for Stride, Step, Crawl, Leap, Drop Prone, Stand, Strike, Seek,
+//! Point Out, Take Cover, Raise a Shield, Shield Block, Reactive Strike, cover, difficult
+//! terrain, and the dying track.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
     reactors_for_left_square, resolve_pending_shield_block, start_encounter, Action, ClassFeature,
-    CombatantId, CreatureTemplate, DamageFormula, Degree, Encounter, Event, Grid, GridPos, Illegal,
-    Outcome, ScriptedDice, Shield, Side, StrikeTemplate, Terrain,
+    CombatantId, CreatureTemplate, DamageFormula, Degree, Detection, Encounter, Event, Grid,
+    GridPos, Illegal, Outcome, ScriptedDice, Shield, Side, StrikeTemplate, Terrain,
 };
 
 fn strike(name: &str, attack: i32, dice: u8, faces: u8, bonus: i32) -> StrikeTemplate {
@@ -30,6 +31,7 @@ fn fighter(name: &str) -> CreatureTemplate {
         features: Vec::new(),
         shield: None,
         shield_block: false,
+        stealth_dc: None,
     }
 }
 
@@ -46,6 +48,7 @@ fn guard() -> CreatureTemplate {
         features: Vec::new(),
         shield: None,
         shield_block: false,
+        stealth_dc: None,
     }
 }
 
@@ -2976,4 +2979,490 @@ fn difficult_terrain_stops_a_stride_short() {
     assert!(!legal.contains(&Action::Stride {
         destination: GridPos::new(4, 1)
     }));
+}
+
+fn hidden_foe(dc: i32) -> CreatureTemplate {
+    let mut foe = guard();
+    foe.stealth_dc = Some(dc);
+    foe
+}
+
+fn long_reach(name: &str, feet: u32) -> CreatureTemplate {
+    let mut creature = fighter(name);
+    creature.strike.reach_feet = feet;
+    creature
+}
+
+fn strike_armor_class(events: &[Event]) -> i32 {
+    events
+        .iter()
+        .find_map(|event| match event {
+            Event::StrikeResolved { armor_class, .. } => Some(*armor_class),
+            _ => None,
+        })
+        .expect("strike")
+}
+
+/// Player Core, Seek: success against a hidden creature makes them observed.
+#[test]
+fn seek_success_turns_hidden_into_observed() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(3, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    assert_eq!(
+        encounter.set_detection(CombatantId(0), CombatantId(1), Some(Detection::Hidden)),
+        Err(Illegal::NotLegal)
+    );
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Hidden))
+        .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::Seek));
+
+    let events = declare_action(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Sought {
+            id: CombatantId(0),
+            rolls: vec![rules::SeekRoll {
+                target: CombatantId(4),
+                natural: 10,
+                total: 15,
+                dc: 15,
+                degree: Degree::Success,
+            }],
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.detection(CombatantId(0), CombatantId(4)), None);
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core, Seek: failure and critical failure leave the target undetected.
+#[test]
+fn seek_failure_leaves_undetected() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 4]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(4, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Undetected))
+        .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    // 4 + Perception 5 = 9 against DC 15 is a failure.
+    assert_eq!(
+        encounter.detection(CombatantId(0), CombatantId(4)),
+        Some(Detection::Undetected)
+    );
+    assert_eq!(dice.remaining(), 0);
+
+    // Total 6 would succeed against DC 6. A natural 1 worsens it to a failure.
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(6)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(4, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Undetected))
+        .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    assert_eq!(
+        encounter.detection(CombatantId(0), CombatantId(4)),
+        Some(Detection::Undetected)
+    );
+
+    // Total 25 against DC 30 is a failure. A natural 20 improves it to a success.
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 20]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(30)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(4, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    encounter
+        .set_detection(CombatantId(0), CombatantId(4), Some(Detection::Undetected))
+        .unwrap();
+    declare_action(&mut encounter, CombatantId(0), Action::Seek, &mut dice).unwrap();
+    assert_eq!(
+        encounter.detection(CombatantId(0), CombatantId(4)),
+        Some(Detection::Hidden)
+    );
+}
+
+/// Player Core, Point Out: allies who had the target undetected now have them hidden.
+#[test]
+fn point_out_turns_undetected_into_hidden_for_an_ally_only() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(1, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(3, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let enemy = CombatantId(4);
+    encounter
+        .set_detection(CombatantId(1), enemy, Some(Detection::Undetected))
+        .unwrap();
+    encounter
+        .set_detection(CombatantId(3), enemy, Some(Detection::Hidden))
+        .unwrap();
+    encounter
+        .set_detection(CombatantId(0), enemy, Some(Detection::Concealed))
+        .unwrap();
+    assert!(
+        !legal_actions(&encounter, CombatantId(0)).contains(&Action::PointOut { target: enemy })
+    );
+    encounter
+        .set_detection(CombatantId(0), enemy, None)
+        .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::PointOut { target: enemy }));
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::PointOut { target: enemy },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::PointedOut {
+            id: CombatantId(0),
+            target: enemy,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.detection(CombatantId(0), enemy), None);
+    assert_eq!(
+        encounter.detection(CombatantId(1), enemy),
+        Some(Detection::Hidden)
+    );
+    assert_eq!(encounter.detection(CombatantId(2), enemy), None);
+    assert_eq!(
+        encounter.detection(CombatantId(3), enemy),
+        Some(Detection::Hidden)
+    );
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Player Core: a hidden Strike rolls a DC 11 flat check first. Failure spends no attack.
+#[test]
+fn failed_hidden_flat_check_spends_no_attack() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[hidden_foe(15)],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let enemy = CombatantId(4);
+    encounter
+        .set_detection(CombatantId(0), enemy, Some(Detection::Undetected))
+        .unwrap();
+    assert!(!legal_actions(&encounter, CombatantId(0)).contains(&Action::Strike { target: enemy }));
+    encounter
+        .set_detection(CombatantId(0), enemy, Some(Detection::Hidden))
+        .unwrap();
+    assert!(legal_actions(&encounter, CombatantId(0)).contains(&Action::Strike { target: enemy }));
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike { target: enemy },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![Event::FlatCheckFailed {
+            attacker: CombatantId(0),
+            target: enemy,
+            natural: 10,
+            dc: 11,
+            actions_remaining: 2,
+        }]
+    );
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.combatant(enemy).unwrap().hit_points, 18);
+    assert_eq!(dice.remaining(), 0);
+
+    let mut dice = ScriptedDice::new([11, 10, 4]);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike { target: enemy },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(matches!(
+        events[0],
+        Event::StrikeResolved {
+            natural: 10,
+            map: 0,
+            total: 17,
+            armor_class: 14,
+            degree: Degree::Success,
+            damage: 8,
+            ..
+        }
+    ));
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A creature between the attacker and the target is lesser cover, +1 circumstance bonus to AC.
+#[test]
+fn lesser_cover_from_a_creature_adds_one_ac() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 15),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(1, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 0)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 15);
+}
+
+/// An unwalkable square on the segment is standard cover, +2. A creature on that segment does not add more.
+#[test]
+fn standard_cover_from_a_wall_adds_two_ac() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 15),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(2, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 16);
+
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 10, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 20),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(2, 0),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(3, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 16);
+}
+
+/// Take Cover improves standard cover to greater cover, +4.
+#[test]
+fn take_cover_upgrades_standard_cover() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 20, 16, 4]);
+    let mut encounter = start_encounter(
+        &[
+            long_reach("Sera Voss", 15),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(2, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert!(legal_actions(&encounter, CombatantId(4)).contains(&Action::TakeCover));
+    let events =
+        declare_action(&mut encounter, CombatantId(4), Action::TakeCover, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::TookCover {
+            id: CombatantId(4),
+            actions_remaining: 2,
+        }]
+    );
+    assert!(encounter.combatant(CombatantId(4)).unwrap().taking_cover);
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 18);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().taking_cover);
+}
+
+/// A raised shield and cover are circumstance bonuses. The strike uses the larger.
+#[test]
+fn shield_bonus_does_not_stack_with_cover() {
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1, 2]);
+    let mut foe = guard();
+    foe.strike.reach_feet = 15;
+    let mut encounter = start_encounter(
+        &[
+            shielded("Sera Voss", true),
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[foe],
+        &[
+            GridPos::new(2, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+            GridPos::new(0, 5),
+        ],
+        &[GridPos::new(0, 0)],
+        Grid::new(8, 8, [GridPos::new(1, 0)]),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::RaiseShield,
+        &mut dice,
+    )
+    .unwrap();
+    end_until(&mut encounter, CombatantId(4), &mut dice);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(strike_armor_class(&events), 20);
+    assert_eq!(dice.remaining(), 0);
 }
