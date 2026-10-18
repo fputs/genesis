@@ -58,7 +58,7 @@ What you should see:
 
 The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, and **End Turn (Space)**. The heading names the active creature, the round, actions remaining, and `Reaction ready`.
 
-- On the guard's turn, wait. The guard Strides or Strikes on its own, about half a second per action. The guard does not Step.
+- Once a fighter is adjacent to the Hall Guard, wait on the guard's turn. The guard opens with a Stride that leaves that square. The log then shows `reactive strike`, `vs AC`, and `HP left` for the fighter who reacted. The guard has no Reactive Strike of their own. A Step away does not write that line. The guard still does not Step, and still Strikes on a later action. About half a second passes per action.
 - On a player turn, press **M**. Gold squares are legal Strides (one action, up to Speed 25). Click one. The log records `strides to`, the square, and the feet spent.
 - Press **T**. Gold squares are legal Steps: one action, 5 feet, and only when Speed is at least 10. Click one. The log records `steps to` and `5 ft`, and the action count drops by one.
 - Press **F** and click the guard when a gold square is on them. The log records the d20, the total against Armor Class, and HP left. A second and third Strike in the same turn show the multiple attack penalty in the total.

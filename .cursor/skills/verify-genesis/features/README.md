@@ -48,4 +48,5 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Stride](./move.md) covers aiming a Stride and clicking a lit square.
 - [Step](./step.md) covers aiming a Step and clicking a lit square 5 feet away.
 - [Strike](./strike.md) covers aiming a Strike and clicking the guard.
+- [Reactive Strike](./reactive-strike.md) covers the Hall Guard leaving a square in a fighter's reach.
 - [End the fight](./combat-end.md) covers the victory modal, the return to Explore, and a wiped party.
