@@ -1,6 +1,6 @@
 # Fidelity ledger
 
-Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Prone, Stand, Crawl, Leap, difficult terrain, Seek, Point Out, Take Cover, and cover run as written. The other entries are procedures this slice does not run as written at the table.
+Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Prone, Stand, Crawl, Leap, difficult terrain, Seek, Point Out, Take Cover, cover, Interact, Release, and Reactive Strike disruption of a manipulate action run as written. A critical hit still does not stop a Stride. The other entries are procedures this slice does not run as written at the table.
 
 ## Knocked out and dying
 
@@ -46,6 +46,11 @@ Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Pr
 - **Rule and source.** Player Core, cover and Take Cover. Another creature between you and the attacker gives lesser cover, a +1 circumstance bonus to AC. A wall or other obstacle gives standard cover, +2. Greater cover is +4. If more than one source applies, use the higher bonus. Take Cover is one action. It improves that cover by one step: no cover becomes lesser only when you are prone or next to a wall, lesser becomes standard, standard becomes greater, and greater stays +4. The benefit lasts until you move, Strike, or your next turn starts. A shield's +2 and a cover bonus are both circumstance bonuses to AC, so the strike uses the larger and does not add them.
 - **Runs.** Cover is derived for each attack from the attacker's square to the target's square, using the same center-line segment test as flanking. Another creature's square on that segment is lesser cover. An unwalkable square on that segment is standard cover. Both together are +2. The attacker and the target do not grant cover to themselves. No cover rank is stored. The combatant stores `taking_cover`. `Action::TakeCover` is legal when the creature is prone, adjacent to an unwalkable square, or would already have cover against at least one enemy. While the flag is set, the derived bonus improves one step, and no cover becomes +1 only when the creature is prone or adjacent to an unwalkable square. The flag clears when that creature Strides, Steps, Crawls, Leaps, Drops Prone, Stands, or Strikes, and at the start of their next turn.
 
+## Interact and Release
+
+- **Rule and source.** Player Core, Interact and Release. Release is a free action with the manipulate trait. It drops something you are holding into your square. Interact is one action with the manipulate trait. It picks up an object in your square.
+- **Runs.** A combatant holds a weapon, a shield, both, or neither. Fighters start holding the weapon and the shield. The Hall Guard starts holding the weapon and has no shield. A dropped object lies in a square. A square holds at most one dropped weapon and one dropped shield. `Action::Release { item }` is legal only when that item is held and the square does not already hold that kind. It does not spend one of the three actions. `Action::Interact` picks up one dropped object in the actor's square. A shield there is the object even when a weapon is there too. It is illegal when the square has nothing to pick up, or when the actor already holds that kind. It spends one action. Strike is illegal without a held weapon. Raise a Shield is illegal unless the shield is held, and a broken or destroyed shield still cannot be raised.
+
 ## Hidden and concealed Strikes
 
 - **Rule and source.** Player Core, concealed and hidden. A Strike cannot target an undetected creature. A concealed target requires a DC 5 flat check before the attack roll. A hidden target requires DC 11. A failed flat check misses and does not count toward the multiple attack penalty.
@@ -53,9 +58,9 @@ Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Pr
 
 ## Basic actions this encounter does not run
 
-- **Rule and source.** Player Core: Delay, Ready, Interact, and Release.
+- **Rule and source.** Player Core: Delay and Ready.
 - **Why it does not operate here.** The level-1 fight can start, act, and end without them, so there is no procedure here for those actions to advance.
-- **Substitute.** The closed set is Stride, Step, Strike, Raise a Shield, Drop Prone, Stand, Crawl, Leap, Seek, Point Out, Take Cover, and End Turn. The 3-action turn still spends those actions as written.
+- **Substitute.** The closed set is Stride, Step, Strike, Raise a Shield, Drop Prone, Stand, Crawl, Leap, Seek, Point Out, Take Cover, Interact, Release, and End Turn. The 3-action turn still spends those actions as written. Release does not spend one of the three.
 - **Intent kept.** A turn is still three actions. The actions this fight offers spend that budget the way those actions do at the table.
 
 ## Reactions this iteration does not run
@@ -67,12 +72,10 @@ Principle III records. Knocked out, dying, Raise a Shield, Shield Block, Drop Pr
 
 ## Disruption
 
-- **Rule and source.** Player Core, Reactive Strike, disrupts a manipulate action on a critical hit.
-- **Why it does not operate here.** This encounter has no manipulate action, so that cancel cannot run.
-- **Substitute.** The critical hit deals its damage and the Stride continues unless the mover is at 0 HP. The reaction still punishes leaving a square.
-- **Intent kept.** A critical Reactive Strike still deals double damage. Leaving a threatened square still draws the reaction.
+- **Rule and source.** Player Core, Reactive Strike. A critical success disrupts a manipulate action. A strike that drops the creature to 0 Hit Points also stops that action. Stride, Step, Crawl, and Leap do not have the manipulate trait.
+- **Runs.** Release and Interact have the manipulate trait. A creature with Reactive Strike, a ready reaction, and the actor inside melee reach strikes before the effect, at multiple attack penalty 0. That strike does not increase the reactor's strike count. It is the same reaction as leaving a square, and one reactor strikes once for the action. A critical success disrupts it: Release does not drop the item, and Interact does not pick it up. Interact still spends its action. Dropping the actor to 0 Hit Points also cancels the effect. A normal hit does not disrupt. A critical Reactive Strike does not cancel Stride, Step, Crawl, or Leap. The move continues unless the mover is at 0 Hit Points.
 
 ## Raise a Shield and Shield Block
 
 - **Rule and source.** Player Core, Raise a Shield and Shield Block. Raising a shield is one action. A raised shield gives a +2 circumstance bonus to Armor Class until the start of your next turn. Shield Block is a reaction with the trigger that you would take damage from a physical attack while your shield is raised. The shield prevents damage up to its Hardness. You and the shield each take the remaining damage. A shield at its Broken Threshold is broken. At 0 Hit Points it is destroyed. A broken or destroyed shield grants no bonus and cannot be raised or used to Shield Block.
-- **Runs.** A wielded shield stores hardness, hit points, maximum hit points, broken threshold, and raised. Shield Block is a bool on the creature. `ClassFeature` stays Reactive Strike. Raise a Shield is `Action::RaiseShield`, legal only with a shield that is not broken and not destroyed. It sets raised until that creature's next turn starts, and the turn start clears it before actions. The +2 circumstance bonus applies while the shield is raised and neither broken nor destroyed. Cover is the other circumstance bonus to Armor Class. The strike uses the larger of the two and does not add them. Every strike in this engine deals physical damage. Shield Block is legal when the creature has the flag, the shield is raised, the shield is not broken and not destroyed, and the reaction is ready. Remaining damage is `max(0, damage - hardness)`. The creature and the shield each take that much. Hit points at or below the broken threshold break the shield. 0 destroys it. Shield Block spends the same reaction Reactive Strike spends, so the other is unavailable until that creature's next turn. The fighter fixture has the flag and a steel shield (Hardness 5, 20 Hit Points, Broken Threshold 10). The Hall Guard has neither.
+- **Runs.** A wielded shield stores hardness, hit points, maximum hit points, broken threshold, and raised. Shield Block is a bool on the creature. `ClassFeature` stays Reactive Strike. Raise a Shield is `Action::RaiseShield`, legal only while the shield is held and is not broken and not destroyed. It sets raised until that creature's next turn starts, and the turn start clears it before actions. The +2 circumstance bonus applies while the shield is raised and neither broken nor destroyed. Cover is the other circumstance bonus to Armor Class. The strike uses the larger of the two and does not add them. Every strike in this engine deals physical damage. Shield Block is legal when the creature has the flag, the shield is raised, the shield is not broken and not destroyed, and the reaction is ready. Remaining damage is `max(0, damage - hardness)`. The creature and the shield each take that much. Hit points at or below the broken threshold break the shield. 0 destroys it. Shield Block spends the same reaction Reactive Strike spends, so the other is unavailable until that creature's next turn. The fighter fixture has the flag and a steel shield (Hardness 5, 20 Hit Points, Broken Threshold 10). The Hall Guard has neither.

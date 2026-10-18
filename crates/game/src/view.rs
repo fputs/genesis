@@ -4,7 +4,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use content::Floor;
-use rules::{legal_actions, Action, Detection, Side};
+use rules::{legal_actions, Action, Detection, Gear, Side};
 
 use crate::session::{
     Aim, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, Session, ShieldAnswer,
@@ -51,6 +51,8 @@ enum HudButton {
     TakeCover,
     Seek,
     PointOut,
+    Interact,
+    Release,
     EndTurn,
     ShieldYes,
     ShieldNo,
@@ -384,6 +386,14 @@ fn read_keys(
         if keys.just_pressed(KeyCode::KeyO) {
             aim_point_out(&mut session, &mut aim_bump);
         }
+        if keys.just_pressed(KeyCode::KeyI) {
+            queue_immediate(&mut session, &mut pending, &mut aim_bump, Action::Interact);
+        }
+        if keys.just_pressed(KeyCode::KeyX) {
+            if let Some(action) = preferred_release(&session) {
+                queue_immediate(&mut session, &mut pending, &mut aim_bump, action);
+            }
+        }
         if keys.just_pressed(KeyCode::Space) {
             end_turn.0 = true;
         }
@@ -445,6 +455,26 @@ fn aim_point_out(session: &mut Session, hud: &mut HudBump) {
         session.aim = Aim::PointOut;
         hud.0 += 1;
     }
+}
+
+fn preferred_release(session: &Session) -> Option<Action> {
+    let encounter = session.encounter.as_ref()?;
+    let active = encounter.active()?;
+    let combatant = encounter.combatant(active)?;
+    if combatant.side != Side::Party {
+        return None;
+    }
+    let item = if combatant.shield.is_some() {
+        Gear::Shield
+    } else if combatant.holding_weapon {
+        Gear::Weapon
+    } else {
+        return None;
+    };
+    let action = Action::Release { item };
+    legal_actions(encounter, active)
+        .contains(&action)
+        .then_some(action)
 }
 
 fn queue_raise(session: &mut Session, pending: &mut PendingOrder, hud: &mut HudBump) {
@@ -631,6 +661,14 @@ fn hud_clicks(
             HudButton::PointOut => {
                 aim_point_out(&mut session, &mut hud);
             }
+            HudButton::Interact => {
+                queue_immediate(&mut session, &mut pending, &mut hud, Action::Interact);
+            }
+            HudButton::Release => {
+                if let Some(action) = preferred_release(&session) {
+                    queue_immediate(&mut session, &mut pending, &mut hud, action);
+                }
+            }
             HudButton::ShieldYes | HudButton::ShieldNo => {}
             HudButton::EndTurn => {
                 end_turn.0 = true;
@@ -793,6 +831,12 @@ fn sync_hud(
                         HudButton::PointOut,
                         session.aim == Aim::PointOut,
                     );
+                }
+                if offers(|action| matches!(action, Action::Interact)) {
+                    action_button(bar, "Interact (I)", HudButton::Interact, false);
+                }
+                if preferred_release(&session).is_some() {
+                    action_button(bar, "Release (X)", HudButton::Release, false);
                 }
                 action_button(
                     bar,

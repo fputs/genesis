@@ -27,7 +27,7 @@ cargo run -p game -- --help
 cargo run -p game -- --headless
 ```
 
-`--headless` loads `fixtures/encounters/room_one.json`, snaps a party that has walked onto the trigger, rolls initiative with seed 115, and resolves the fight. On the first party turn the log contains `drops prone` and `stands`. On one later party turn the log contains `seeks`. The last line is `headless ok`. There is no scripted window pass: `control-genesis` is not in this tree.
+`--headless` loads `fixtures/encounters/room_one.json`, snaps a party that has walked onto the trigger, rolls initiative with seed 115, and resolves the fight. On the first party turn the log contains `drops prone` and `stands`. On one later party turn the log contains `seeks`. On one party turn, while that fighter is outside the Hall Guard's reach, the log contains `releases` and `picks up`. The last line is `headless ok`. There is no scripted window pass: `control-genesis` is not in this tree.
 
 If `DISPLAY` and `WAYLAND_DISPLAY` are both unset, `cargo run -p game` runs that smoke and exits.
 
@@ -56,7 +56,7 @@ What you should see:
 
 ### Combat
 
-The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, **Raise Shield (R)**, and **End Turn (Space)**. When the action is legal it also shows **Drop Prone (P)**, **Stand (G)**, **Crawl (C)**, **Leap (L)**, **Take Cover (V)**, **Seek (K)**, and **Point Out (O)**. Point Out then takes a click on a creature you observe. The heading names the active creature, the round, actions remaining, and `Reaction ready`. An enemy who is Undetected by the active combatant is not drawn. A Hidden enemy can still be clicked for Strike.
+The bar at the bottom shows **Stride (M)**, **Step (T)**, **Strike (F)**, **Raise Shield (R)**, and **End Turn (Space)**. When the action is legal it also shows **Drop Prone (P)**, **Stand (G)**, **Crawl (C)**, **Leap (L)**, **Take Cover (V)**, **Seek (K)**, **Point Out (O)**, **Interact (I)**, and **Release (X)**. Release drops the shield if it is held, and otherwise the weapon. Point Out then takes a click on a creature you observe. The heading names the active creature, the round, actions remaining, and `Reaction ready`. An enemy who is Undetected by the active combatant is not drawn. A Hidden enemy can still be clicked for Strike.
 
 - Once a fighter is adjacent to the Hall Guard, wait on the guard's turn. The guard opens with a Stride that leaves that square. The log then shows `reactive strike`, `vs AC`, and `HP left` for the fighter who reacted. The guard has no Reactive Strike of their own. A Step away does not write that line. The guard still does not Step, and still Strikes on a later action. About half a second passes per action.
 - On a player turn, press **M**. Gold squares are legal Strides (one action, up to Speed 25). Click one. The log records `strides to`, the square, and the feet spent.

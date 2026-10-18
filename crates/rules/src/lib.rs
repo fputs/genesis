@@ -1,7 +1,7 @@
 //! Pathfinder Remaster procedures used by the encounter: preparation, initiative,
 //! action economy, Stride, Step, Crawl, Leap, Drop Prone, Stand, Strike, Seek, Point Out,
-//! Take Cover, Raise a Shield, Shield Block, Reactive Strike, cover, difficult terrain,
-//! and the dying track.
+//! Take Cover, Interact, Release, Raise a Shield, Shield Block, Reactive Strike, cover,
+//! difficult terrain, and the dying track.
 //!
 //! Rendering and engine types stay outside this crate. Callers supply dice.
 
@@ -20,7 +20,7 @@ pub use dice::{Dice, ScriptedDice, SeededDice};
 pub use encounter::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, reactors_for_left_square,
     resolve_pending_shield_block, start_encounter, Action, Combatant, CombatantId, Detection,
-    Encounter, Event, Illegal, Outcome, SeekRoll, ShieldBlockOffer, StartError,
+    Encounter, Event, Gear, Illegal, Outcome, SeekRoll, ShieldBlockOffer, StartError,
 };
 pub use grid::{
     minimum_feet, reachable_destinations, squares_within_feet, Grid, GridPos, Terrain,

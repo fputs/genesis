@@ -5,7 +5,7 @@ use content::{load_encounter, EncounterFixture, Feature, Spawn};
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, reactors_for_left_square,
     resolve_pending_shield_block, start_encounter, Action, ClassFeature, CombatantId,
-    CreatureTemplate, DamageFormula, Encounter, Event, Grid, GridPos, Outcome, Shield, Side,
+    CreatureTemplate, DamageFormula, Encounter, Event, Gear, Grid, GridPos, Outcome, Shield, Side,
     StrikeTemplate,
 };
 
@@ -496,7 +496,9 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             | Action::RaiseShield
             | Action::Seek
             | Action::PointOut { .. }
-            | Action::TakeCover => None,
+            | Action::TakeCover
+            | Action::Release { .. }
+            | Action::Interact => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -537,7 +539,9 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             | Action::RaiseShield
             | Action::Seek
             | Action::PointOut { .. }
-            | Action::TakeCover => None,
+            | Action::TakeCover
+            | Action::Release { .. }
+            | Action::Interact => None,
         })
         .filter_map(|destination| {
             let dist = living
@@ -565,7 +569,9 @@ fn strike_unconscious(encounter: &Encounter, legal: &[Action]) -> Option<Action>
         | Action::RaiseShield
         | Action::Seek
         | Action::PointOut { .. }
-        | Action::TakeCover => false,
+        | Action::TakeCover
+        | Action::Release { .. }
+        | Action::Interact => false,
     })
 }
 
@@ -603,7 +609,9 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
             | Action::RaiseShield
             | Action::Seek
             | Action::PointOut { .. }
-            | Action::TakeCover => None,
+            | Action::TakeCover
+            | Action::Release { .. }
+            | Action::Interact => None,
         })
         .filter(|destination| {
             reaches
@@ -802,6 +810,31 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             name(*attacker),
             name(*target)
         ),
+        Event::Released {
+            id,
+            item,
+            actions_remaining,
+        } => format!(
+            "{} releases the {}. {actions_remaining} left.",
+            name(*id),
+            gear_name(*item)
+        ),
+        Event::PickedUp {
+            id,
+            item,
+            actions_remaining,
+        } => format!(
+            "{} picks up the {}. {actions_remaining} left.",
+            name(*id),
+            gear_name(*item)
+        ),
+    }
+}
+
+fn gear_name(item: Gear) -> &'static str {
+    match item {
+        Gear::Weapon => "weapon",
+        Gear::Shield => "shield",
     }
 }
 
@@ -865,34 +898,75 @@ enum ProneScript {
     Done,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GearScript {
+    Ready,
+    Pickup,
+    Done,
+}
+
+struct HeadlessScript {
+    prone: ProneScript,
+    gear: GearScript,
+}
+
 /// The first party turn drops prone and stands, once. A later party turn Seeks once.
+/// One party turn outside the Hall Guard's reach releases the shield and picks it up.
 fn headless_action(
     encounter: &Encounter,
     id: CombatantId,
-    script: &mut ProneScript,
+    script: &mut HeadlessScript,
 ) -> Option<Action> {
     let party = encounter
         .combatant(id)
         .is_some_and(|combatant| combatant.side == Side::Party);
-    if party && *script != ProneScript::Done {
+    if party {
         let legal = legal_actions(encounter, id);
-        if *script == ProneScript::Await && legal.contains(&Action::DropProne) {
-            *script = ProneScript::Stand;
-            return Some(Action::DropProne);
+        if script.gear == GearScript::Ready && outside_hall_guard_reach(encounter, id) {
+            let action = Action::Release { item: Gear::Shield };
+            if legal.contains(&action) {
+                script.gear = GearScript::Pickup;
+                return Some(action);
+            }
         }
-        if *script == ProneScript::Stand && legal.contains(&Action::Stand) {
-            *script = ProneScript::Seek;
-            return Some(Action::Stand);
+        if script.gear == GearScript::Pickup {
+            script.gear = GearScript::Done;
+            if legal.contains(&Action::Interact) {
+                return Some(Action::Interact);
+            }
         }
-        if *script == ProneScript::Seek
-            && encounter.actions_remaining() == 3
-            && legal.contains(&Action::Seek)
-        {
-            *script = ProneScript::Done;
-            return Some(Action::Seek);
+        if script.prone != ProneScript::Done {
+            if script.prone == ProneScript::Await && legal.contains(&Action::DropProne) {
+                script.prone = ProneScript::Stand;
+                return Some(Action::DropProne);
+            }
+            if script.prone == ProneScript::Stand && legal.contains(&Action::Stand) {
+                script.prone = ProneScript::Seek;
+                return Some(Action::Stand);
+            }
+            if script.prone == ProneScript::Seek
+                && encounter.actions_remaining() == 3
+                && legal.contains(&Action::Seek)
+            {
+                script.prone = ProneScript::Done;
+                return Some(Action::Seek);
+            }
         }
     }
     closing_action(encounter, id)
+}
+
+fn outside_hall_guard_reach(encounter: &Encounter, id: CombatantId) -> bool {
+    let Some(actor) = encounter.combatant(id) else {
+        return false;
+    };
+    let Some(guard) = encounter
+        .combatants()
+        .find(|combatant| combatant.name == "Hall Guard" && !combatant.dead)
+    else {
+        return false;
+    };
+    rules::minimum_feet(actor.position, guard.position) > guard.strike.reach_feet
 }
 
 fn shield_is_down(encounter: &Encounter, id: CombatantId) -> bool {
@@ -940,7 +1014,9 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
             | Action::RaiseShield
             | Action::Seek
             | Action::PointOut { .. }
-            | Action::TakeCover => None,
+            | Action::TakeCover
+            | Action::Release { .. }
+            | Action::Interact => None,
         })
         .min_by_key(|destination| {
             let dist = foes
@@ -1025,7 +1101,10 @@ pub fn headless_report() -> Result<String, String> {
         .join(", ");
     lines.push(format!("initiative: {order}"));
 
-    let mut prone_script = ProneScript::Await;
+    let mut prone_script = HeadlessScript {
+        prone: ProneScript::Await,
+        gear: GearScript::Ready,
+    };
     for _ in 0..800 {
         if encounter.outcome().is_some() {
             break;
