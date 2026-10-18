@@ -4,9 +4,9 @@ use bevy::prelude::*;
 use content::{load_encounter, EncounterFixture, Feature, Spawn};
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, reactors_for_left_square,
-    resolve_pending_shield_block, start_encounter, Action, ClassFeature, CombatantId,
-    CreatureTemplate, DamageFormula, Encounter, Event, Gear, Grid, GridPos, Outcome, Shield, Side,
-    StrikeTemplate,
+    resolve_delay_resume, resolve_pending_shield_block, start_encounter, Action, ClassFeature,
+    CombatantId, CreatureTemplate, DamageFormula, Encounter, Event, Gear, Grid, GridPos, Outcome,
+    ReadyTrigger, Shield, Side, StrikeTemplate,
 };
 
 use crate::world::{cell_in_trigger, cell_to_world, member_world, snap_to_grid, world_to_cell};
@@ -35,6 +35,16 @@ pub enum Aim {
     Crawl,
     Leap,
     PointOut,
+    ReadyStride,
+    ReadyStep,
+    ReadyStrike,
+}
+
+/// Which Ready choice is open. Strike, Stride, and Step still need a target or square.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadyUi {
+    Trigger,
+    Action(ReadyTrigger),
 }
 
 #[derive(Resource)]
@@ -68,6 +78,8 @@ pub struct Session {
     pub aim: Aim,
     pub modal: Option<String>,
     pub shield_prompt: bool,
+    pub delay_prompt: bool,
+    pub ready: Option<ReadyUi>,
     pub log: Vec<String>,
     pub rng: rules::SeededDice,
 }
@@ -112,6 +124,10 @@ pub struct EndTurnRequest(pub bool);
 #[derive(Resource, Default)]
 pub struct ShieldAnswer(pub Option<bool>);
 
+/// `Some(true)` resumes a delayed turn. `Some(false)` keeps delaying.
+#[derive(Resource, Default)]
+pub struct DelayAnswer(pub Option<bool>);
+
 pub struct SessionPlugin;
 
 impl Plugin for SessionPlugin {
@@ -121,6 +137,7 @@ impl Plugin for SessionPlugin {
             .init_resource::<PendingOrder>()
             .init_resource::<EndTurnRequest>()
             .init_resource::<ShieldAnswer>()
+            .init_resource::<DelayAnswer>()
             .init_resource::<EnemyClock>()
             .init_resource::<EnemyTurnOrigin>()
             .init_resource::<HudBump>()
@@ -156,6 +173,8 @@ pub fn load_session(path: Res<EncounterPath>, mut commands: Commands) {
         aim: Aim::None,
         modal: None,
         shield_prompt: false,
+        delay_prompt: false,
+        ready: None,
         log: vec!["The hall is quiet. Walk east.".into()],
     });
 }
@@ -297,6 +316,7 @@ fn combat_tick(
     mut pending: ResMut<PendingOrder>,
     mut end_turn_request: ResMut<EndTurnRequest>,
     mut shield_answer: ResMut<ShieldAnswer>,
+    mut delay_answer: ResMut<DelayAnswer>,
     mut clock: ResMut<EnemyClock>,
     mut turn_origin: ResMut<EnemyTurnOrigin>,
     mut next: ResMut<NextState<GameMode>>,
@@ -350,12 +370,22 @@ fn combat_tick(
         return;
     }
 
+    match drain_delay(&mut encounter, &mut session, &mut delay_answer, &mut hud) {
+        Ok(resolved) => events.extend(resolved),
+        Err(()) => {
+            log_events(&mut session, &encounter, &events, &mut hud);
+            session.encounter = Some(encounter);
+            return;
+        }
+    }
+
     events.extend(advance_if_turn_done(&mut encounter, &mut session.rng));
     let mut waiting = false;
     if events.is_empty() {
         if end_turn_request.0 {
             end_turn_request.0 = false;
             session.aim = Aim::None;
+            session.ready = None;
             match end_turn(&mut encounter, &mut session.rng) {
                 Ok(resolved) => events.extend(resolved),
                 Err(_) => session.modal = Some("The turn will not end.".into()),
@@ -367,6 +397,7 @@ fn combat_tick(
                     match declare_action(&mut encounter, active, action, &mut session.rng) {
                         Ok(resolved) => {
                             session.aim = Aim::None;
+                            session.ready = None;
                             events.extend(resolved);
                         }
                         Err(_) => session.modal = Some("That action is not legal.".into()),
@@ -394,6 +425,16 @@ fn combat_tick(
     }
     if !waiting && encounter.outcome().is_none() {
         events.extend(advance_if_turn_done(&mut encounter, &mut session.rng));
+    }
+    if !waiting && encounter.outcome().is_none() && encounter.pending_shield_block().is_none() {
+        match drain_delay(&mut encounter, &mut session, &mut delay_answer, &mut hud) {
+            Ok(resolved) => events.extend(resolved),
+            Err(()) => {
+                log_events(&mut session, &encounter, &events, &mut hud);
+                session.encounter = Some(encounter);
+                return;
+            }
+        }
     }
 
     let outcome = encounter.outcome();
@@ -498,7 +539,9 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             | Action::PointOut { .. }
             | Action::TakeCover
             | Action::Release { .. }
-            | Action::Interact => None,
+            | Action::Interact
+            | Action::Delay
+            | Action::Ready { .. } => None,
         })
         .collect();
     strikes.sort_by_key(|target| {
@@ -541,7 +584,9 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
             | Action::PointOut { .. }
             | Action::TakeCover
             | Action::Release { .. }
-            | Action::Interact => None,
+            | Action::Interact
+            | Action::Delay
+            | Action::Ready { .. } => None,
         })
         .filter_map(|destination| {
             let dist = living
@@ -571,7 +616,9 @@ fn strike_unconscious(encounter: &Encounter, legal: &[Action]) -> Option<Action>
         | Action::PointOut { .. }
         | Action::TakeCover
         | Action::Release { .. }
-        | Action::Interact => false,
+        | Action::Interact
+        | Action::Delay
+        | Action::Ready { .. } => false,
     })
 }
 
@@ -611,7 +658,9 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
             | Action::PointOut { .. }
             | Action::TakeCover
             | Action::Release { .. }
-            | Action::Interact => None,
+            | Action::Interact
+            | Action::Delay
+            | Action::Ready { .. } => None,
         })
         .filter(|destination| {
             reaches
@@ -627,6 +676,50 @@ fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action])
             (dist, destination.x, destination.y)
         })
         .map(|destination| Action::Stride { destination })
+}
+
+/// `Err` means a party member is waiting on U or H.
+fn drain_delay(
+    encounter: &mut Encounter,
+    session: &mut Session,
+    delay_answer: &mut DelayAnswer,
+    hud: &mut HudBump,
+) -> Result<Vec<Event>, ()> {
+    let mut events = Vec::new();
+    loop {
+        let Some(id) = encounter.pending_delay_resume() else {
+            if session.delay_prompt {
+                session.delay_prompt = false;
+                hud.0 += 1;
+            }
+            return Ok(events);
+        };
+        let party = encounter
+            .combatant(id)
+            .is_some_and(|combatant| combatant.side == Side::Party);
+        let answer = if party {
+            delay_answer.0.take()
+        } else {
+            Some(true)
+        };
+        let Some(resume) = answer else {
+            session.aim = Aim::None;
+            session.ready = None;
+            if !session.delay_prompt {
+                session.delay_prompt = true;
+                hud.0 += 1;
+            }
+            return Err(());
+        };
+        match resolve_delay_resume(encounter, resume, &mut session.rng) {
+            Ok(resolved) => events.extend(resolved),
+            Err(error) => {
+                session.modal = Some(error.to_string());
+                session.delay_prompt = false;
+                return Err(());
+            }
+        }
+    }
 }
 
 fn log_events(session: &mut Session, encounter: &Encounter, events: &[Event], hud: &mut HudBump) {
@@ -828,6 +921,17 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             name(*id),
             gear_name(*item)
         ),
+        Event::Delayed { id, .. } => format!("{} delays.", name(*id)),
+        Event::Resumed { id } => format!("{} resumes.", name(*id)),
+        Event::DelayLost { id } => format!("{} loses the delayed turn.", name(*id)),
+        Event::Readied {
+            id,
+            actions_remaining,
+        } => format!(
+            "{} readies an action. {actions_remaining} left.",
+            name(*id)
+        ),
+        Event::ReadiedExpired { id } => format!("{} loses the readied action.", name(*id)),
     }
 }
 
@@ -905,13 +1009,21 @@ enum GearScript {
     Done,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DelayScript {
+    Await,
+    Done,
+}
+
 struct HeadlessScript {
     prone: ProneScript,
     gear: GearScript,
+    delay: DelayScript,
 }
 
 /// The first party turn drops prone and stands, once. A later party turn Seeks once.
 /// One party turn outside the Hall Guard's reach releases the shield and picks it up.
+/// One later party turn Delays. Headless resumes at the next end of turn. It does not Ready.
 fn headless_action(
     encounter: &Encounter,
     id: CombatantId,
@@ -951,6 +1063,15 @@ fn headless_action(
                 script.prone = ProneScript::Done;
                 return Some(Action::Seek);
             }
+        }
+        if script.prone == ProneScript::Done
+            && script.gear == GearScript::Done
+            && script.delay == DelayScript::Await
+            && encounter.actions_remaining() == 3
+            && legal.contains(&Action::Delay)
+        {
+            script.delay = DelayScript::Done;
+            return Some(Action::Delay);
         }
     }
     closing_action(encounter, id)
@@ -1016,7 +1137,9 @@ fn closing_action(encounter: &Encounter, id: CombatantId) -> Option<Action> {
             | Action::PointOut { .. }
             | Action::TakeCover
             | Action::Release { .. }
-            | Action::Interact => None,
+            | Action::Interact
+            | Action::Delay
+            | Action::Ready { .. } => None,
         })
         .min_by_key(|destination| {
             let dist = foes
@@ -1104,6 +1227,7 @@ pub fn headless_report() -> Result<String, String> {
     let mut prone_script = HeadlessScript {
         prone: ProneScript::Await,
         gear: GearScript::Ready,
+        delay: DelayScript::Await,
     };
     for _ in 0..800 {
         if encounter.outcome().is_some() {
@@ -1135,6 +1259,13 @@ pub fn headless_report() -> Result<String, String> {
         let more = advance_if_turn_done(&mut encounter, &mut rng);
         for event in &more {
             lines.push(describe(&encounter, event));
+        }
+        while encounter.pending_delay_resume().is_some() {
+            let resumed = resolve_delay_resume(&mut encounter, true, &mut rng)
+                .map_err(|error| error.to_string())?;
+            for event in &resumed {
+                lines.push(describe(&encounter, event));
+            }
         }
     }
     lines.push("headless ok".into());

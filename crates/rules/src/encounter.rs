@@ -51,6 +51,10 @@ pub struct Combatant {
     pub dying: u8,
     pub wounded: u32,
     pub dead: bool,
+    /// Set by Delay. The creature stays in the initiative list until they resume or the slot returns.
+    pub delaying: bool,
+    /// At most one readied action and its trigger. Cleared when the reaction is used or the next turn starts.
+    pub readied: Option<Readied>,
 }
 
 impl Combatant {
@@ -112,6 +116,45 @@ pub enum Action {
     },
     /// One action. Picks up one dropped object in the actor's square. A shield comes first.
     Interact,
+    /// Free action. Legal only at the start of your turn, with three actions, while not already delaying.
+    Delay,
+    /// Two actions. The readied action is taken later as a reaction when `trigger` happens.
+    Ready {
+        action: ReadiedAction,
+        trigger: ReadyTrigger,
+    },
+}
+
+/// One action, or a free action, that can be readied. Delay, Ready, Crawl, Leap, Take Cover, and Point Out cannot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadiedAction {
+    Stride { destination: GridPos },
+    Step { destination: GridPos },
+    Strike { target: CombatantId },
+    RaiseShield,
+    DropProne,
+    Stand,
+    Seek,
+    Interact,
+    Release { item: Gear },
+}
+
+/// Closed set of Ready triggers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadyTrigger {
+    /// An enemy enters a square inside your melee reach.
+    EntersReach,
+    /// A creature leaves a square inside your melee reach.
+    LeavesReach,
+    /// A creature inside your reach uses Interact or Release.
+    ManipulateInReach,
+}
+
+/// The one readied action stored on a combatant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Readied {
+    pub action: ReadiedAction,
+    pub trigger: ReadyTrigger,
 }
 
 /// How one observer detects one subject. Observed is not stored; a missing pair means Observed.
@@ -261,6 +304,26 @@ pub enum Event {
         item: Gear,
         actions_remaining: u8,
     },
+    Delayed {
+        id: CombatantId,
+        actions_remaining: u8,
+    },
+    /// Inserted after the creature who just ended. The turn start follows this event.
+    Resumed {
+        id: CombatantId,
+    },
+    /// The original initiative slot returned while this creature was still delaying.
+    DelayLost {
+        id: CombatantId,
+    },
+    Readied {
+        id: CombatantId,
+        actions_remaining: u8,
+    },
+    /// The next turn started with the action still readied, so it is lost.
+    ReadiedExpired {
+        id: CombatantId,
+    },
 }
 
 /// One Perception roll from Seek.
@@ -348,6 +411,16 @@ pub struct Encounter {
     detection: BTreeMap<(CombatantId, CombatantId), Detection>,
     /// At most one dropped weapon and one dropped shield per square.
     dropped: BTreeMap<GridPos, Dropped>,
+    /// A delaying creature may resume before the next turn starts.
+    resume_offer: Option<ResumeOffer>,
+}
+
+#[derive(Clone, Debug)]
+struct ResumeOffer {
+    /// The creature who just ended a turn. A resumer is inserted immediately after them.
+    after: CombatantId,
+    declined: Vec<CombatantId>,
+    id: CombatantId,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -395,6 +468,23 @@ impl Encounter {
         self.combatants
             .get(&id)
             .map(|combatant| combatant.reaction_ready)
+    }
+
+    /// Whether `id` is delaying. `None` when `id` is not in this encounter.
+    pub fn delaying(&self, id: CombatantId) -> Option<bool> {
+        self.combatants.get(&id).map(|combatant| combatant.delaying)
+    }
+
+    /// The readied action, if one is stored. `None` when `id` is absent or nothing is readied.
+    pub fn readied(&self, id: CombatantId) -> Option<Readied> {
+        self.combatants
+            .get(&id)
+            .and_then(|combatant| combatant.readied)
+    }
+
+    /// The delaying creature who may resume now. The caller accepts or declines.
+    pub fn pending_delay_resume(&self) -> Option<CombatantId> {
+        self.resume_offer.as_ref().map(|offer| offer.id)
     }
 
     /// Spends `id`'s reaction. A second spend before that creature's next turn returns [`Illegal::NoReaction`].
@@ -567,6 +657,7 @@ pub fn start_encounter(
         pending: None,
         detection: BTreeMap::new(),
         dropped: BTreeMap::new(),
+        resume_offer: None,
     };
     if let Some(outcome) = encounter.detect_outcome() {
         encounter.outcome = Some(outcome);
@@ -624,6 +715,8 @@ fn insert_combatant(
             dying: 0,
             wounded: 0,
             dead: false,
+            delaying: false,
+            readied: None,
         },
     );
     Ok(())
@@ -647,11 +740,17 @@ fn insert_combatant(
 /// legal when the square has a dropped object and the actor does not already hold that kind. A
 /// shield in the square is that object even when a weapon is there too. Release is a free
 /// action, legal while that item is held and the square does not already hold one of that kind,
-/// including when no other actions remain. Unconscious and dead creatures have no legal actions.
-/// None are legal while a Shield
-/// Block offer is open.
+/// including when no other actions remain. Delay is a free action, legal only when three actions
+/// remain and the creature is not already delaying. Ready costs two actions. Its readied action
+/// is one currently legal Stride, Step, Strike, Raise Shield, Drop Prone, Stand, Seek, Interact,
+/// or Release, with one of the three triggers. Unconscious and dead creatures have no legal
+/// actions. None are legal while a Shield Block offer is open, or while a delaying creature is
+/// being asked to resume.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
-    if encounter.pending.is_some() || encounter.outcome.is_some() {
+    if encounter.pending.is_some()
+        || encounter.outcome.is_some()
+        || encounter.resume_offer.is_some()
+    {
         return Vec::new();
     }
     if encounter.active() != Some(id) {
@@ -768,7 +867,49 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
         actions.push(Action::Interact);
     }
     actions.extend(free_releases(encounter, id));
+    if encounter.actions_remaining >= 2 {
+        let readied = readied_from(&actions);
+        for action in readied {
+            for trigger in [
+                ReadyTrigger::EntersReach,
+                ReadyTrigger::LeavesReach,
+                ReadyTrigger::ManipulateInReach,
+            ] {
+                actions.push(Action::Ready { action, trigger });
+            }
+        }
+    }
+    if encounter.actions_remaining == 3 && !actor.delaying {
+        actions.push(Action::Delay);
+    }
     actions
+}
+
+fn readied_from(actions: &[Action]) -> Vec<ReadiedAction> {
+    actions
+        .iter()
+        .filter_map(|action| match action {
+            Action::Stride { destination } => Some(ReadiedAction::Stride {
+                destination: *destination,
+            }),
+            Action::Step { destination } => Some(ReadiedAction::Step {
+                destination: *destination,
+            }),
+            Action::Strike { target } => Some(ReadiedAction::Strike { target: *target }),
+            Action::RaiseShield => Some(ReadiedAction::RaiseShield),
+            Action::DropProne => Some(ReadiedAction::DropProne),
+            Action::Stand => Some(ReadiedAction::Stand),
+            Action::Seek => Some(ReadiedAction::Seek),
+            Action::Interact => Some(ReadiedAction::Interact),
+            Action::Release { item } => Some(ReadiedAction::Release { item: *item }),
+            Action::Crawl { .. }
+            | Action::Leap { .. }
+            | Action::PointOut { .. }
+            | Action::TakeCover
+            | Action::Delay
+            | Action::Ready { .. } => None,
+        })
+        .collect()
 }
 
 /// Resolves one legal action for the active combatant.
@@ -783,7 +924,7 @@ pub fn declare_action(
     if encounter.outcome.is_some() {
         return Err(Illegal::EncounterOver);
     }
-    if encounter.pending.is_some() {
+    if encounter.pending.is_some() || encounter.resume_offer.is_some() {
         return Err(Illegal::NotLegal);
     }
     if !encounter.combatants.contains_key(&id) {
@@ -809,15 +950,18 @@ pub fn declare_action(
                 &cannot_enter,
                 &cannot_end,
                 Travel::Stride,
+                true,
                 rng,
                 &mut events,
             );
         }
-        Action::Step { destination } => resolve_step(encounter, id, destination, &mut events),
-        Action::Strike { target } => resolve_strike(encounter, id, target, rng, &mut events),
-        Action::RaiseShield => resolve_raise_shield(encounter, id, &mut events),
-        Action::DropProne => resolve_drop_prone(encounter, id, &mut events),
-        Action::Stand => resolve_stand(encounter, id, &mut events),
+        Action::Step { destination } => {
+            resolve_step(encounter, id, destination, true, rng, &mut events)
+        }
+        Action::Strike { target } => resolve_strike(encounter, id, target, true, rng, &mut events),
+        Action::RaiseShield => resolve_raise_shield(encounter, id, true, &mut events),
+        Action::DropProne => resolve_drop_prone(encounter, id, true, &mut events),
+        Action::Stand => resolve_stand(encounter, id, true, &mut events),
         Action::Crawl { destination } => {
             let (cannot_enter, cannot_end) = blockers(encounter, id);
             resolve_travel(
@@ -828,6 +972,7 @@ pub fn declare_action(
                 &cannot_enter,
                 &cannot_end,
                 Travel::Crawl,
+                true,
                 rng,
                 &mut events,
             );
@@ -844,18 +989,28 @@ pub fn declare_action(
                 &occupied,
                 &occupied,
                 Travel::Leap,
+                true,
                 rng,
                 &mut events,
             );
         }
-        Action::Seek => resolve_seek(encounter, id, rng, &mut events),
+        Action::Seek => resolve_seek(encounter, id, true, rng, &mut events),
         Action::PointOut { target } => resolve_point_out(encounter, id, target, &mut events),
         Action::TakeCover => resolve_take_cover(encounter, id, &mut events),
-        Action::Release { item } => {
-            resolve_manipulate(encounter, id, ManipKind::Release(item), rng, &mut events)
-        }
+        Action::Release { item } => resolve_manipulate(
+            encounter,
+            id,
+            ManipKind::Release(item),
+            true,
+            rng,
+            &mut events,
+        ),
         Action::Interact => {
-            resolve_manipulate(encounter, id, ManipKind::Interact, rng, &mut events)
+            resolve_manipulate(encounter, id, ManipKind::Interact, true, rng, &mut events)
+        }
+        Action::Delay => resolve_delay(encounter, id, rng, &mut events),
+        Action::Ready { action, trigger } => {
+            resolve_ready(encounter, id, action, trigger, &mut events)
         }
     }
     if let Some(outcome) = encounter.detect_outcome() {
@@ -881,6 +1036,8 @@ struct MoveResume {
     squares: Vec<GridPos>,
     index: usize,
     travel: Travel,
+    /// A readied move does not spend one of the three actions.
+    spend: bool,
 }
 
 /// Leap distance is its own cap. It does not spend the creature's Speed.
@@ -919,6 +1076,8 @@ struct ManipulateResume {
     reactors: Vec<CombatantId>,
     next: usize,
     disrupted: bool,
+    /// Interact spends an action on the creature's turn. A readied Interact does not.
+    spend: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -933,6 +1092,39 @@ struct PendingShieldBlock {
     attacker: CombatantId,
     defender: CombatantId,
     kind: PendingKind,
+    /// Readied reactions and the activity they interrupted, resumed after this strike.
+    follow: Vec<ReadyPause>,
+}
+
+#[derive(Clone, Debug)]
+struct ReadyPause {
+    rest: Vec<CombatantId>,
+    trigger: ReadyTrigger,
+    cause: CombatantId,
+    square: GridPos,
+    after: AfterReady,
+}
+
+#[derive(Clone, Debug)]
+enum AfterReady {
+    /// Leave checks for this square are done. Enter the next square, then continue the move.
+    EnterMove(MoveResume),
+    /// The mover has already entered the current square. Continue from there.
+    ContinueMove(MoveResume),
+    /// Step has not left its square yet.
+    StepEnter {
+        id: CombatantId,
+        to: GridPos,
+        spend: bool,
+    },
+    /// Step has entered `to`. Finish the action.
+    StepFinish {
+        id: CombatantId,
+        from: GridPos,
+        to: GridPos,
+        spend: bool,
+    },
+    None,
 }
 
 fn resolve_travel(
@@ -943,6 +1135,7 @@ fn resolve_travel(
     cannot_enter: &HashSet<GridPos>,
     cannot_end: &HashSet<GridPos>,
     travel: Travel,
+    spend: bool,
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
@@ -970,28 +1163,38 @@ fn resolve_travel(
             squares,
             index: 0,
             travel,
+            spend,
         },
         rng,
         events,
     );
 }
 
-fn resolve_drop_prone(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
+fn resolve_drop_prone(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    spend: bool,
+    events: &mut Vec<Event>,
+) {
     let combatant = encounter.combatants.get_mut(&id).unwrap();
     combatant.taking_cover = false;
     combatant.prone = true;
-    encounter.actions_remaining -= 1;
+    if spend {
+        encounter.actions_remaining -= 1;
+    }
     events.push(Event::DroppedProne {
         id,
         actions_remaining: encounter.actions_remaining,
     });
 }
 
-fn resolve_stand(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
+fn resolve_stand(encounter: &mut Encounter, id: CombatantId, spend: bool, events: &mut Vec<Event>) {
     let combatant = encounter.combatants.get_mut(&id).unwrap();
     combatant.taking_cover = false;
     combatant.prone = false;
-    encounter.actions_remaining -= 1;
+    if spend {
+        encounter.actions_remaining -= 1;
+    }
     events.push(Event::Stood {
         id,
         actions_remaining: encounter.actions_remaining,
@@ -1019,9 +1222,22 @@ fn continue_move(
                     .get_mut(&resume.mover)
                     .unwrap()
                     .position = leaving;
-                encounter.actions_remaining -= 1;
+                if resume.spend {
+                    encounter.actions_remaining -= 1;
+                }
                 return;
             }
+        }
+        if dispatch_readied(
+            encounter,
+            ReadyTrigger::LeavesReach,
+            resume.mover,
+            leaving,
+            AfterReady::EnterMove(resume.clone()),
+            rng,
+            events,
+        ) {
+            return;
         }
         encounter
             .combatants
@@ -1029,9 +1245,22 @@ fn continue_move(
             .unwrap()
             .position = entering;
         resume.index += 1;
+        if dispatch_readied(
+            encounter,
+            ReadyTrigger::EntersReach,
+            resume.mover,
+            entering,
+            AfterReady::ContinueMove(resume.clone()),
+            rng,
+            events,
+        ) {
+            return;
+        }
     }
 
-    encounter.actions_remaining -= 1;
+    if resume.spend {
+        encounter.actions_remaining -= 1;
+    }
     let actions_remaining = encounter.actions_remaining;
     events.push(match resume.travel {
         Travel::Stride => Event::Moved {
@@ -1141,6 +1370,7 @@ fn roll_reactive(
             defender: target,
             rolled,
             kind,
+            follow: Vec::new(),
         });
         return None;
     }
@@ -1154,12 +1384,58 @@ fn resolve_step(
     encounter: &mut Encounter,
     id: CombatantId,
     destination: GridPos,
+    spend: bool,
+    rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
     release_cover(encounter, id);
     let from = encounter.combatants[&id].position;
+    if dispatch_readied(
+        encounter,
+        ReadyTrigger::LeavesReach,
+        id,
+        from,
+        AfterReady::StepEnter {
+            id,
+            to: destination,
+            spend,
+        },
+        rng,
+        events,
+    ) {
+        return;
+    }
     encounter.combatants.get_mut(&id).unwrap().position = destination;
-    encounter.actions_remaining -= 1;
+    if dispatch_readied(
+        encounter,
+        ReadyTrigger::EntersReach,
+        id,
+        destination,
+        AfterReady::StepFinish {
+            id,
+            from,
+            to: destination,
+            spend,
+        },
+        rng,
+        events,
+    ) {
+        return;
+    }
+    finish_step(encounter, id, from, destination, spend, events);
+}
+
+fn finish_step(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    from: GridPos,
+    destination: GridPos,
+    spend: bool,
+    events: &mut Vec<Event>,
+) {
+    if spend {
+        encounter.actions_remaining -= 1;
+    }
     events.push(Event::Stepped {
         id,
         from,
@@ -1169,11 +1445,18 @@ fn resolve_step(
     });
 }
 
-fn resolve_raise_shield(encounter: &mut Encounter, id: CombatantId, events: &mut Vec<Event>) {
+fn resolve_raise_shield(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    spend: bool,
+    events: &mut Vec<Event>,
+) {
     if let Some(shield) = encounter.combatants.get_mut(&id).unwrap().shield.as_mut() {
         shield.raised = true;
     }
-    encounter.actions_remaining -= 1;
+    if spend {
+        encounter.actions_remaining -= 1;
+    }
     events.push(Event::ShieldRaised {
         id,
         actions_remaining: encounter.actions_remaining,
@@ -1184,12 +1467,15 @@ fn resolve_strike(
     encounter: &mut Encounter,
     id: CombatantId,
     target: CombatantId,
+    spend: bool,
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
     release_cover(encounter, id);
     if let Some((natural, dc)) = failed_flat_check(encounter, id, target, rng) {
-        encounter.actions_remaining -= 1;
+        if spend {
+            encounter.actions_remaining -= 1;
+        }
         events.push(Event::FlatCheckFailed {
             attacker: id,
             target,
@@ -1202,13 +1488,16 @@ fn resolve_strike(
     let map = multiple_attack_penalty(encounter.strikes_this_turn);
     let rolled = roll_attack(encounter, id, target, map, rng);
     encounter.strikes_this_turn += 1;
-    encounter.actions_remaining -= 1;
+    if spend {
+        encounter.actions_remaining -= 1;
+    }
     if rolled.damage > 0 && shield_block_legal(encounter, target) {
         encounter.pending = Some(PendingShieldBlock {
             attacker: id,
             defender: target,
             rolled,
             kind: PendingKind::Strike,
+            follow: Vec::new(),
         });
         return;
     }
@@ -1256,7 +1545,9 @@ pub fn resolve_pending_shield_block(
                     .get_mut(&resume.mover)
                     .unwrap()
                     .position = leaving;
-                encounter.actions_remaining -= 1;
+                if resume.spend {
+                    encounter.actions_remaining -= 1;
+                }
             } else {
                 continue_move(encounter, resume, rng, &mut events);
             }
@@ -1271,10 +1562,11 @@ pub fn resolve_pending_shield_block(
             if encounter.combatants[&resume.actor].is_conscious() {
                 continue_manipulate(encounter, resume, rng, &mut events);
             } else {
-                apply_manipulate(encounter, &resume, &mut events);
+                apply_manipulate(encounter, &resume, rng, &mut events);
             }
         }
     }
+    settle_follow(encounter, pending.follow, rng, &mut events);
     if let Some(outcome) = encounter.detect_outcome() {
         if encounter.outcome.is_none() {
             encounter.outcome = Some(outcome);
@@ -1497,6 +1789,7 @@ fn failed_flat_check(
 fn resolve_seek(
     encounter: &mut Encounter,
     id: CombatantId,
+    spend: bool,
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
@@ -1546,7 +1839,9 @@ fn resolve_seek(
             degree,
         });
     }
-    encounter.actions_remaining -= 1;
+    if spend {
+        encounter.actions_remaining -= 1;
+    }
     events.push(Event::Sought {
         id,
         rolls,
@@ -1597,6 +1892,7 @@ fn resolve_manipulate(
     encounter: &mut Encounter,
     id: CombatantId,
     kind: ManipKind,
+    spend: bool,
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
 ) {
@@ -1610,6 +1906,7 @@ fn resolve_manipulate(
             reactors,
             next: 0,
             disrupted: false,
+            spend,
         },
         rng,
         events,
@@ -1646,10 +1943,15 @@ fn continue_manipulate(
             break;
         }
     }
-    apply_manipulate(encounter, &resume, events);
+    apply_manipulate(encounter, &resume, rng, events);
 }
 
-fn apply_manipulate(encounter: &mut Encounter, resume: &ManipulateResume, events: &mut Vec<Event>) {
+fn apply_manipulate(
+    encounter: &mut Encounter,
+    resume: &ManipulateResume,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
     let actor = resume.actor;
     let cancelled = resume.disrupted || !encounter.combatants[&actor].is_conscious();
     match resume.kind {
@@ -1671,7 +1973,10 @@ fn apply_manipulate(encounter: &mut Encounter, resume: &ManipulateResume, events
                 Some(take_dropped(encounter, actor))
             };
             // The action is spent even when a critical hit or 0 HP cancelled the pickup.
-            encounter.actions_remaining -= 1;
+            // A readied Interact does not spend one of the three actions.
+            if resume.spend {
+                encounter.actions_remaining -= 1;
+            }
             if let Some(item) = item {
                 events.push(Event::PickedUp {
                     id: actor,
@@ -1680,6 +1985,18 @@ fn apply_manipulate(encounter: &mut Encounter, resume: &ManipulateResume, events
                 });
             }
         }
+    }
+    if !cancelled {
+        let pos = encounter.combatants[&actor].position;
+        dispatch_readied(
+            encounter,
+            ReadyTrigger::ManipulateInReach,
+            actor,
+            pos,
+            AfterReady::None,
+            rng,
+            events,
+        );
     }
 }
 
@@ -2133,13 +2450,14 @@ fn blockers(encounter: &Encounter, id: CombatantId) -> (HashSet<GridPos>, HashSe
 ///
 /// A dying creature's turn starts with a recovery check, then passes when they still cannot act.
 /// Dead creatures and unconscious creatures who are not dying are skipped. A party member stays
-/// in the party array. A wrap past the end of the order starts the next round.
+/// in the party array. A wrap past the end of the order starts the next round. After a creature
+/// ends a turn, a delaying creature with a ready reaction may resume before the next turn starts.
 pub fn advance_if_turn_done(encounter: &mut Encounter, rng: &mut impl Dice) -> Vec<Event> {
     let mut events = Vec::new();
     if finish_if_over(encounter, &mut events) {
         return events;
     }
-    if encounter.pending.is_some() {
+    if encounter.pending.is_some() || encounter.resume_offer.is_some() {
         return events;
     }
 
@@ -2153,10 +2471,17 @@ pub fn advance_if_turn_done(encounter: &mut Encounter, rng: &mut impl Dice) -> V
         if !done {
             break;
         }
-        if !advance_to_next(encounter, rng, &mut events) {
+        if offer_resume(encounter, active) {
             break;
         }
+        match advance_to_next(encounter, rng, &mut events) {
+            Step::Acting => {}
+            Step::Paused | Step::Stopped => break,
+        }
         if finish_if_over(encounter, &mut events) {
+            break;
+        }
+        if encounter.resume_offer.is_some() {
             break;
         }
     }
@@ -2168,7 +2493,7 @@ pub fn end_turn(encounter: &mut Encounter, rng: &mut impl Dice) -> Result<Vec<Ev
     if encounter.outcome.is_some() {
         return Err(Illegal::EncounterOver);
     }
-    if encounter.pending.is_some() {
+    if encounter.pending.is_some() || encounter.resume_offer.is_some() {
         return Err(Illegal::NotLegal);
     }
     if encounter.active().is_none() {
@@ -2176,6 +2501,54 @@ pub fn end_turn(encounter: &mut Encounter, rng: &mut impl Dice) -> Result<Vec<Ev
     }
     encounter.actions_remaining = 0;
     Ok(advance_if_turn_done(encounter, rng))
+}
+
+/// Accepts or declines the open Delay resume. Accepting spends the reaction, clears `delaying`,
+/// and inserts the creature immediately after the one who just ended. Turn start then returns the reaction.
+pub fn resolve_delay_resume(
+    encounter: &mut Encounter,
+    resume: bool,
+    rng: &mut impl Dice,
+) -> Result<Vec<Event>, Illegal> {
+    if encounter.outcome.is_some() {
+        return Err(Illegal::EncounterOver);
+    }
+    let Some(offer) = encounter.resume_offer.clone() else {
+        return Err(Illegal::NotLegal);
+    };
+    let mut events = Vec::new();
+    if resume {
+        let id = offer.id;
+        let legal = encounter.combatants.get(&id).is_some_and(|combatant| {
+            combatant.delaying && combatant.reaction_ready && combatant.is_conscious()
+        });
+        if !legal {
+            return Err(Illegal::NotLegal);
+        }
+        // Resume spends the reaction. The turn that starts below gives it back.
+        // That is the Delay rule, not an accidental refund.
+        encounter.spend_reaction(id)?;
+        encounter.resume_offer = None;
+        encounter.combatants.get_mut(&id).unwrap().delaying = false;
+        insert_after(encounter, id, offer.after);
+        events.push(Event::Resumed { id });
+        begin_turn(encounter, id, rng, &mut events);
+        return Ok(events);
+    }
+
+    let mut declined = offer.declined;
+    declined.push(offer.id);
+    if let Some(id) = first_resumable(encounter, offer.after, &declined) {
+        encounter.resume_offer = Some(ResumeOffer {
+            after: offer.after,
+            declined,
+            id,
+        });
+        return Ok(events);
+    }
+    encounter.resume_offer = None;
+    advance_to_next(encounter, rng, &mut events);
+    Ok(events)
 }
 
 fn finish_if_over(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
@@ -2190,11 +2563,17 @@ fn finish_if_over(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
     false
 }
 
+enum Step {
+    Acting,
+    Paused,
+    Stopped,
+}
+
 fn advance_to_next(
     encounter: &mut Encounter,
     rng: &mut impl Dice,
     events: &mut Vec<Event>,
-) -> bool {
+) -> Step {
     let len = encounter.initiative.len();
     let mut idx = encounter.current;
     let mut wrapped = false;
@@ -2205,6 +2584,13 @@ fn advance_to_next(
             wrapped = true;
         }
         let id = encounter.initiative[idx];
+        if encounter.combatants[&id].delaying {
+            // The slot where this turn would have begun came back. The delayed turn is lost.
+            // The reaction is not spent.
+            encounter.combatants.get_mut(&id).unwrap().delaying = false;
+            events.push(Event::DelayLost { id });
+            continue;
+        }
         let combatant = &encounter.combatants[&id];
         if combatant.dead || (combatant.is_unconscious() && combatant.dying == 0) {
             continue;
@@ -2214,36 +2600,503 @@ fn advance_to_next(
             encounter.round += 1;
             wrapped = false;
         }
-        encounter.strikes_this_turn = 0;
-        {
-            let combatant = encounter.combatants.get_mut(&id).unwrap();
-            combatant.reaction_ready = true;
-            combatant.taking_cover = false;
-            if let Some(shield) = combatant.shield.as_mut() {
-                shield.raised = false;
-            }
+        let can_act = begin_turn(encounter, id, rng, events);
+        if encounter.outcome.is_some() {
+            return Step::Stopped;
         }
-        let conscious = encounter.combatants[&id].is_conscious();
-        let actions = if conscious { 3 } else { 0 };
-        encounter.actions_remaining = actions;
-        events.push(Event::TurnStarted {
-            id,
-            round: encounter.round,
-            actions,
-        });
-        if encounter.combatants[&id].dying > 0 {
-            recovery_check(encounter, id, rng, events);
+        if can_act {
+            return Step::Acting;
         }
-        if finish_if_over(encounter, events) {
-            return false;
+        if offer_resume(encounter, id) {
+            return Step::Paused;
         }
-        if encounter.combatants[&id].is_conscious() {
-            encounter.actions_remaining = 3;
+    }
+    Step::Stopped
+}
+
+/// Starts `id`'s turn. A readied action still stored here is lost. The reaction becomes ready.
+fn begin_turn(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) -> bool {
+    encounter.strikes_this_turn = 0;
+    let expired = {
+        let combatant = encounter.combatants.get_mut(&id).unwrap();
+        combatant.reaction_ready = true;
+        combatant.taking_cover = false;
+        if let Some(shield) = combatant.shield.as_mut() {
+            shield.raised = false;
+        }
+        combatant.readied.take().is_some()
+    };
+    if expired {
+        events.push(Event::ReadiedExpired { id });
+    }
+    let conscious = encounter.combatants[&id].is_conscious();
+    let actions = if conscious { 3 } else { 0 };
+    encounter.actions_remaining = actions;
+    events.push(Event::TurnStarted {
+        id,
+        round: encounter.round,
+        actions,
+    });
+    if encounter.combatants[&id].dying > 0 {
+        recovery_check(encounter, id, rng, events);
+    }
+    if finish_if_over(encounter, events) {
+        return false;
+    }
+    if encounter.combatants[&id].is_conscious() {
+        encounter.actions_remaining = 3;
+        return true;
+    }
+    encounter.actions_remaining = 0;
+    false
+}
+
+fn resolve_delay(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    let actions_remaining = encounter.actions_remaining;
+    encounter.combatants.get_mut(&id).unwrap().delaying = true;
+    events.push(Event::Delayed {
+        id,
+        actions_remaining,
+    });
+    // Leaving the slot is not another creature ending a turn, so nobody resumes yet.
+    advance_to_next(encounter, rng, events);
+}
+
+fn resolve_ready(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    action: ReadiedAction,
+    trigger: ReadyTrigger,
+    events: &mut Vec<Event>,
+) {
+    encounter.combatants.get_mut(&id).unwrap().readied = Some(Readied { action, trigger });
+    encounter.actions_remaining -= 2;
+    events.push(Event::Readied {
+        id,
+        actions_remaining: encounter.actions_remaining,
+    });
+}
+
+fn offer_resume(encounter: &mut Encounter, after: CombatantId) -> bool {
+    let Some(id) = first_resumable(encounter, after, &[]) else {
+        return false;
+    };
+    encounter.resume_offer = Some(ResumeOffer {
+        after,
+        declined: Vec::new(),
+        id,
+    });
+    true
+}
+
+fn first_resumable(
+    encounter: &Encounter,
+    after: CombatantId,
+    declined: &[CombatantId],
+) -> Option<CombatantId> {
+    let start = encounter.initiative.iter().position(|id| *id == after)?;
+    let len = encounter.initiative.len();
+    for step in 1..len {
+        let id = encounter.initiative[(start + step) % len];
+        if declined.contains(&id) {
+            continue;
+        }
+        let combatant = &encounter.combatants[&id];
+        if combatant.delaying && combatant.reaction_ready && combatant.is_conscious() {
+            return Some(id);
+        }
+    }
+    None
+}
+
+fn insert_after(encounter: &mut Encounter, id: CombatantId, after: CombatantId) {
+    encounter.initiative.retain(|other| *other != id);
+    let after_idx = encounter
+        .initiative
+        .iter()
+        .position(|other| *other == after)
+        .expect("the creature who just ended is still in the order");
+    let new_idx = after_idx + 1;
+    encounter.initiative.insert(new_idx, id);
+    encounter.current = new_idx;
+}
+
+fn dispatch_readied(
+    encounter: &mut Encounter,
+    trigger: ReadyTrigger,
+    cause: CombatantId,
+    square: GridPos,
+    after: AfterReady,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) -> bool {
+    let reactors = readied_for(encounter, trigger, cause, square);
+    dispatch_ids(
+        encounter, &reactors, trigger, cause, square, after, rng, events,
+    )
+}
+
+fn dispatch_ids(
+    encounter: &mut Encounter,
+    reactors: &[CombatantId],
+    trigger: ReadyTrigger,
+    cause: CombatantId,
+    square: GridPos,
+    after: AfterReady,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) -> bool {
+    for (index, reactor) in reactors.iter().copied().enumerate() {
+        if !fire_readied(encounter, reactor, rng, events) {
+            continue;
+        }
+        if encounter.pending.is_some() {
+            encounter.pending.as_mut().unwrap().follow.push(ReadyPause {
+                rest: reactors[index + 1..].to_vec(),
+                trigger,
+                cause,
+                square,
+                after,
+            });
             return true;
         }
-        encounter.actions_remaining = 0;
     }
     false
+}
+
+/// `true` when the readied action was taken. A shield-block pause leaves `pending` set.
+fn fire_readied(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) -> bool {
+    let Some(readied) = ({
+        let combatant = &encounter.combatants[&id];
+        if !combatant.reaction_ready || !combatant.is_conscious() {
+            return false;
+        }
+        combatant.readied
+    }) else {
+        return false;
+    };
+    if !readied_can_fire(encounter, id, readied.action) {
+        return false;
+    }
+    encounter.combatants.get_mut(&id).unwrap().readied = None;
+    encounter
+        .spend_reaction(id)
+        .expect("the readied action had a reaction");
+    resolve_readied(encounter, id, readied.action, rng, events);
+    true
+}
+
+fn resolve_readied(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    action: ReadiedAction,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    match action {
+        ReadiedAction::Stride { destination } => {
+            let speed = encounter.combatants[&id].speed_feet;
+            let (cannot_enter, cannot_end) = blockers(encounter, id);
+            resolve_travel(
+                encounter,
+                id,
+                destination,
+                speed,
+                &cannot_enter,
+                &cannot_end,
+                Travel::Stride,
+                false,
+                rng,
+                events,
+            );
+        }
+        ReadiedAction::Step { destination } => {
+            resolve_step(encounter, id, destination, false, rng, events);
+        }
+        ReadiedAction::Strike { target } => {
+            resolve_strike(encounter, id, target, false, rng, events);
+        }
+        ReadiedAction::RaiseShield => resolve_raise_shield(encounter, id, false, events),
+        ReadiedAction::DropProne => resolve_drop_prone(encounter, id, false, events),
+        ReadiedAction::Stand => resolve_stand(encounter, id, false, events),
+        ReadiedAction::Seek => resolve_seek(encounter, id, false, rng, events),
+        ReadiedAction::Interact => {
+            resolve_manipulate(encounter, id, ManipKind::Interact, false, rng, events)
+        }
+        ReadiedAction::Release { item } => {
+            resolve_manipulate(encounter, id, ManipKind::Release(item), false, rng, events)
+        }
+    }
+}
+
+fn settle_follow(
+    encounter: &mut Encounter,
+    follow: Vec<ReadyPause>,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    if follow.is_empty() {
+        return;
+    }
+    if encounter.pending.is_some() {
+        let pending = encounter.pending.as_mut().unwrap();
+        let mut chained = Vec::new();
+        chained.append(&mut pending.follow);
+        chained.extend(follow);
+        pending.follow = chained;
+        return;
+    }
+    let mut index = 0;
+    while index < follow.len() {
+        let pause = follow[index].clone();
+        index += 1;
+        run_ready_pause(encounter, pause, rng, events);
+        if encounter.pending.is_some() {
+            let pending = encounter.pending.as_mut().unwrap();
+            let mut chained = Vec::new();
+            chained.append(&mut pending.follow);
+            chained.extend(follow[index..].iter().cloned());
+            pending.follow = chained;
+            return;
+        }
+    }
+}
+
+fn run_ready_pause(
+    encounter: &mut Encounter,
+    pause: ReadyPause,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    if dispatch_ids(
+        encounter,
+        &pause.rest,
+        pause.trigger,
+        pause.cause,
+        pause.square,
+        pause.after.clone(),
+        rng,
+        events,
+    ) {
+        return;
+    }
+    run_after(encounter, pause.after, rng, events);
+}
+
+fn run_after(
+    encounter: &mut Encounter,
+    after: AfterReady,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    match after {
+        AfterReady::EnterMove(mut resume) => {
+            if !encounter.combatants[&resume.mover].is_conscious() {
+                if resume.spend {
+                    encounter.actions_remaining -= 1;
+                }
+                return;
+            }
+            let entering = resume.squares[resume.index + 1];
+            encounter
+                .combatants
+                .get_mut(&resume.mover)
+                .unwrap()
+                .position = entering;
+            resume.index += 1;
+            if dispatch_readied(
+                encounter,
+                ReadyTrigger::EntersReach,
+                resume.mover,
+                entering,
+                AfterReady::ContinueMove(resume.clone()),
+                rng,
+                events,
+            ) {
+                return;
+            }
+            continue_move(encounter, resume, rng, events);
+        }
+        AfterReady::ContinueMove(resume) => {
+            if !encounter.combatants[&resume.mover].is_conscious() {
+                if resume.spend {
+                    encounter.actions_remaining -= 1;
+                }
+                return;
+            }
+            continue_move(encounter, resume, rng, events);
+        }
+        AfterReady::StepEnter { id, to, spend } => {
+            if !encounter.combatants[&id].is_conscious() {
+                if spend {
+                    encounter.actions_remaining -= 1;
+                }
+                return;
+            }
+            let from = encounter.combatants[&id].position;
+            encounter.combatants.get_mut(&id).unwrap().position = to;
+            if dispatch_readied(
+                encounter,
+                ReadyTrigger::EntersReach,
+                id,
+                to,
+                AfterReady::StepFinish {
+                    id,
+                    from,
+                    to,
+                    spend,
+                },
+                rng,
+                events,
+            ) {
+                return;
+            }
+            finish_step(encounter, id, from, to, spend, events);
+        }
+        AfterReady::StepFinish {
+            id,
+            from,
+            to,
+            spend,
+        } => finish_step(encounter, id, from, to, spend, events),
+        AfterReady::None => {}
+    }
+}
+
+fn readied_for(
+    encounter: &Encounter,
+    trigger: ReadyTrigger,
+    cause: CombatantId,
+    square: GridPos,
+) -> Vec<CombatantId> {
+    let Some(cause_c) = encounter.combatants.get(&cause) else {
+        return Vec::new();
+    };
+    let cause_id = cause_c.id;
+    let cause_side = cause_c.side;
+    let candidates: Vec<_> = encounter
+        .combatants
+        .values()
+        .filter_map(|other| {
+            other.readied.map(|readied| {
+                (
+                    other.id,
+                    readied,
+                    other.side,
+                    other.position,
+                    other.strike.reach_feet,
+                    other.is_conscious(),
+                    other.reaction_ready,
+                )
+            })
+        })
+        .collect();
+    let mut reactors = Vec::new();
+    for (id, readied, side, position, reach, conscious, reaction) in candidates {
+        if id == cause_id || !conscious || !reaction || readied.trigger != trigger {
+            continue;
+        }
+        let reached = position != square && minimum_feet(position, square) <= reach;
+        let matches = match trigger {
+            ReadyTrigger::EntersReach => side != cause_side && reached,
+            ReadyTrigger::LeavesReach | ReadyTrigger::ManipulateInReach => reached,
+        };
+        if matches && readied_can_fire(encounter, id, readied.action) {
+            reactors.push(id);
+        }
+    }
+    reactors.sort();
+    reactors
+}
+
+fn square_in_reach(combatant: &Combatant, square: GridPos) -> bool {
+    combatant.position != square
+        && minimum_feet(combatant.position, square) <= combatant.strike.reach_feet
+}
+
+fn readied_can_fire(encounter: &Encounter, id: CombatantId, action: ReadiedAction) -> bool {
+    let Some(actor) = encounter.combatants.get(&id) else {
+        return false;
+    };
+    if !actor.is_conscious() {
+        return false;
+    }
+    match action {
+        ReadiedAction::Stride { destination } => stride_open(encounter, id, destination),
+        ReadiedAction::Step { destination } => step_open(encounter, id, destination),
+        ReadiedAction::Strike { target } => strike_open(encounter, id, target),
+        ReadiedAction::RaiseShield => actor
+            .shield
+            .as_ref()
+            .is_some_and(|shield| !shield.is_broken() && !shield.is_destroyed()),
+        ReadiedAction::DropProne => !actor.prone,
+        ReadiedAction::Stand => actor.prone,
+        ReadiedAction::Seek => true,
+        ReadiedAction::Interact => interact_item(encounter, id).is_some(),
+        ReadiedAction::Release { item } => can_release(encounter, id, item),
+    }
+}
+
+fn stride_open(encounter: &Encounter, id: CombatantId, destination: GridPos) -> bool {
+    let actor = &encounter.combatants[&id];
+    if actor.prone {
+        return false;
+    }
+    let (cannot_enter, cannot_end) = blockers(encounter, id);
+    reachable_destinations(
+        &encounter.grid,
+        actor.position,
+        actor.speed_feet,
+        &cannot_enter,
+        &cannot_end,
+    )
+    .into_iter()
+    .any(|(pos, _)| pos == destination)
+}
+
+fn step_open(encounter: &Encounter, id: CombatantId, destination: GridPos) -> bool {
+    let actor = &encounter.combatants[&id];
+    if actor.prone || actor.speed_feet < 10 || minimum_feet(actor.position, destination) != 5 {
+        return false;
+    }
+    if encounter.grid.terrain(destination) != Terrain::Normal
+        || !encounter.grid.walkable(destination)
+    {
+        return false;
+    }
+    let (cannot_enter, cannot_end) = blockers(encounter, id);
+    !cannot_enter.contains(&destination) && !cannot_end.contains(&destination)
+}
+
+fn strike_open(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> bool {
+    let Some(actor) = encounter.combatants.get(&attacker) else {
+        return false;
+    };
+    let Some(defender) = encounter.combatants.get(&target) else {
+        return false;
+    };
+    if !actor.holding_weapon || defender.dead || defender.side == actor.side {
+        return false;
+    }
+    if encounter.detection(attacker, target) == Some(Detection::Undetected) {
+        return false;
+    }
+    square_in_reach(actor, defender.position)
 }
 
 #[cfg(test)]

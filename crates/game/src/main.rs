@@ -10,7 +10,7 @@ Genesis
   cargo run -p game -- --help
 
 Explore: D walks east toward the guard, A west, W north, S south. 1–4 selects a portrait.
-Combat: M then click a lit square to Stride. T then click a lit square to Step. F then click the guard to Strike. R raises a shield. P drops prone. G stands. C then click a lit square to Crawl. L then click a lit square to Leap. V takes cover. K seeks. O then click a creature you observe to Point Out. Space ends the turn. When Shield Block is legal, B uses it and N does not.
+Combat: M then click a lit square to Stride. T then click a lit square to Step. F then click the guard to Strike. R raises a shield. P drops prone. G stands. C then click a lit square to Crawl. L then click a lit square to Leap. V takes cover. K seeks. O then click a creature you observe to Point Out. I interacts. X releases. D delays. Y readies a trigger and an action. Space ends the turn. When Shield Block is legal, B uses it and N does not. When a party member may resume, U takes the turn and H keeps delaying.
 Without a display, the process runs the headless smoke and exits."
         );
         return;

@@ -1,12 +1,13 @@
 //! Seeded encounter sequences for Stride, Step, Crawl, Leap, Drop Prone, Stand, Strike, Seek,
-//! Point Out, Take Cover, Interact, Release, Raise a Shield, Shield Block, Reactive Strike,
-//! cover, difficult terrain, and the dying track.
+//! Point Out, Take Cover, Interact, Release, Delay, Ready, Raise a Shield, Shield Block,
+//! Reactive Strike, cover, difficult terrain, and the dying track.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
-    reactors_for_left_square, resolve_pending_shield_block, start_encounter, Action, ClassFeature,
-    CombatantId, CreatureTemplate, DamageFormula, Degree, Detection, Encounter, Event, Gear, Grid,
-    GridPos, Illegal, Outcome, ScriptedDice, Shield, Side, StrikeTemplate, Terrain,
+    reactors_for_left_square, resolve_delay_resume, resolve_pending_shield_block, start_encounter,
+    Action, ClassFeature, CombatantId, CreatureTemplate, DamageFormula, Degree, Detection,
+    Encounter, Event, Gear, Grid, GridPos, Illegal, Outcome, Readied, ReadiedAction, ReadyTrigger,
+    ScriptedDice, Shield, Side, StrikeTemplate, Terrain,
 };
 
 fn strike(name: &str, attack: i32, dice: u8, faces: u8, bonus: i32) -> StrikeTemplate {
@@ -3890,5 +3891,253 @@ fn dropping_to_zero_cancels_interact() {
     assert!(events
         .iter()
         .all(|event| !matches!(event, Event::PickedUp { .. })));
+    assert_eq!(dice.remaining(), 0);
+}
+
+fn first_acts(dice: &mut ScriptedDice) -> Encounter {
+    start_encounter(
+        &party(),
+        &[guard()],
+        &[
+            GridPos::new(0, 0),
+            GridPos::new(0, 2),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(1, 0)],
+        open(8, 8),
+        dice,
+    )
+    .unwrap()
+}
+
+fn decline_resume(encounter: &mut Encounter, dice: &mut ScriptedDice) {
+    assert!(encounter.pending_delay_resume().is_some());
+    resolve_delay_resume(encounter, false, dice).unwrap();
+}
+
+/// Delay is a free action. Three actions stay unspent, and the reaction stays ready.
+#[test]
+fn delay_leaves_three_actions_unspent() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    assert_eq!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(legal_actions(&encounter, actor).contains(&Action::Delay));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+
+    let events = declare_action(&mut encounter, actor, Action::Delay, &mut dice).unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Delayed {
+            id,
+            actions_remaining: 3,
+        } if *id == actor
+    )));
+    assert!(encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.reaction_ready(actor), Some(true));
+    assert_ne!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert!(encounter.pending_delay_resume().is_none());
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Resuming spends the reaction, then turn start gives it back, and the creature acts after the one who just ended.
+#[test]
+fn resume_acts_after_the_creature_who_just_ended() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    let next = CombatantId(1);
+    declare_action(&mut encounter, actor, Action::Delay, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(next));
+
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.pending_delay_resume(), Some(actor));
+    let events = resolve_delay_resume(&mut encounter, true, &mut dice).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::Resumed { id } if *id == actor)));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TurnStarted { id, actions: 3, .. } if *id == actor
+    )));
+    assert_eq!(
+        encounter.initiative(),
+        &[
+            CombatantId(1),
+            CombatantId(0),
+            CombatantId(2),
+            CombatantId(3),
+            CombatantId(4),
+        ]
+    );
+    assert_eq!(encounter.active(), Some(actor));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.reaction_ready(actor), Some(true));
+    assert_eq!(encounter.actions_remaining(), 3);
+
+    declare_action(&mut encounter, actor, Action::Seek, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 2);
+    assert_eq!(encounter.initiative()[0], next);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// The original slot returns, the delayed turn is lost, and the reaction is not spent.
+#[test]
+fn lost_delay_when_the_original_slot_returns() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    declare_action(&mut encounter, actor, Action::Delay, &mut dice).unwrap();
+
+    for _ in 0..3 {
+        end_turn(&mut encounter, &mut dice).unwrap();
+        decline_resume(&mut encounter, &mut dice);
+    }
+    assert!(encounter.combatant(actor).unwrap().delaying);
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.pending_delay_resume(), Some(actor));
+    let events = resolve_delay_resume(&mut encounter, false, &mut dice).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::DelayLost { id } if *id == actor)));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.reaction_ready(actor), Some(true));
+    assert_ne!(encounter.active(), Some(actor));
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::TurnStarted { id, .. } if *id == actor)));
+    assert_eq!(encounter.round(), 2);
+
+    end_until(&mut encounter, actor, &mut dice);
+    assert_eq!(encounter.active(), Some(actor));
+    assert!(!encounter.combatant(actor).unwrap().delaying);
+    assert_eq!(encounter.actions_remaining(), 3);
+    assert_eq!(encounter.round(), 3);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// Ready costs 2 actions. A readied Strike fires when an enemy enters reach and increases the strike count.
+#[test]
+fn ready_costs_two_and_a_strike_on_entering_reach_increases_the_count() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1, 1, 8]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    let guard = CombatantId(4);
+    let ready = Action::Ready {
+        action: ReadiedAction::Strike { target: guard },
+        trigger: ReadyTrigger::EntersReach,
+    };
+    assert!(legal_actions(&encounter, actor).contains(&ready));
+    let events = declare_action(&mut encounter, actor, ready, &mut dice).unwrap();
+    assert_eq!(
+        events,
+        vec![Event::Readied {
+            id: actor,
+            actions_remaining: 1,
+        }]
+    );
+    assert_eq!(encounter.actions_remaining(), 1);
+    assert_eq!(
+        encounter.readied(actor),
+        Some(Readied {
+            action: ReadiedAction::Strike { target: guard },
+            trigger: ReadyTrigger::EntersReach,
+        })
+    );
+    assert!(!legal_actions(&encounter, actor).contains(&Action::Delay));
+
+    for _ in 0..4 {
+        end_turn(&mut encounter, &mut dice).unwrap();
+    }
+    assert_eq!(encounter.active(), Some(guard));
+    assert_eq!(encounter.strikes_this_turn(), 0);
+    declare_action(
+        &mut encounter,
+        guard,
+        Action::Strike { target: actor },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.strikes_this_turn(), 1);
+    assert_eq!(encounter.actions_remaining(), 2);
+
+    let events = declare_action(
+        &mut encounter,
+        guard,
+        Action::Step {
+            destination: GridPos::new(1, 1),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::StrikeResolved {
+            attacker,
+            target,
+            map: -5,
+            actions_remaining: 2,
+            ..
+        } if *attacker == actor && *target == guard
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Stepped {
+            id,
+            to,
+            actions_remaining: 1,
+            ..
+        } if *id == guard && *to == GridPos::new(1, 1)
+    )));
+    assert!(events
+        .iter()
+        .all(|event| !matches!(event, Event::ReactiveStrike { .. })));
+    assert_eq!(encounter.strikes_this_turn(), 2);
+    assert!(encounter.readied(actor).is_none());
+    assert_eq!(encounter.reaction_ready(actor), Some(false));
+    assert_eq!(encounter.actions_remaining(), 1);
+    assert_eq!(dice.remaining(), 0);
+}
+
+/// A readied action that never triggers is cleared when your next turn starts.
+#[test]
+fn readied_action_expires_at_the_next_turn() {
+    let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
+    let mut encounter = first_acts(&mut dice);
+    let actor = CombatantId(0);
+    declare_action(
+        &mut encounter,
+        actor,
+        Action::Ready {
+            action: ReadiedAction::Seek,
+            trigger: ReadyTrigger::EntersReach,
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.readied(actor).is_some());
+    assert_eq!(encounter.actions_remaining(), 1);
+
+    for _ in 0..4 {
+        end_turn(&mut encounter, &mut dice).unwrap();
+    }
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+    assert!(encounter.readied(actor).is_some());
+
+    let events = end_turn(&mut encounter, &mut dice).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::ReadiedExpired { id } if *id == actor)));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TurnStarted { id, actions: 3, .. } if *id == actor
+    )));
+    assert!(encounter.readied(actor).is_none());
+    assert_eq!(encounter.active(), Some(actor));
+    assert_eq!(encounter.actions_remaining(), 3);
     assert_eq!(dice.remaining(), 0);
 }

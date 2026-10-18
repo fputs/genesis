@@ -4,10 +4,11 @@ use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use content::Floor;
-use rules::{legal_actions, Action, Detection, Gear, Side};
+use rules::{legal_actions, Action, Detection, Gear, ReadiedAction, ReadyTrigger, Side};
 
 use crate::session::{
-    Aim, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, Session, ShieldAnswer,
+    Aim, DelayAnswer, EndTurnRequest, ExploreDirection, GameMode, HudBump, PendingOrder, ReadyUi,
+    Session, ShieldAnswer,
 };
 use crate::world::{cell_to_world, world_to_cell, TILE_H, TILE_W};
 
@@ -54,6 +55,13 @@ enum HudButton {
     Interact,
     Release,
     EndTurn,
+    Delay,
+    Ready,
+    Resume,
+    KeepDelay,
+    ReadyEnters,
+    ReadyLeaves,
+    ReadyManipulate,
     ShieldYes,
     ShieldNo,
     Dismiss,
@@ -280,6 +288,29 @@ fn sync_highlights(
             (Aim::PointOut, Action::PointOut { target }) => encounter
                 .combatant(target)
                 .map(|c| (c.position.x, c.position.y)),
+            (
+                Aim::ReadyStride,
+                Action::Ready {
+                    action: ReadiedAction::Stride { destination },
+                    ..
+                },
+            ) => Some((destination.x, destination.y)),
+            (
+                Aim::ReadyStep,
+                Action::Ready {
+                    action: ReadiedAction::Step { destination },
+                    ..
+                },
+            ) => Some((destination.x, destination.y)),
+            (
+                Aim::ReadyStrike,
+                Action::Ready {
+                    action: ReadiedAction::Strike { target },
+                    ..
+                },
+            ) => encounter
+                .combatant(target)
+                .map(|c| (c.position.x, c.position.y)),
             _ => None,
         };
         if let Some((x, y)) = show {
@@ -306,6 +337,7 @@ fn read_keys(
     mut end_turn: ResMut<EndTurnRequest>,
     mut pending: ResMut<PendingOrder>,
     mut shield_answer: ResMut<ShieldAnswer>,
+    mut delay_answer: ResMut<DelayAnswer>,
 ) {
     let mode = *mode.get();
     if mode != GameMode::Explore {
@@ -349,6 +381,15 @@ fn read_keys(
         if keys.just_pressed(KeyCode::KeyN) {
             shield_answer.0 = Some(false);
         }
+    } else if mode == GameMode::Combat && session.delay_prompt {
+        if keys.just_pressed(KeyCode::KeyU) {
+            delay_answer.0 = Some(true);
+        }
+        if keys.just_pressed(KeyCode::KeyH) {
+            delay_answer.0 = Some(false);
+        }
+    } else if mode == GameMode::Combat && session.ready.is_some() && session.modal.is_none() {
+        read_ready_keys(&keys, &mut session, &mut pending, &mut aim_bump);
     } else if mode == GameMode::Combat && session.modal.is_none() {
         if keys.just_pressed(KeyCode::KeyM) {
             session.aim = Aim::Stride;
@@ -394,6 +435,12 @@ fn read_keys(
                 queue_immediate(&mut session, &mut pending, &mut aim_bump, action);
             }
         }
+        if keys.just_pressed(KeyCode::KeyD) {
+            queue_immediate(&mut session, &mut pending, &mut aim_bump, Action::Delay);
+        }
+        if keys.just_pressed(KeyCode::KeyY) {
+            open_ready(&mut session, &mut aim_bump);
+        }
         if keys.just_pressed(KeyCode::Space) {
             end_turn.0 = true;
         }
@@ -401,11 +448,172 @@ fn read_keys(
     if keys.just_pressed(KeyCode::Escape) {
         if session.modal.is_some() {
             session.modal = None;
-        } else {
+        } else if session.ready.is_some() || session.aim != Aim::None {
+            session.ready = None;
             session.aim = Aim::None;
         }
         aim_bump.0 += 1;
     }
+}
+
+fn open_ready(session: &mut Session, hud: &mut HudBump) {
+    if party_legal(session)
+        .iter()
+        .any(|action| matches!(action, Action::Ready { .. }))
+    {
+        session.ready = Some(ReadyUi::Trigger);
+        session.aim = Aim::None;
+        hud.0 += 1;
+    }
+}
+
+fn read_ready_keys(
+    keys: &ButtonInput<KeyCode>,
+    session: &mut Session,
+    pending: &mut PendingOrder,
+    hud: &mut HudBump,
+) {
+    let Some(ready) = session.ready else {
+        return;
+    };
+    match ready {
+        ReadyUi::Trigger => {
+            let trigger = if keys.just_pressed(KeyCode::KeyE) {
+                Some(ReadyTrigger::EntersReach)
+            } else if keys.just_pressed(KeyCode::KeyW) {
+                Some(ReadyTrigger::LeavesReach)
+            } else if keys.just_pressed(KeyCode::KeyQ) {
+                Some(ReadyTrigger::ManipulateInReach)
+            } else {
+                None
+            };
+            if let Some(trigger) = trigger {
+                session.ready = Some(ReadyUi::Action(trigger));
+                hud.0 += 1;
+            }
+        }
+        ReadyUi::Action(trigger) => {
+            if keys.just_pressed(KeyCode::KeyM) {
+                aim_ready(session, hud, Aim::ReadyStride);
+            } else if keys.just_pressed(KeyCode::KeyT) {
+                aim_ready(session, hud, Aim::ReadyStep);
+            } else if keys.just_pressed(KeyCode::KeyF) {
+                aim_ready(session, hud, Aim::ReadyStrike);
+            } else if keys.just_pressed(KeyCode::KeyR) {
+                queue_ready(session, pending, hud, trigger, ReadiedAction::RaiseShield);
+            } else if keys.just_pressed(KeyCode::KeyP) {
+                queue_ready(session, pending, hud, trigger, ReadiedAction::DropProne);
+            } else if keys.just_pressed(KeyCode::KeyG) {
+                queue_ready(session, pending, hud, trigger, ReadiedAction::Stand);
+            } else if keys.just_pressed(KeyCode::KeyK) {
+                queue_ready(session, pending, hud, trigger, ReadiedAction::Seek);
+            } else if keys.just_pressed(KeyCode::KeyI) {
+                queue_ready(session, pending, hud, trigger, ReadiedAction::Interact);
+            } else if keys.just_pressed(KeyCode::KeyX) {
+                if let Some(action) = preferred_readied_release(session) {
+                    queue_ready(session, pending, hud, trigger, action);
+                }
+            }
+        }
+    }
+}
+
+fn aim_ready(session: &mut Session, hud: &mut HudBump, aim: Aim) {
+    if !matches!(session.ready, Some(ReadyUi::Action(_))) {
+        return;
+    }
+    let legal = party_legal(session);
+    let available = legal.iter().any(|action| match (aim, action) {
+        (
+            Aim::ReadyStride,
+            Action::Ready {
+                action: ReadiedAction::Stride { .. },
+                ..
+            },
+        ) => true,
+        (
+            Aim::ReadyStep,
+            Action::Ready {
+                action: ReadiedAction::Step { .. },
+                ..
+            },
+        ) => true,
+        (
+            Aim::ReadyStrike,
+            Action::Ready {
+                action: ReadiedAction::Strike { .. },
+                ..
+            },
+        ) => true,
+        _ => false,
+    });
+    if available {
+        session.aim = aim;
+        hud.0 += 1;
+    }
+}
+
+fn queue_ready(
+    session: &mut Session,
+    pending: &mut PendingOrder,
+    hud: &mut HudBump,
+    trigger: ReadyTrigger,
+    action: ReadiedAction,
+) {
+    let chosen = Action::Ready { action, trigger };
+    if party_legal(session).contains(&chosen) {
+        pending.0 = Some(chosen);
+        session.ready = None;
+        session.aim = Aim::None;
+        hud.0 += 1;
+    }
+}
+
+fn ready_square(
+    trigger: Option<ReadyTrigger>,
+    legal: &[Action],
+    x: i32,
+    y: i32,
+    stride: bool,
+) -> Option<Action> {
+    let trigger = trigger?;
+    legal.iter().copied().find(|action| match action {
+        Action::Ready {
+            action: ReadiedAction::Stride { destination },
+            trigger: ready,
+        } if stride && *ready == trigger && destination.x == x && destination.y == y => true,
+        Action::Ready {
+            action: ReadiedAction::Step { destination },
+            trigger: ready,
+        } if !stride && *ready == trigger && destination.x == x && destination.y == y => true,
+        _ => false,
+    })
+}
+
+fn ready_strike(
+    trigger: Option<ReadyTrigger>,
+    encounter: &rules::Encounter,
+    legal: &[Action],
+    x: i32,
+    y: i32,
+) -> Option<Action> {
+    let trigger = trigger?;
+    legal.iter().copied().find(|action| match action {
+        Action::Ready {
+            action: ReadiedAction::Strike { target },
+            trigger: ready,
+        } if *ready == trigger => encounter
+            .combatant(*target)
+            .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
+        _ => false,
+    })
+}
+
+fn preferred_readied_release(session: &Session) -> Option<ReadiedAction> {
+    let Action::Release { item } = preferred_release(session)? else {
+        return None;
+    };
+    Some(ReadiedAction::Release { item })
 }
 
 fn party_legal(session: &Session) -> Vec<Action> {
@@ -430,6 +638,7 @@ fn queue_immediate(
     if party_legal(session).contains(&action) {
         pending.0 = Some(action);
         session.aim = Aim::None;
+        session.ready = None;
         hud.0 += 1;
     }
 }
@@ -541,6 +750,10 @@ fn aim_click(
         return;
     };
     let (x, y) = world_to_cell(world.x, world.y);
+    let ready_trigger = match session.ready {
+        Some(ReadyUi::Action(trigger)) => Some(trigger),
+        _ => None,
+    };
     let Some(encounter) = &session.encounter else {
         return;
     };
@@ -573,6 +786,9 @@ fn aim_click(
                 .is_some_and(|combatant| combatant.position.x == x && combatant.position.y == y),
             _ => false,
         }),
+        Aim::ReadyStride => ready_square(ready_trigger, &legal, x, y, true),
+        Aim::ReadyStep => ready_square(ready_trigger, &legal, x, y, false),
+        Aim::ReadyStrike => ready_strike(ready_trigger, encounter, &legal, x, y),
         Aim::None => None,
     };
     if let Some(action) = chosen {
@@ -585,6 +801,9 @@ fn aim_click(
             Aim::Leap => "That square is out of the leap.".into(),
             Aim::Strike => "No enemy in reach on that square.".into(),
             Aim::PointOut => "You cannot point out a creature on that square.".into(),
+            Aim::ReadyStride => "That square is out of the readied stride.".into(),
+            Aim::ReadyStep => "That square is out of the readied step.".into(),
+            Aim::ReadyStrike => "No enemy in reach on that square.".into(),
             Aim::None => "Nothing to confirm.".into(),
         });
         hud.0 += 1;
@@ -597,6 +816,7 @@ fn hud_clicks(
     mut pending: ResMut<PendingOrder>,
     mut end_turn: ResMut<EndTurnRequest>,
     mut shield_answer: ResMut<ShieldAnswer>,
+    mut delay_answer: ResMut<DelayAnswer>,
     mut hud: ResMut<HudBump>,
     buttons: Query<(&Interaction, &HudButton), Changed<Interaction>>,
 ) {
@@ -611,6 +831,82 @@ fn hud_clicks(
                 _ => {}
             }
             continue;
+        }
+        if let Some(ReadyUi::Action(trigger)) = session.ready {
+            let handled = match button {
+                HudButton::Stride => {
+                    aim_ready(&mut session, &mut hud, Aim::ReadyStride);
+                    true
+                }
+                HudButton::Step => {
+                    aim_ready(&mut session, &mut hud, Aim::ReadyStep);
+                    true
+                }
+                HudButton::Strike => {
+                    aim_ready(&mut session, &mut hud, Aim::ReadyStrike);
+                    true
+                }
+                HudButton::RaiseShield => {
+                    queue_ready(
+                        &mut session,
+                        &mut pending,
+                        &mut hud,
+                        trigger,
+                        ReadiedAction::RaiseShield,
+                    );
+                    true
+                }
+                HudButton::DropProne => {
+                    queue_ready(
+                        &mut session,
+                        &mut pending,
+                        &mut hud,
+                        trigger,
+                        ReadiedAction::DropProne,
+                    );
+                    true
+                }
+                HudButton::Stand => {
+                    queue_ready(
+                        &mut session,
+                        &mut pending,
+                        &mut hud,
+                        trigger,
+                        ReadiedAction::Stand,
+                    );
+                    true
+                }
+                HudButton::Seek => {
+                    queue_ready(
+                        &mut session,
+                        &mut pending,
+                        &mut hud,
+                        trigger,
+                        ReadiedAction::Seek,
+                    );
+                    true
+                }
+                HudButton::Interact => {
+                    queue_ready(
+                        &mut session,
+                        &mut pending,
+                        &mut hud,
+                        trigger,
+                        ReadiedAction::Interact,
+                    );
+                    true
+                }
+                HudButton::Release => {
+                    if let Some(action) = preferred_readied_release(&session) {
+                        queue_ready(&mut session, &mut pending, &mut hud, trigger, action);
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if handled {
+                continue;
+            }
         }
         match button {
             HudButton::Dismiss => {
@@ -668,6 +964,21 @@ fn hud_clicks(
                 if let Some(action) = preferred_release(&session) {
                     queue_immediate(&mut session, &mut pending, &mut hud, action);
                 }
+            }
+            HudButton::Delay => {
+                queue_immediate(&mut session, &mut pending, &mut hud, Action::Delay);
+            }
+            HudButton::Ready => open_ready(&mut session, &mut hud),
+            HudButton::Resume => delay_answer.0 = Some(true),
+            HudButton::KeepDelay => delay_answer.0 = Some(false),
+            HudButton::ReadyEnters => {
+                pick_trigger(&mut session, &mut hud, ReadyTrigger::EntersReach)
+            }
+            HudButton::ReadyLeaves => {
+                pick_trigger(&mut session, &mut hud, ReadyTrigger::LeavesReach)
+            }
+            HudButton::ReadyManipulate => {
+                pick_trigger(&mut session, &mut hud, ReadyTrigger::ManipulateInReach)
             }
             HudButton::ShieldYes | HudButton::ShieldNo => {}
             HudButton::EndTurn => {
@@ -838,6 +1149,12 @@ fn sync_hud(
                 if preferred_release(&session).is_some() {
                     action_button(bar, "Release (X)", HudButton::Release, false);
                 }
+                if offers(|action| matches!(action, Action::Delay)) {
+                    action_button(bar, "Delay (D)", HudButton::Delay, false);
+                }
+                if offers(|action| matches!(action, Action::Ready { .. })) {
+                    action_button(bar, "Ready (Y)", HudButton::Ready, session.ready.is_some());
+                }
                 action_button(
                     bar,
                     "Strike  (F)",
@@ -901,6 +1218,62 @@ fn sync_hud(
         }
     }
 
+    if session.delay_prompt {
+        let name = session
+            .encounter
+            .as_ref()
+            .and_then(|encounter| {
+                let id = encounter.pending_delay_resume()?;
+                encounter
+                    .combatant(id)
+                    .map(|combatant| combatant.name.clone())
+            })
+            .unwrap_or_else(|| "Someone".into());
+        commands
+            .spawn((
+                HudRoot,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(28.0),
+                    top: Val::Percent(32.0),
+                    width: Val::Px(520.0),
+                    padding: UiRect::all(Val::Px(16.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(12.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.10, 0.08, 0.06)),
+                BorderColor(GOLD),
+            ))
+            .with_children(|modal| {
+                text(
+                    modal,
+                    &format!("{name} can resume the delayed turn."),
+                    20.0,
+                    INK,
+                );
+                text(modal, "U takes the turn. H keeps delaying.", 16.0, INK);
+                modal
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(8.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        action_button(row, "Resume (U)", HudButton::Resume, false);
+                        action_button(row, "Keep delaying (H)", HudButton::KeepDelay, false);
+                    });
+            });
+    }
+
+    if session.modal.is_none() && !session.delay_prompt && !session.shield_prompt {
+        if let Some(ready) = session.ready {
+            ready_panel(&mut commands, &session, ready);
+        }
+    }
+
     if let Some(message) = &session.modal {
         commands
             .spawn((
@@ -925,6 +1298,147 @@ fn sync_hud(
                 action_button(modal, "Continue", HudButton::Dismiss, false);
             });
     }
+}
+
+fn pick_trigger(session: &mut Session, hud: &mut HudBump, trigger: ReadyTrigger) {
+    session.ready = Some(ReadyUi::Action(trigger));
+    session.aim = Aim::None;
+    hud.0 += 1;
+}
+
+fn ready_offered(
+    session: &Session,
+    trigger: ReadyTrigger,
+    kind: impl Fn(&ReadiedAction) -> bool,
+) -> bool {
+    party_legal(session).iter().any(|action| match action {
+        Action::Ready {
+            action,
+            trigger: ready,
+        } => *ready == trigger && kind(action),
+        _ => false,
+    })
+}
+
+fn ready_panel(commands: &mut Commands, session: &Session, ready: ReadyUi) {
+    commands
+        .spawn((
+            HudRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(22.0),
+                bottom: Val::Px(92.0),
+                width: Val::Px(640.0),
+                padding: UiRect::all(Val::Px(12.0)),
+                border: UiRect::all(Val::Px(2.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(8.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.10, 0.08, 0.06)),
+            BorderColor(GOLD),
+        ))
+        .with_children(|panel| match ready {
+            ReadyUi::Trigger => {
+                text(panel, "Ready a trigger. Escape cancels.", 16.0, INK);
+                panel
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(8.0),
+                        row_gap: Val::Px(8.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        action_button(row, "Enters reach (E)", HudButton::ReadyEnters, false);
+                        action_button(row, "Leaves reach (W)", HudButton::ReadyLeaves, false);
+                        action_button(row, "Manipulate (Q)", HudButton::ReadyManipulate, false);
+                    });
+            }
+            ReadyUi::Action(trigger) => {
+                let label = match trigger {
+                    ReadyTrigger::EntersReach => "Enters reach",
+                    ReadyTrigger::LeavesReach => "Leaves reach",
+                    ReadyTrigger::ManipulateInReach => "Manipulate in reach",
+                };
+                text(
+                    panel,
+                    &format!("Readied action for {label}. Escape cancels."),
+                    16.0,
+                    INK,
+                );
+                panel
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: Val::Px(8.0),
+                        row_gap: Val::Px(8.0),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Stride { .. })
+                        }) {
+                            action_button(
+                                row,
+                                "Stride (M)",
+                                HudButton::Stride,
+                                session.aim == Aim::ReadyStride,
+                            );
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Step { .. })
+                        }) {
+                            action_button(
+                                row,
+                                "Step (T)",
+                                HudButton::Step,
+                                session.aim == Aim::ReadyStep,
+                            );
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Strike { .. })
+                        }) {
+                            action_button(
+                                row,
+                                "Strike (F)",
+                                HudButton::Strike,
+                                session.aim == Aim::ReadyStrike,
+                            );
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::RaiseShield)
+                        }) {
+                            action_button(row, "Raise Shield (R)", HudButton::RaiseShield, false);
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::DropProne)
+                        }) {
+                            action_button(row, "Drop Prone (P)", HudButton::DropProne, false);
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Stand)
+                        }) {
+                            action_button(row, "Stand (G)", HudButton::Stand, false);
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Seek)
+                        }) {
+                            action_button(row, "Seek (K)", HudButton::Seek, false);
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Interact)
+                        }) {
+                            action_button(row, "Interact (I)", HudButton::Interact, false);
+                        }
+                        if ready_offered(session, trigger, |action| {
+                            matches!(action, ReadiedAction::Release { .. })
+                        }) {
+                            action_button(row, "Release (X)", HudButton::Release, false);
+                        }
+                    });
+            }
+        });
 }
 
 fn portrait(parent: &mut ChildBuilder, session: &Session, mode: GameMode, slot: usize) {

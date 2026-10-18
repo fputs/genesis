@@ -27,7 +27,7 @@ cargo run -p game -- --help
 cargo run -p game -- --headless
 ```
 
-`--headless` loads `fixtures/encounters/room_one.json`, snaps a party that has walked onto the trigger, rolls initiative with seed 115, and resolves the fight. On the first party turn the log contains `drops prone` and `stands`. On one later party turn the log contains `seeks`. On one party turn, while that fighter is outside the Hall Guard's reach, the log contains `releases` and `picks up`. The last line is `headless ok`. There is no scripted window pass: `control-genesis` is not in this tree.
+`--headless` loads `fixtures/encounters/room_one.json`, snaps a party that has walked onto the trigger, rolls initiative with seed 115, and resolves the fight. On the first party turn the log contains `drops prone` and `stands`. On one later party turn the log contains `seeks`. On one party turn, while that fighter is outside the Hall Guard's reach, the log contains `releases` and `picks up`. On one later party turn the log contains `delays` and `resumes`. It does not Ready. The last line is `headless ok`. There is no scripted window pass: `control-genesis` is not in this tree.
 
 If `DISPLAY` and `WAYLAND_DISPLAY` are both unset, `cargo run -p game` runs that smoke and exits.
 
