@@ -38,11 +38,22 @@ pub struct Combatant {
     pub initiative_total: i32,
     pub reaction_ready: bool,
     pub features: Vec<ClassFeature>,
+    pub prone: bool,
+    /// Dying value while the creature is on the track. `0` when they are not dying. Death clears it.
+    pub dying: u8,
+    pub wounded: u32,
+    pub dead: bool,
 }
 
 impl Combatant {
+    /// Hit points above 0, and not dead.
     pub fn is_conscious(&self) -> bool {
-        self.hit_points > 0
+        self.hit_points > 0 && !self.dead
+    }
+
+    /// 0 hit points, and not dead.
+    pub fn is_unconscious(&self) -> bool {
+        self.hit_points <= 0 && !self.dead
     }
 }
 
@@ -56,9 +67,9 @@ pub enum Action {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// Every enemy is at 0 HP.
+    /// Every enemy is dead.
     Victory,
-    /// Every party slot is at 0 HP.
+    /// Every party slot is dead.
     Defeat,
 }
 
@@ -106,6 +117,17 @@ pub enum Event {
     },
     CombatantDowned {
         id: CombatantId,
+    },
+    CombatantDied {
+        id: CombatantId,
+    },
+    /// Flat recovery check at the start of a dying creature's turn.
+    RecoveryCheck {
+        id: CombatantId,
+        natural: u8,
+        dc: i32,
+        degree: Degree,
+        dying: u8,
     },
     TurnStarted {
         id: CombatantId,
@@ -190,7 +212,7 @@ impl Encounter {
         self.combatants.values()
     }
 
-    /// Four party slots, including any at 0 HP.
+    /// Four party slots, including any unconscious or dead member.
     pub fn party(&self) -> [CombatantId; 4] {
         self.party
     }
@@ -252,17 +274,14 @@ impl Encounter {
     }
 
     fn detect_outcome(&self) -> Option<Outcome> {
-        let party_up = self
-            .party
-            .iter()
-            .any(|id| self.combatants[id].is_conscious());
-        let enemy_up = self
+        let party_living = self.party.iter().any(|id| !self.combatants[id].dead);
+        let enemy_living = self
             .combatants
             .values()
-            .any(|combatant| combatant.side == Side::Enemy && combatant.is_conscious());
-        if !enemy_up {
+            .any(|combatant| combatant.side == Side::Enemy && !combatant.dead);
+        if !enemy_living {
             Some(Outcome::Victory)
-        } else if !party_up {
+        } else if !party_living {
             Some(Outcome::Defeat)
         } else {
             None
@@ -384,6 +403,10 @@ fn insert_combatant(
             initiative_total: total,
             reaction_ready: true,
             features: prepared.features,
+            prone: false,
+            dying: 0,
+            wounded: 0,
+            dead: false,
         },
     );
     Ok(())
@@ -393,8 +416,9 @@ fn insert_combatant(
 ///
 /// Stride lists every square up to Speed that can be reached. Step lists each walkable square
 /// whose open-plane distance is 5 feet, and only when Speed is at least 10. Allies can be crossed
-/// and not ended on. Conscious enemies cannot be entered. Strike lists each conscious opponent
-/// in reach.
+/// and not ended on. Conscious enemies cannot be entered. Strike lists each living opponent
+/// in reach, including an unconscious one. A dead creature is not a target. Unconscious and dead
+/// creatures have no legal Stride, Step, or Strike.
 pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     if encounter.outcome.is_some() || encounter.actions_remaining == 0 {
         return Vec::new();
@@ -461,9 +485,7 @@ pub fn legal_actions(encounter: &Encounter, id: CombatantId) -> Vec<Action> {
     let mut targets: Vec<CombatantId> = encounter
         .combatants
         .values()
-        .filter(|other| {
-            other.side != actor.side && other.is_conscious() && reach.contains(&other.position)
-        })
+        .filter(|other| other.side != actor.side && !other.dead && reach.contains(&other.position))
         .map(|other| other.id)
         .collect();
     targets.sort();
@@ -540,7 +562,6 @@ fn resolve_move(
             if resolve_reactive_strike(encounter, reactor, id, rng, events) {
                 encounter.combatants.get_mut(&id).unwrap().position = leaving;
                 encounter.actions_remaining -= 1;
-                events.push(Event::CombatantDowned { id });
                 return;
             }
         }
@@ -597,44 +618,21 @@ fn resolve_reactive_strike(
     encounter
         .spend_reaction(reactor)
         .expect("reactor has a ready reaction");
-    let map = 0;
-    let (attack_bonus, armor_class, formula) = {
-        let actor = &encounter.combatants[&reactor];
-        let defender = &encounter.combatants[&mover];
-        (
-            actor.strike.attack_bonus,
-            defender.armor_class,
-            actor.strike.damage.clone(),
-        )
-    };
-    let natural = rng.d20();
-    let total = i32::from(natural) + attack_bonus + map;
-    let degree = degree_of_success(natural, total, armor_class);
-    let damage = match degree {
-        Degree::Success => roll_damage(rng, &formula),
-        Degree::CriticalSuccess => roll_damage(rng, &formula).saturating_mul(2),
-        Degree::Failure | Degree::CriticalFailure => 0,
-    };
-    let target_hp = {
-        let defender = encounter.combatants.get_mut(&mover).unwrap();
-        if damage > 0 {
-            defender.hit_points = (defender.hit_points - damage).max(0);
-        }
-        defender.hit_points
-    };
+    let attack = resolve_attack(encounter, reactor, mover, 0, rng);
     events.push(Event::ReactiveStrike {
         attacker: reactor,
         target: mover,
-        natural,
-        attack_bonus,
-        map,
-        total,
-        armor_class,
-        degree,
-        damage,
-        target_hit_points: target_hp,
+        natural: attack.natural,
+        attack_bonus: attack.attack_bonus,
+        map: attack.map,
+        total: attack.total,
+        armor_class: attack.armor_class,
+        degree: attack.degree,
+        damage: attack.damage,
+        target_hit_points: attack.target_hit_points,
     });
-    target_hp == 0
+    push_harm(events, mover, attack.harm);
+    !encounter.combatants[&mover].is_conscious()
 }
 
 fn resolve_step(
@@ -663,38 +661,79 @@ fn resolve_strike(
     events: &mut Vec<Event>,
 ) {
     let map = multiple_attack_penalty(encounter.strikes_this_turn);
-    let (attack_bonus, armor_class, formula) = {
-        let actor = &encounter.combatants[&id];
+    let attack = resolve_attack(encounter, id, target, map, rng);
+    encounter.strikes_this_turn += 1;
+    encounter.actions_remaining -= 1;
+    let remaining = encounter.actions_remaining;
+    events.push(Event::StrikeResolved {
+        attacker: id,
+        target,
+        natural: attack.natural,
+        attack_bonus: attack.attack_bonus,
+        map: attack.map,
+        total: attack.total,
+        armor_class: attack.armor_class,
+        degree: attack.degree,
+        damage: attack.damage,
+        target_hit_points: attack.target_hit_points,
+        actions_remaining: remaining,
+    });
+    push_harm(events, target, attack.harm);
+}
+
+struct ResolvedAttack {
+    natural: u8,
+    attack_bonus: i32,
+    map: i32,
+    total: i32,
+    armor_class: i32,
+    degree: Degree,
+    damage: i32,
+    target_hit_points: i32,
+    harm: Harm,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Harm {
+    None,
+    NowDying,
+    Dead,
+}
+
+fn resolve_attack(
+    encounter: &mut Encounter,
+    attacker: CombatantId,
+    target: CombatantId,
+    map: i32,
+    rng: &mut impl Dice,
+) -> ResolvedAttack {
+    let armor_class = defense_ac(encounter, attacker, target);
+    let (attack_bonus, formula, unconscious) = {
+        let actor = &encounter.combatants[&attacker];
         let defender = &encounter.combatants[&target];
         (
             actor.strike.attack_bonus,
-            defender.armor_class,
             actor.strike.damage.clone(),
+            defender.is_unconscious(),
         )
     };
     let natural = rng.d20();
     let total = i32::from(natural) + attack_bonus + map;
-    let degree = degree_of_success(natural, total, armor_class);
+    let mut degree = degree_of_success(natural, total, armor_class);
+    if unconscious && degree == Degree::Success {
+        degree = Degree::CriticalSuccess;
+    }
     let damage = match degree {
         Degree::Success => roll_damage(rng, &formula),
         Degree::CriticalSuccess => roll_damage(rng, &formula).saturating_mul(2),
         Degree::Failure | Degree::CriticalFailure => 0,
     };
-
-    encounter.strikes_this_turn += 1;
-    encounter.actions_remaining -= 1;
-    let remaining = encounter.actions_remaining;
-
-    let target_hp = {
+    let (target_hit_points, harm) = {
         let defender = encounter.combatants.get_mut(&target).unwrap();
-        if damage > 0 {
-            defender.hit_points = (defender.hit_points - damage).max(0);
-        }
-        defender.hit_points
+        let harm = apply_harm(defender, degree, damage);
+        (defender.hit_points, harm)
     };
-    events.push(Event::StrikeResolved {
-        attacker: id,
-        target,
+    ResolvedAttack {
         natural,
         attack_bonus,
         map,
@@ -702,11 +741,207 @@ fn resolve_strike(
         armor_class,
         degree,
         damage,
-        target_hit_points: target_hp,
-        actions_remaining: remaining,
+        target_hit_points,
+        harm,
+    }
+}
+
+fn defense_ac(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> i32 {
+    let base = encounter.combatants[&target].armor_class;
+    if off_guard(encounter, attacker, target) {
+        base - 2
+    } else {
+        base
+    }
+}
+
+/// Prone, unconscious, or flanked by this attacker. The circumstance penalty applies once.
+fn off_guard(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> bool {
+    let defender = &encounter.combatants[&target];
+    defender.prone || defender.is_unconscious() || flanked_by(encounter, attacker, target)
+}
+
+fn flanked_by(encounter: &Encounter, attacker: CombatantId, target: CombatantId) -> bool {
+    let Some(attacker) = encounter.combatants.get(&attacker) else {
+        return false;
+    };
+    let Some(target) = encounter.combatants.get(&target) else {
+        return false;
+    };
+    if !attacker.is_conscious() || attacker.side == target.side {
+        return false;
+    }
+    if minimum_feet(attacker.position, target.position) > attacker.strike.reach_feet {
+        return false;
+    }
+    let attacker_id = attacker.id;
+    let attacker_side = attacker.side;
+    let attacker_pos = attacker.position;
+    let target_id = target.id;
+    let target_pos = target.position;
+    encounter.combatants.values().any(|ally| {
+        ally.id != attacker_id
+            && ally.id != target_id
+            && ally.side == attacker_side
+            && ally.is_conscious()
+            && minimum_feet(ally.position, target_pos) <= ally.strike.reach_feet
+            && centers_cross_opposite(attacker_pos, target_pos, ally.position)
+    })
+}
+
+/// Line between square centers crosses opposite sides or opposite corners of `target`.
+///
+/// Centers are stored on odd coordinates so the square's edges stay on even ones.
+fn centers_cross_opposite(attacker: GridPos, target: GridPos, ally: GridPos) -> bool {
+    let ax = attacker.x * 2 + 1;
+    let ay = attacker.y * 2 + 1;
+    let bx = ally.x * 2 + 1;
+    let by = ally.y * 2 + 1;
+    let left = target.x * 2;
+    let right = left + 2;
+    let bottom = target.y * 2;
+    let top = bottom + 2;
+    crosses_opposite(ax, ay, bx, by, left, right, bottom, top)
+        || crosses_opposite(ay, ax, by, bx, bottom, top, left, right)
+}
+
+fn crosses_opposite(
+    ax: i32,
+    ay: i32,
+    bx: i32,
+    by: i32,
+    near: i32,
+    far: i32,
+    low: i32,
+    high: i32,
+) -> bool {
+    segment_hits_edge(ax, ay, bx, by, near, low, high)
+        && segment_hits_edge(ax, ay, bx, by, far, low, high)
+}
+
+fn segment_hits_edge(ax: i32, ay: i32, bx: i32, by: i32, edge: i32, low: i32, high: i32) -> bool {
+    let vx = bx - ax;
+    let vy = by - ay;
+    if vx == 0 {
+        return false;
+    }
+    let dx = edge - ax;
+    if dx.signum() != vx.signum() || dx.abs() >= vx.abs() {
+        return false;
+    }
+    let y_num = ay * vx + dx * vy;
+    if vx > 0 {
+        y_num >= low * vx && y_num <= high * vx
+    } else {
+        y_num <= low * vx && y_num >= high * vx
+    }
+}
+
+fn push_harm(events: &mut Vec<Event>, id: CombatantId, harm: Harm) {
+    match harm {
+        Harm::NowDying => events.push(Event::CombatantDowned { id }),
+        Harm::Dead => events.push(Event::CombatantDied { id }),
+        Harm::None => {}
+    }
+}
+
+fn apply_harm(defender: &mut Combatant, degree: Degree, damage: i32) -> Harm {
+    if damage <= 0 || defender.dead {
+        return Harm::None;
+    }
+    if defender.hit_points > 0 && damage >= defender.max_hit_points.saturating_mul(2) {
+        defender.hit_points = 0;
+        defender.prone = true;
+        defender.dying = 0;
+        defender.dead = true;
+        return Harm::Dead;
+    }
+    if defender.hit_points > 0 {
+        let remaining = defender.hit_points - damage;
+        if remaining > 0 {
+            defender.hit_points = remaining;
+            return Harm::None;
+        }
+        defender.hit_points = 0;
+        return gain_dying(defender, degree);
+    }
+    if defender.dying > 0 {
+        let gain = if degree == Degree::CriticalSuccess {
+            2
+        } else {
+            1
+        };
+        let dying = u32::from(defender.dying) + gain;
+        if dying >= 4 {
+            defender.dying = 0;
+            defender.dead = true;
+            defender.prone = true;
+            return Harm::Dead;
+        }
+        defender.dying = dying as u8;
+        return Harm::None;
+    }
+    gain_dying(defender, degree)
+}
+
+fn gain_dying(defender: &mut Combatant, degree: Degree) -> Harm {
+    let base = if degree == Degree::CriticalSuccess {
+        2
+    } else {
+        1
+    };
+    let dying = base + defender.wounded;
+    defender.wounded = defender.wounded.saturating_add(1);
+    defender.hit_points = 0;
+    defender.prone = true;
+    if dying >= 4 {
+        defender.dying = 0;
+        defender.dead = true;
+        Harm::Dead
+    } else {
+        defender.dying = dying as u8;
+        Harm::NowDying
+    }
+}
+
+fn recovery_check(
+    encounter: &mut Encounter,
+    id: CombatantId,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) {
+    let dying = encounter.combatants[&id].dying;
+    let dc = 10 + i32::from(dying);
+    let natural = rng.d20();
+    let degree = degree_of_success(natural, i32::from(natural), dc);
+    let delta: i32 = match degree {
+        Degree::CriticalSuccess => -2,
+        Degree::Success => -1,
+        Degree::Failure => 1,
+        Degree::CriticalFailure => 2,
+    };
+    let next = i32::from(dying) + delta;
+    let combatant = encounter.combatants.get_mut(&id).unwrap();
+    if next <= 0 {
+        combatant.dying = 0;
+    } else if next >= 4 {
+        combatant.dying = 0;
+        combatant.dead = true;
+        combatant.hit_points = 0;
+        combatant.prone = true;
+    } else {
+        combatant.dying = next as u8;
+    }
+    let dying_after = encounter.combatants[&id].dying;
+    events.push(Event::RecoveryCheck {
+        id,
+        natural,
+        dc,
+        degree,
+        dying: dying_after,
     });
-    if target_hp == 0 {
-        events.push(Event::CombatantDowned { id: target });
+    if encounter.combatants[&id].dead {
+        events.push(Event::CombatantDied { id });
     }
 }
 
@@ -736,9 +971,10 @@ fn blockers(encounter: &Encounter, id: CombatantId) -> (HashSet<GridPos>, HashSe
 
 /// Ends the active turn when no actions remain or none of the remaining actions are legal.
 ///
-/// Conscious combatants with no legal action are skipped. Downed combatants are skipped and stay
+/// A dying creature's turn starts with a recovery check, then passes when they still cannot act.
+/// Dead creatures and unconscious creatures who are not dying are skipped. A party member stays
 /// in the party array. A wrap past the end of the order starts the next round.
-pub fn advance_if_turn_done(encounter: &mut Encounter) -> Vec<Event> {
+pub fn advance_if_turn_done(encounter: &mut Encounter, rng: &mut impl Dice) -> Vec<Event> {
     let mut events = Vec::new();
     if finish_if_over(encounter, &mut events) {
         return events;
@@ -747,13 +983,14 @@ pub fn advance_if_turn_done(encounter: &mut Encounter) -> Vec<Event> {
     let guard = encounter.initiative.len().max(1);
     for _ in 0..guard {
         let active = encounter.initiative[encounter.current];
+        let actor = &encounter.combatants[&active];
         let done = encounter.actions_remaining == 0
-            || !encounter.combatants[&active].is_conscious()
+            || !actor.is_conscious()
             || legal_actions(encounter, active).is_empty();
         if !done {
             break;
         }
-        if !advance_to_next(encounter, &mut events) {
+        if !advance_to_next(encounter, rng, &mut events) {
             break;
         }
         if finish_if_over(encounter, &mut events) {
@@ -764,7 +1001,7 @@ pub fn advance_if_turn_done(encounter: &mut Encounter) -> Vec<Event> {
 }
 
 /// Sets actions to zero and advances, spending the rest of the active turn.
-pub fn end_turn(encounter: &mut Encounter) -> Result<Vec<Event>, Illegal> {
+pub fn end_turn(encounter: &mut Encounter, rng: &mut impl Dice) -> Result<Vec<Event>, Illegal> {
     if encounter.outcome.is_some() {
         return Err(Illegal::EncounterOver);
     }
@@ -772,7 +1009,7 @@ pub fn end_turn(encounter: &mut Encounter) -> Result<Vec<Event>, Illegal> {
         return Err(Illegal::EncounterOver);
     }
     encounter.actions_remaining = 0;
-    Ok(advance_if_turn_done(encounter))
+    Ok(advance_if_turn_done(encounter, rng))
 }
 
 fn finish_if_over(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
@@ -787,7 +1024,11 @@ fn finish_if_over(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
     false
 }
 
-fn advance_to_next(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
+fn advance_to_next(
+    encounter: &mut Encounter,
+    rng: &mut impl Dice,
+    events: &mut Vec<Event>,
+) -> bool {
     let len = encounter.initiative.len();
     let mut idx = encounter.current;
     let mut wrapped = false;
@@ -798,21 +1039,81 @@ fn advance_to_next(encounter: &mut Encounter, events: &mut Vec<Event>) -> bool {
             wrapped = true;
         }
         let id = encounter.initiative[idx];
+        let combatant = &encounter.combatants[&id];
+        if combatant.dead || (combatant.is_unconscious() && combatant.dying == 0) {
+            continue;
+        }
+        encounter.current = idx;
+        if wrapped {
+            encounter.round += 1;
+            wrapped = false;
+        }
+        encounter.strikes_this_turn = 0;
+        encounter.combatants.get_mut(&id).unwrap().reaction_ready = true;
+        let conscious = encounter.combatants[&id].is_conscious();
+        let actions = if conscious { 3 } else { 0 };
+        encounter.actions_remaining = actions;
+        events.push(Event::TurnStarted {
+            id,
+            round: encounter.round,
+            actions,
+        });
+        if encounter.combatants[&id].dying > 0 {
+            recovery_check(encounter, id, rng, events);
+        }
+        if finish_if_over(encounter, events) {
+            return false;
+        }
         if encounter.combatants[&id].is_conscious() {
-            encounter.current = idx;
-            if wrapped {
-                encounter.round += 1;
-            }
             encounter.actions_remaining = 3;
-            encounter.strikes_this_turn = 0;
-            encounter.combatants.get_mut(&id).unwrap().reaction_ready = true;
-            events.push(Event::TurnStarted {
-                id,
-                round: encounter.round,
-                actions: 3,
-            });
             return true;
         }
+        encounter.actions_remaining = 0;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flank_lines_cross_opposite_sides_or_corners_only() {
+        let target = GridPos::new(2, 2);
+        assert!(centers_cross_opposite(
+            GridPos::new(1, 2),
+            target,
+            GridPos::new(3, 2)
+        ));
+        assert!(centers_cross_opposite(
+            GridPos::new(2, 4),
+            target,
+            GridPos::new(2, 0)
+        ));
+        assert!(centers_cross_opposite(
+            GridPos::new(3, 3),
+            target,
+            GridPos::new(1, 1)
+        ));
+        assert!(centers_cross_opposite(
+            GridPos::new(1, 3),
+            target,
+            GridPos::new(3, 1)
+        ));
+        assert!(!centers_cross_opposite(
+            GridPos::new(1, 2),
+            target,
+            GridPos::new(2, 1)
+        ));
+        assert!(!centers_cross_opposite(
+            GridPos::new(1, 2),
+            target,
+            GridPos::new(1, 3)
+        ));
+        assert!(!centers_cross_opposite(
+            GridPos::new(1, 1),
+            target,
+            GridPos::new(3, 2)
+        ));
+    }
 }

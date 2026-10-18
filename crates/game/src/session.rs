@@ -298,13 +298,13 @@ fn combat_tick(
         return;
     }
 
-    let mut events = advance_if_turn_done(&mut encounter);
+    let mut events = advance_if_turn_done(&mut encounter, &mut session.rng);
     let mut waiting = false;
     if events.is_empty() {
         if end_turn_request.0 {
             end_turn_request.0 = false;
             session.aim = Aim::None;
-            match end_turn(&mut encounter) {
+            match end_turn(&mut encounter, &mut session.rng) {
                 Ok(resolved) => events.extend(resolved),
                 Err(_) => session.modal = Some("The turn will not end.".into()),
             }
@@ -331,7 +331,7 @@ fn combat_tick(
                         {
                             events.extend(resolved);
                         }
-                    } else if let Ok(resolved) = end_turn(&mut encounter) {
+                    } else if let Ok(resolved) = end_turn(&mut encounter, &mut session.rng) {
                         events.extend(resolved);
                     }
                 } else {
@@ -341,7 +341,7 @@ fn combat_tick(
         }
     }
     if !waiting && encounter.outcome().is_none() {
-        events.extend(advance_if_turn_done(&mut encounter));
+        events.extend(advance_if_turn_done(&mut encounter, &mut session.rng));
     }
 
     let outcome = encounter.outcome();
@@ -409,9 +409,12 @@ fn left_square_this_turn(
     false
 }
 
-/// Leave a threatened square once per turn, then Strike or close.
+/// Finish a dying or unconscious enemy, then leave a threatened square once per turn, then Strike or close.
 fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Option<Action> {
     let legal = legal_actions(encounter, id);
+    if let Some(action) = strike_unconscious(encounter, &legal) {
+        return Some(action);
+    }
     if !left_square {
         if let Some(action) = stride_out_of_reach(encounter, id, &legal) {
             return Some(action);
@@ -465,6 +468,15 @@ fn enemy_action(encounter: &Encounter, id: CombatantId, left_square: bool) -> Op
         })
         .min_by_key(|(dist, destination)| (*dist, destination.x, destination.y))
         .map(|(_, destination)| Action::Stride { destination })
+}
+
+fn strike_unconscious(encounter: &Encounter, legal: &[Action]) -> Option<Action> {
+    legal.iter().copied().find(|action| match action {
+        Action::Strike { target } => encounter
+            .combatant(*target)
+            .is_some_and(|combatant| combatant.is_unconscious()),
+        Action::Stride { .. } | Action::Step { .. } => false,
+    })
 }
 
 fn stride_out_of_reach(encounter: &Encounter, id: CombatantId, legal: &[Action]) -> Option<Action> {
@@ -580,7 +592,19 @@ fn describe(encounter: &Encounter, event: &Event) -> String {
             name(*attacker),
             name(*target),
         ),
-        Event::CombatantDowned { id } => format!("{} is down.", name(*id)),
+        Event::CombatantDowned { id } => format!("{} is dying.", name(*id)),
+        Event::CombatantDied { id } => format!("{} is dead.", name(*id)),
+        Event::RecoveryCheck {
+            id, degree, dying, ..
+        } => {
+            let word = match degree {
+                rules::Degree::CriticalSuccess => "critical success",
+                rules::Degree::Success => "success",
+                rules::Degree::Failure => "failure",
+                rules::Degree::CriticalFailure => "critical failure",
+            };
+            format!("{} recovery {word}. Dying {dying}.", name(*id))
+        }
         Event::TurnStarted { id, round, actions } => {
             format!("Round {round}. {} — {actions} actions.", name(*id))
         }
@@ -739,7 +763,7 @@ pub fn headless_report() -> Result<String, String> {
         .join(", ");
     lines.push(format!("initiative: {order}"));
 
-    for _ in 0..8 {
+    for _ in 0..400 {
         if encounter.outcome().is_some() {
             break;
         }
@@ -751,18 +775,12 @@ pub fn headless_report() -> Result<String, String> {
             declare_action(&mut encounter, active, action, &mut rng)
                 .map_err(|error| error.to_string())?
         } else {
-            end_turn(&mut encounter).map_err(|error| error.to_string())?
+            end_turn(&mut encounter, &mut rng).map_err(|error| error.to_string())?
         };
         for event in &events {
             lines.push(describe(&encounter, event));
         }
-        if events
-            .iter()
-            .any(|event| matches!(event, Event::StrikeResolved { .. }))
-        {
-            break;
-        }
-        let more = advance_if_turn_done(&mut encounter);
+        let more = advance_if_turn_done(&mut encounter, &mut rng);
         for event in &more {
             lines.push(describe(&encounter, event));
         }
@@ -928,7 +946,7 @@ mod tests {
         .unwrap();
         let guard = CombatantId(4);
         while encounter.active() != Some(guard) {
-            end_turn(&mut encounter).unwrap();
+            end_turn(&mut encounter, &mut dice).unwrap();
         }
 
         let square = encounter.combatant(guard).unwrap().position;
@@ -990,5 +1008,98 @@ mod tests {
             closing_action(&encounter, guard),
             Some(Action::Strike { .. })
         ));
+    }
+
+    #[test]
+    fn guard_strikes_a_dying_fighter_before_leaving_reach() {
+        let fighter = |name: &str, hit_points: i32| CreatureTemplate {
+            name: name.into(),
+            level: 1,
+            hit_points,
+            armor_class: 18,
+            perception: 5,
+            speed_feet: 25,
+            strike: StrikeTemplate {
+                name: "longsword".into(),
+                attack_bonus: 7,
+                damage: DamageFormula {
+                    dice: 1,
+                    faces: 8,
+                    bonus: 4,
+                },
+                reach_feet: 5,
+            },
+            side: Side::Party,
+            features: vec![ClassFeature::ReactiveStrike],
+        };
+        let party = [
+            fighter("Sera Voss", 20),
+            fighter("Bram Holt", 8),
+            fighter("Quill Ames", 20),
+            fighter("Doss Kade", 20),
+        ];
+        let guard_template = CreatureTemplate {
+            name: "Hall Guard".into(),
+            level: 1,
+            hit_points: 18,
+            armor_class: 14,
+            perception: 3,
+            speed_feet: 25,
+            strike: StrikeTemplate {
+                name: "spear".into(),
+                attack_bonus: 12,
+                damage: DamageFormula {
+                    dice: 1,
+                    faces: 4,
+                    bonus: 10,
+                },
+                reach_feet: 5,
+            },
+            side: Side::Enemy,
+            features: Vec::new(),
+        };
+        let mut dice = rules::ScriptedDice::new([1, 1, 1, 1, 20]);
+        let mut encounter = start_encounter(
+            &party,
+            &[guard_template],
+            &[
+                GridPos::new(3, 3),
+                GridPos::new(4, 3),
+                GridPos::new(0, 0),
+                GridPos::new(0, 7),
+            ],
+            &[GridPos::new(3, 2)],
+            Grid::new(8, 8, []),
+            &mut dice,
+        )
+        .unwrap();
+        let guard = CombatantId(4);
+        while encounter.active() != Some(guard) {
+            end_turn(&mut encounter, &mut dice).unwrap();
+        }
+        assert!(!reactors_for_left_square(&encounter, guard, GridPos::new(3, 2)).is_empty());
+
+        // 12 + 12 = 24 vs AC 18 is a success. Damage 1 + 10 = 11 drops 8 HP and is short of massive damage.
+        let mut dice = rules::ScriptedDice::new([12, 1]);
+        declare_action(
+            &mut encounter,
+            guard,
+            Action::Strike {
+                target: CombatantId(1),
+            },
+            &mut dice,
+        )
+        .unwrap();
+        assert!(encounter
+            .combatant(CombatantId(1))
+            .unwrap()
+            .is_unconscious());
+        assert!(!encounter.combatant(CombatantId(1)).unwrap().dead);
+        assert_eq!(
+            enemy_action(&encounter, guard, false),
+            Some(Action::Strike {
+                target: CombatantId(1)
+            })
+        );
     }
 }

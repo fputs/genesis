@@ -1,4 +1,4 @@
-//! Seeded encounter sequences for the Stride, Step, Strike, and Reactive Strike subset.
+//! Seeded encounter sequences for Stride, Step, Strike, Reactive Strike, and the dying track.
 
 use rules::{
     advance_if_turn_done, declare_action, end_turn, legal_actions, prepare_combatant,
@@ -485,8 +485,14 @@ fn strike_hits_misses_and_doubles_damage_on_a_critical_success() {
     assert!(events
         .iter()
         .any(|event| matches!(event, Event::CombatantDowned { id } if *id == CombatantId(4))));
-    assert_eq!(encounter.outcome(), Some(Outcome::Victory));
-    assert!(encounter.active().is_none());
+    let guard = encounter.combatant(CombatantId(4)).unwrap();
+    assert_eq!(guard.hit_points, 0);
+    assert_eq!(guard.dying, 2);
+    assert_eq!(guard.wounded, 1);
+    assert!(guard.prone);
+    assert!(!guard.dead);
+    assert!(encounter.outcome().is_none());
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
 }
 
 /// Player Core, "Multiple Attack Penalty".
@@ -652,7 +658,7 @@ fn downed_party_slot_remains_and_is_skipped() {
     .unwrap();
     assert_eq!(encounter.active(), Some(CombatantId(4)));
 
-    let mut dice = ScriptedDice::new([10, 1]);
+    let mut dice = ScriptedDice::new([10, 1, 11]);
     let events = declare_action(
         &mut encounter,
         CombatantId(4),
@@ -670,7 +676,7 @@ fn downed_party_slot_remains_and_is_skipped() {
     assert_eq!(encounter.party()[0], CombatantId(0));
     assert!(encounter.outcome().is_none());
 
-    let events = end_turn(&mut encounter).unwrap();
+    let events = end_turn(&mut encounter, &mut dice).unwrap();
     assert!(events.iter().any(|event| matches!(
         event,
         Event::TurnStarted { id, .. } if *id == CombatantId(1)
@@ -713,12 +719,12 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
         .unwrap();
     }
     assert!(encounter.outcome().is_none());
-    let started = advance_if_turn_done(&mut encounter);
+    let started = advance_if_turn_done(&mut encounter, &mut dice);
     assert!(started.iter().any(|event| matches!(
         event,
         Event::TurnStarted { id, .. } if *id == CombatantId(3)
     )));
-    end_turn(&mut encounter).unwrap();
+    end_turn(&mut encounter, &mut dice).unwrap();
     assert_eq!(encounter.active(), Some(CombatantId(4)));
     let events = declare_action(
         &mut encounter,
@@ -741,7 +747,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
         .iter()
         .all(|id| encounter.combatant(*id).unwrap().hit_points == 0));
 
-    // Separate fight: one Strike drops the enemy.
+    // Separate fight: dropping the enemy to 0 HP does not end it. Death does.
     let mut frail = guard();
     frail.hit_points = 10;
     let mut dice = ScriptedDice::new([20, 1, 1, 1, 1]);
@@ -759,7 +765,28 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
         &mut dice,
     )
     .unwrap();
-    let mut dice = ScriptedDice::new([15, 8]);
+    let mut dice = ScriptedDice::new([15, 8, 10, 1, 16, 1]);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.outcome().is_none());
+    assert!(!encounter.combatant(CombatantId(4)).unwrap().dead);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.outcome().is_none());
     let events = declare_action(
         &mut encounter,
         CombatantId(0),
@@ -775,7 +802,7 @@ fn party_wipe_ends_in_defeat_and_enemy_defeat_ends_in_victory() {
             outcome: Outcome::Victory
         }
     )));
-    assert_eq!(encounter.actions_remaining(), 2);
+    assert!(encounter.combatant(CombatantId(4)).unwrap().dead);
 }
 
 #[test]
@@ -808,7 +835,7 @@ fn ending_the_turn_early_advances_and_resets_the_action_economy() {
     // The first actor might not be able to move to (0, 1) if they did not start at x=0.
     // End the turn from whoever is active.
     let active = encounter.active().unwrap();
-    let events = end_turn(&mut encounter).unwrap();
+    let events = end_turn(&mut encounter, &mut dice).unwrap();
     assert!(events
         .iter()
         .any(|event| matches!(event, Event::TurnStarted { .. })));
@@ -893,7 +920,7 @@ fn reaction_returns_at_the_start_of_your_turn() {
         Err(Illegal::NoReaction)
     );
 
-    let events = end_turn(&mut encounter).unwrap();
+    let events = end_turn(&mut encounter, &mut dice).unwrap();
     assert!(events.iter().any(|event| matches!(
         event,
         Event::TurnStarted { id, .. } if *id == CombatantId(1)
@@ -902,7 +929,7 @@ fn reaction_returns_at_the_start_of_your_turn() {
     assert_eq!(encounter.reaction_ready(CombatantId(1)), Some(true));
     assert_eq!(encounter.reaction_ready(CombatantId(2)), Some(false));
 
-    let events = end_turn(&mut encounter).unwrap();
+    let events = end_turn(&mut encounter, &mut dice).unwrap();
     assert!(events.iter().any(|event| matches!(
         event,
         Event::TurnStarted { id, .. } if *id == CombatantId(2)
@@ -911,7 +938,7 @@ fn reaction_returns_at_the_start_of_your_turn() {
     assert_eq!(encounter.reaction_ready(CombatantId(0)), Some(false));
 
     while encounter.active() != Some(CombatantId(0)) {
-        end_turn(&mut encounter).unwrap();
+        end_turn(&mut encounter, &mut dice).unwrap();
     }
     assert_eq!(encounter.round(), 2);
     assert_eq!(encounter.actions_remaining(), 3);
@@ -1221,6 +1248,516 @@ fn step_does_not_provoke() {
         encounter.combatant(CombatantId(4)).unwrap().position,
         GridPos::new(3, 1)
     );
+}
+
+fn adjacent(enemy: CreatureTemplate, dice: &mut ScriptedDice) -> rules::Encounter {
+    start_encounter(
+        &party(),
+        &[enemy],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        dice,
+    )
+    .unwrap()
+}
+
+/// Player Core, knocked out: a hit from positive HP to 0 sets dying 1 plus wounded, then wounded increases.
+#[test]
+fn a_hit_that_drops_a_creature_sets_dying_and_wounded() {
+    let mut enemy = guard();
+    enemy.hit_points = 8;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = adjacent(enemy, &mut dice);
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+
+    // 10 + 7 = 17 vs AC 14 success. Damage 4 + 4 = 8.
+    let mut dice = ScriptedDice::new([10, 4]);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::CombatantDowned { id } if *id == CombatantId(4)
+    )));
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, Event::CombatantDied { .. })));
+    let guard = encounter.combatant(CombatantId(4)).unwrap();
+    assert_eq!(guard.hit_points, 0);
+    assert!(guard.is_unconscious());
+    assert!(!guard.is_conscious());
+    assert!(guard.prone);
+    assert_eq!(guard.dying, 1);
+    assert_eq!(guard.wounded, 1);
+    assert!(!guard.dead);
+    assert!(encounter.outcome().is_none());
+}
+
+/// Player Core, knocked out: a critical success that drops a creature sets dying 2 plus wounded.
+#[test]
+fn a_critical_hit_that_drops_a_creature_sets_dying_two_plus_wounded() {
+    let mut enemy = guard();
+    enemy.hit_points = 12;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = adjacent(enemy, &mut dice);
+
+    // Natural 20 is a critical success. Damage 4 + 4 = 8, doubled to 16.
+    let mut dice = ScriptedDice::new([20, 4]);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    let guard = encounter.combatant(CombatantId(4)).unwrap();
+    assert_eq!(guard.hit_points, 0);
+    assert_eq!(guard.dying, 2);
+    assert_eq!(guard.wounded, 1);
+    assert!(guard.prone);
+    assert!(!guard.dead);
+    assert!(encounter.outcome().is_none());
+}
+
+/// Wounded from an earlier drop is added the next time the creature gains dying.
+#[test]
+fn wounded_increases_the_next_dying_value() {
+    let mut enemy = guard();
+    enemy.hit_points = 8;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = adjacent(enemy, &mut dice);
+
+    // Drop: dying 1, wounded 1. Recovery 11 vs DC 11 is a success, so dying falls to 0.
+    // The later hit is a critical success against the unconscious creature: dying 2 + wounded 1.
+    let mut dice = ScriptedDice::new([10, 4, 11, 12, 3]);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.combatant(CombatantId(4)).unwrap().dying, 1);
+    assert_eq!(encounter.combatant(CombatantId(4)).unwrap().wounded, 1);
+
+    while encounter.round() == 1 || encounter.active() != Some(CombatantId(0)) {
+        end_turn(&mut encounter, &mut dice).unwrap();
+    }
+    let stable = encounter.combatant(CombatantId(4)).unwrap();
+    assert_eq!(stable.dying, 0);
+    assert_eq!(stable.wounded, 1);
+    assert_eq!(stable.hit_points, 0);
+    assert!(stable.prone);
+    assert!(stable.is_unconscious());
+    assert!(!stable.dead);
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &events[0] {
+        Event::StrikeResolved { degree, .. } => assert_eq!(*degree, Degree::CriticalSuccess),
+        other => panic!("unexpected {other:?}"),
+    }
+    let guard = encounter.combatant(CombatantId(4)).unwrap();
+    assert_eq!(guard.dying, 3);
+    assert_eq!(guard.wounded, 2);
+    assert!(!guard.dead);
+    assert!(encounter.outcome().is_none());
+}
+
+/// Damage while dying increases dying and does not increase wounded. A success becomes a critical success.
+#[test]
+fn damage_while_dying_increases_dying_without_wounded() {
+    let mut enemy = guard();
+    enemy.hit_points = 8;
+    enemy.armor_class = 18;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = adjacent(enemy, &mut dice);
+
+    // 11 + 7 = 18 vs AC 18 success. Damage 4 + 4 = 8. Dying 1, wounded 1.
+    // 10 + 7 - 5 = 12 vs off-guard AC 16 would miss. The penalty is −2 once, so AC 16, not 14.
+    // Use a roll that hits the penalized AC: 14 + 7 - 5 = 16 vs AC 16 success, which upgrades to a critical success.
+    let mut dice = ScriptedDice::new([11, 4, 14, 1]);
+    declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &events[0] {
+        Event::StrikeResolved {
+            degree,
+            armor_class,
+            damage,
+            ..
+        } => {
+            assert_eq!(*degree, Degree::CriticalSuccess);
+            assert_eq!(*armor_class, 16);
+            assert_eq!(*damage, 10);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    let guard = encounter.combatant(CombatantId(4)).unwrap();
+    assert_eq!(guard.dying, 3);
+    assert_eq!(guard.wounded, 1);
+    assert!(!guard.dead);
+}
+
+/// Dying 4 kills. The corpse stays in its square and the party still has four slots.
+#[test]
+fn dying_four_kills_and_a_dead_party_slot_remains() {
+    let mut enemy = guard();
+    enemy.hit_points = 30;
+    enemy.strike = strike("glaive", 12, 1, 4, 20);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 20]);
+    let mut encounter = adjacent(enemy, &mut dice);
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+
+    // 10 + 12 = 22 vs AC 18 success. Damage 1 + 20 = 21. Dying 1, wounded 1.
+    // A success against unconscious becomes a critical success, so later hits add 2 dying.
+    // 10 + 12 − 5 = 17 vs off-guard AC 16. Damage doubled to 42. Dying 3.
+    // 16 + 12 − 10 = 18 vs AC 16. Dying 5, which kills.
+    let mut dice = ScriptedDice::new([10, 1, 10, 1, 16, 1]);
+    declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(encounter.outcome().is_none());
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().dying, 1);
+    assert_eq!(encounter.party().len(), 4);
+    assert_eq!(encounter.party()[0], CombatantId(0));
+
+    declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().dying, 3);
+    assert_eq!(encounter.combatant(CombatantId(0)).unwrap().wounded, 1);
+    assert!(encounter.outcome().is_none());
+
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::CombatantDied { id } if *id == CombatantId(0))));
+    let slain = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(slain.dead);
+    assert_eq!(slain.dying, 0);
+    assert_eq!(slain.hit_points, 0);
+    assert_eq!(slain.position, GridPos::new(1, 1));
+    assert_eq!(encounter.party().len(), 4);
+    assert!(encounter.party().contains(&CombatantId(0)));
+    assert!(encounter.outcome().is_none());
+    assert!(
+        !legal_actions(&encounter, CombatantId(4)).contains(&Action::Strike {
+            target: CombatantId(0)
+        })
+    );
+    let err = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap_err();
+    assert_eq!(err, Illegal::NotLegal);
+}
+
+/// Player Core, recovery check: DC 10 + dying, one step per degree.
+#[test]
+fn recovery_checks_cover_each_degree() {
+    // Dying 2. DC 12.
+    // Natural 20: success improved to a critical success, dying 0.
+    // Natural 12: success, dying 1.
+    // Natural 11: failure, dying 3.
+    // Natural 1: critical failure, dying 4, dead.
+    let cases = [
+        (20, Degree::CriticalSuccess, 0, false),
+        (12, Degree::Success, 1, false),
+        (11, Degree::Failure, 3, false),
+        (1, Degree::CriticalFailure, 0, true),
+    ];
+    for (roll, degree, dying, dead) in cases {
+        let mut enemy = guard();
+        enemy.hit_points = 16;
+        let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+        let mut encounter = adjacent(enemy, &mut dice);
+        // Natural 20, damage 6 + 4 = 10 doubled to 20. Dying 2, wounded 1.
+        let mut dice = ScriptedDice::new([20, 6, roll]);
+        declare_action(
+            &mut encounter,
+            CombatantId(0),
+            Action::Strike {
+                target: CombatantId(4),
+            },
+            &mut dice,
+        )
+        .unwrap();
+        assert_eq!(encounter.combatant(CombatantId(4)).unwrap().dying, 2);
+
+        let mut events = Vec::new();
+        for _ in 0..6 {
+            events = end_turn(&mut encounter, &mut dice).unwrap();
+            if events.iter().any(
+                |event| matches!(event, Event::RecoveryCheck { id, .. } if *id == CombatantId(4)),
+            ) {
+                break;
+            }
+        }
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                Event::RecoveryCheck {
+                    id,
+                    natural,
+                    dc,
+                    degree: rolled,
+                    dying: now,
+                } if *id == CombatantId(4)
+                    && *natural == roll
+                    && *dc == 12
+                    && *rolled == degree
+                    && *now == dying
+            )),
+            "recovery for roll {roll} missing in {events:?}"
+        );
+        let guard = encounter.combatant(CombatantId(4)).unwrap();
+        assert_eq!(guard.dying, dying);
+        assert_eq!(guard.dead, dead);
+        assert_eq!(guard.wounded, 1);
+        assert!(guard.prone);
+        assert_eq!(guard.hit_points, 0);
+        if !dead {
+            assert!(guard.is_unconscious());
+            assert!(!guard.is_conscious());
+            assert!(legal_actions(&encounter, CombatantId(4)).is_empty());
+        }
+    }
+}
+
+/// Player Core, massive damage: one hit of at least twice maximum HP kills, and dying is not applied.
+#[test]
+fn massive_damage_kills_without_dying() {
+    let mut enemy = guard();
+    enemy.strike = strike("glaive", 12, 1, 4, 40);
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 20]);
+    let mut encounter = adjacent(enemy, &mut dice);
+    assert_eq!(encounter.active(), Some(CombatantId(4)));
+
+    let mut dice = ScriptedDice::new([10, 1]);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(4),
+        Action::Strike {
+            target: CombatantId(0),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events
+        .iter()
+        .any(|event| matches!(event, Event::CombatantDied { id } if *id == CombatantId(0))));
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, Event::CombatantDowned { .. })));
+    let slain = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(slain.dead);
+    assert_eq!(slain.dying, 0);
+    assert_eq!(slain.wounded, 0);
+    assert_eq!(slain.hit_points, 0);
+    assert_eq!(encounter.party().len(), 4);
+    assert!(encounter.outcome().is_none());
+}
+
+/// Off-guard is −2 for a flanking attacker and not for an attacker outside that pair.
+#[test]
+fn flanking_off_guard_applies_only_to_the_flanking_attacker() {
+    let mut enemy = guard();
+    enemy.hit_points = 80;
+    enemy.armor_class = 18;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &party(),
+        &[enemy],
+        &[
+            GridPos::new(5, 4),
+            GridPos::new(4, 5),
+            GridPos::new(6, 5),
+            GridPos::new(0, 0),
+        ],
+        &[GridPos::new(5, 5)],
+        open(10, 10),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+
+    // South attacker is not opposite either ally. 11 + 7 = 18 vs AC 18.
+    let mut dice = ScriptedDice::new([11, 1]);
+    let south = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &south[0] {
+        Event::StrikeResolved { armor_class, .. } => assert_eq!(*armor_class, 18),
+        other => panic!("unexpected {other:?}"),
+    }
+
+    end_turn(&mut encounter, &mut dice).unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(1)));
+    // West attacker, with the east ally, flanks. AC 16.
+    let mut dice = ScriptedDice::new([11, 1]);
+    let west = declare_action(
+        &mut encounter,
+        CombatantId(1),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    match &west[0] {
+        Event::StrikeResolved { armor_class, .. } => assert_eq!(*armor_class, 16),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+/// An unconscious creature has no legal Stride or Strike.
+#[test]
+fn an_unconscious_creature_cannot_stride_or_strike() {
+    let mut mover = fighter("Sera Voss");
+    mover.hit_points = 20;
+    let mut reactor = guard();
+    reactor.features.push(ClassFeature::ReactiveStrike);
+    reactor.strike.attack_bonus = 12;
+    reactor.strike.damage.bonus = 20;
+    let mut dice = ScriptedDice::new([1, 1, 1, 1, 1]);
+    let mut encounter = start_encounter(
+        &[
+            mover,
+            fighter("Bram Holt"),
+            fighter("Quill Ames"),
+            fighter("Doss Kade"),
+        ],
+        &[reactor],
+        &[
+            GridPos::new(1, 1),
+            GridPos::new(0, 0),
+            GridPos::new(0, 3),
+            GridPos::new(0, 4),
+        ],
+        &[GridPos::new(2, 1)],
+        open(8, 8),
+        &mut dice,
+    )
+    .unwrap();
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+
+    // 10 + 12 = 22 vs AC 18 success. Damage 1 + 20 = 21. Twice maximum HP is 40, so this is dying, not death.
+    let mut dice = ScriptedDice::new([10, 1]);
+    let events = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(1, 3),
+        },
+        &mut dice,
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::CombatantDowned { id } if *id == CombatantId(0)
+    )));
+    let downed = encounter.combatant(CombatantId(0)).unwrap();
+    assert!(downed.is_unconscious());
+    assert!(downed.prone);
+    assert_eq!(downed.dying, 1);
+    assert!(!downed.dead);
+    assert_eq!(encounter.active(), Some(CombatantId(0)));
+    let legal = legal_actions(&encounter, CombatantId(0));
+    assert!(legal.iter().all(|action| !matches!(
+        action,
+        Action::Stride { .. } | Action::Strike { .. } | Action::Step { .. }
+    )));
+    assert!(legal.is_empty());
+    let err = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Strike {
+            target: CombatantId(4),
+        },
+        &mut dice,
+    )
+    .unwrap_err();
+    assert_eq!(err, Illegal::NotLegal);
+    let err = declare_action(
+        &mut encounter,
+        CombatantId(0),
+        Action::Stride {
+            destination: GridPos::new(1, 4),
+        },
+        &mut dice,
+    )
+    .unwrap_err();
+    assert_eq!(err, Illegal::NotLegal);
 }
 
 /// A Reactive Strike that drops the mover ends the Stride on the square they were leaving.
