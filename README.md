@@ -6,11 +6,14 @@ This repository ships the engine, editor, and authoring tooling. Campaign narrat
 
 ## Docs
 
+Index: [docs/README.md](docs/README.md).
+
 - [Constitution](docs/constitution.md)
 - [MVP slice 1](docs/mvp-slice-1.md)
 - [MVP architecture](docs/mvp-architecture.md)
 - [Project context](docs/project-context.md)
 - [Research corpus](docs/research/README.md)
+- [Rules corpus](docs/rules-corpus/README.md) (classes, archetypes, spells, substrate roadmap)
 
 ## Run
 
@@ -29,4 +32,4 @@ The editor paints stone, grass, and dirt on a room file and saves it. See [TESTE
 
 ## Status
 
-Workspace crates: `rules`, `content`, `game`, and `editor`. Architecture: [docs/mvp-architecture.md](docs/mvp-architecture.md).
+Workspace crates: `rules`, `content`, `game`, and `editor`. Architecture: [docs/mvp-architecture.md](docs/mvp-architecture.md). Baseline encounter actions are on `main`; next rules work (classes, archetypes, spells) is specified in [docs/rules-corpus/README.md](docs/rules-corpus/README.md).

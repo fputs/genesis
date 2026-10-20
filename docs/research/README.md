@@ -12,9 +12,11 @@ This folder is **research only**. It does not implement product code.
 
 Constitution and MVP framing (outside this folder):
 
+- [../README.md](../README.md) — docs index
 - [../constitution.md](../constitution.md)
 - [../mvp-slice-1.md](../mvp-slice-1.md)
 - [../project-context.md](../project-context.md)
+- [../rules-corpus/README.md](../rules-corpus/README.md) — classes, archetypes, spells, substrate roadmap (implementation-shaped; not a copy of this research tree)
 
 ## Corpus index
 
