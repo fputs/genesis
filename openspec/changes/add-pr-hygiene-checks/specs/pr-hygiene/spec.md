@@ -220,6 +220,13 @@ An implementation pull request that is not exempt SHALL add at least one bullet 
 - **THEN** the job fails
 - **AND** the log includes `implementation PR missing CHANGELOG bullet`
 
+#### Scenario: A docs-only pull request with no changelog passes
+
+- **GIVEN** a pull_request whose only diff is `docs/architect/decisions.md`
+- **AND** the head has no `CHANGELOG.md`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
 ### Requirement: Changelog bullet shape
 
 A bullet SHALL be a trimmed line inside `## [Unreleased]`, before the next `## ` heading, that is a markdown list item with text. Added means the head section has such a line the base section does not. A missing `CHANGELOG.md`, or a missing `## [Unreleased]` heading, on the base SHALL leave the base bullet set empty.
