@@ -20,10 +20,10 @@
 ## 3. Changelog, proof, and archive
 
 - [x] 3.1 Add one bullet under `### Fixed` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet names the duplicate-effect key and the worse equal-sequence penalty, and it links to the implementation pull request. Verify the new bullet is under `### Fixed` and contains that link
-- [ ] 3.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
+- [x] 3.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 3.3 As the final commit of the implementation pull request, run `openspec archive amend-modifier-duplicates --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 3.3 As the final commit of the implementation pull request, run `openspec archive amend-modifier-duplicates --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
