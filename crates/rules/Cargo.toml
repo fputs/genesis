@@ -2,3 +2,7 @@
 name = "rules"
 version = "0.1.0"
 edition = "2024"
+
+[features]
+# Compiles ScriptedDice outside this crate's own tests. No extra dependencies.
+test-support = []

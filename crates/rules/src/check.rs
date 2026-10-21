@@ -158,14 +158,18 @@ pub fn flat_check(dice: &mut impl Dice, dc: i32) -> FlatRoll {
 
 /// Several flat checks for the same thing roll once, at the highest DC.
 ///
+/// An empty list does not roll. It is an ordinary success at DC 1, the same shape as a DC of 1 or less.
+///
 /// Player Core, Flat Checks.
 pub fn flat_checks_for_same_thing(dice: &mut impl Dice, dcs: &[i32]) -> FlatRoll {
-    let dc = dcs
-        .iter()
-        .copied()
-        .max()
-        .expect("flat checks for the same thing name at least one DC");
-    flat_check(dice, dc)
+    match dcs.iter().copied().max() {
+        Some(dc) => flat_check(dice, dc),
+        None => FlatRoll {
+            natural: None,
+            dc: 1,
+            degree: Degree::Success,
+        },
+    }
 }
 
 /// Inputs for the untyped multiple attack penalty. The caller counts attack-trait checks.
@@ -424,6 +428,17 @@ mod tests {
         assert_eq!(second.natural, Some(4));
         assert_eq!(second.degree, Degree::Failure);
         assert_eq!(separate.remaining(), 0);
+    }
+
+    /// An empty DC list is not a Player Core scenario. It must not panic or consume a roll.
+    #[test]
+    fn flat_checks_with_no_dcs_do_not_roll() {
+        let mut dice = ScriptedDice::new([4]);
+        let roll = flat_checks_for_same_thing(&mut dice, &[]);
+        assert_eq!(roll.natural, None);
+        assert_eq!(roll.dc, 1);
+        assert_eq!(roll.degree, Degree::Success);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Multiple Attack Penalty".

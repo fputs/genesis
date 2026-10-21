@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "test-support"))]
 use std::collections::VecDeque;
 
 /// Source of die rolls. Callers pass this into every roll. No roll reads a process-wide generator.
@@ -12,6 +13,9 @@ pub trait Dice {
 }
 
 /// Deterministic xorshift stream. The same seed yields the same rolls.
+///
+/// A request for fewer than one face returns 1 and does not advance the stream.
+/// This source never panics.
 #[derive(Clone, Debug)]
 pub struct SeededDice {
     state: u64,
@@ -43,17 +47,28 @@ impl SeededDice {
 
 impl Dice for SeededDice {
     fn roll(&mut self, faces: u8) -> u8 {
-        assert!(faces >= 1, "a die has at least one face");
+        if faces < 1 {
+            return 1;
+        }
         (self.next_u64() % u64::from(faces)) as u8 + 1
     }
 }
 
-/// Yields a fixed sequence. Panics when the sequence runs out or a value is not on the die.
+/// Fixed sequence of faces for tests.
+///
+/// Compiled for this crate's tests and for the `test-support` feature.
+///
+/// # Panics
+///
+/// [`ScriptedDice::roll`] panics if the script is exhausted, if `faces` is less than 1,
+/// or if the queued value is outside `1..=faces`.
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Clone, Debug)]
 pub struct ScriptedDice {
     rolls: VecDeque<u8>,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl ScriptedDice {
     /// Queues `rolls` in the order they will be drawn.
     ///
@@ -70,7 +85,13 @@ impl ScriptedDice {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 impl Dice for ScriptedDice {
+    /// # Panics
+    ///
+    /// Panics with `scripted dice exhausted` when the queue is empty.
+    /// Panics with `scripted roll {value} is not a legal d{faces}` when `faces` is less than 1
+    /// or the queued value is outside `1..=faces`.
     fn roll(&mut self, faces: u8) -> u8 {
         let value = self.rolls.pop_front().expect("scripted dice exhausted");
         assert!(
@@ -92,6 +113,18 @@ mod tests {
         let mut second = SeededDice::new(42);
         let sequence = |dice: &mut SeededDice| [dice.d20(), dice.roll(8), dice.roll(6)];
         assert_eq!(sequence(&mut first), sequence(&mut second));
+    }
+
+    /// A zero-face request is not a Player Core roll. It returns 1 and leaves the stream where it was.
+    #[test]
+    fn seeded_dice_returns_one_for_zero_faces_without_advancing() {
+        let mut disturbed = SeededDice::new(42);
+        assert_eq!(disturbed.roll(0), 1);
+        let mut fresh = SeededDice::new(42);
+        assert_eq!(
+            [disturbed.d20(), disturbed.roll(8), disturbed.roll(6)],
+            [fresh.d20(), fresh.roll(8), fresh.roll(6)]
+        );
     }
 
     /// Player Core, Checks.
