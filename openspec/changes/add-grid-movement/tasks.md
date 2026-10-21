@@ -1,6 +1,6 @@
 # Tasks
 
-Each scenario in `specs/grid-movement/spec.md` has exactly one test. The test name is the scenario title in snake_case. Checklist edge cases E1–E22 are marked on those tasks. The other tests are the Designer QA answers and the architecture rules. Do not edit `check.rs`, `combatant.rs`, or `dice.rs`. Add no dependency.
+Each scenario in `specs/grid-movement/spec.md` has exactly one test. The test name is the scenario title in snake_case. Checklist edge cases E1–E22 are marked on those tasks. The other tests are the Designer QA answers and the architecture rules. `design.md` maps QA questions Q1–Q9 to those scenarios and to the out-of-scope lines. Do not edit `check.rs`, `combatant.rs`, or `dice.rs`. Add no dependency.
 
 ## 1. Pure grid module
 
@@ -21,35 +21,38 @@ Each scenario in `specs/grid-movement/spec.md` has exactly one test. The test na
 - [ ] 3.6 Add `difficult_on_a_diagonal` (E5): the second diagonal on difficult terrain costs 15, not 20. Cite Player Core "Difficult Terrain". Verify `cargo test -p rules difficult_on_a_diagonal` passes
 - [ ] 3.7 Add `greater_difficult_on_a_diagonal` (E6): the first greater-difficult diagonal costs 15, and the second costs 20. Cite Player Core "Difficult Terrain". Verify `cargo test -p rules greater_difficult_on_a_diagonal` passes
 - [ ] 3.8 Add `leaving_difficult_terrain` (E7): leaving a difficult square for an open orthogonal square costs 5. Cite Player Core "Difficult Terrain". Verify `cargo test -p rules leaving_difficult_terrain` passes
+- [ ] 3.9 Add `step_and_crawl_share_the_diagonal_counter` (Q1): one fresh counter; a diagonal Step advances it to one diagonal; a diagonal Stride on that counter costs 10. Do not add a Crawl function. Cite Player Core "Diagonal Movement" and "Crawl". Verify `cargo test -p rules step_and_crawl_share_the_diagonal_counter` passes and `rg "fn crawl" crates/rules/src/grid.rs` finds nothing
 
 ## 4. Stride limits
 
-- [ ] 4.1 Add `exact_speed` (E1): five orthogonal squares at Speed 25 cost 25 and succeed; six squares return `ExceedsSpeed`, the position stays the start, and the counter stays fresh. Cite Player Core "Stride". Verify `cargo test -p rules exact_speed` passes
+- [ ] 4.1 Add `exact_speed` (E1, Q2): five orthogonal squares at Speed 25 cost 25 and succeed; six squares return `ExceedsSpeed`, no square of that path is entered, the position stays the start, and the counter stays fresh. Cite Player Core "Stride". Verify `cargo test -p rules exact_speed` passes
 - [ ] 4.2 Add `terrain_cost_exceeds_the_remainder` (E8): Speed 25 and four open squares plus one difficult square would cost 30, return `ExceedsSpeed`, and leave the creature on the start square. Cite Player Core "Stride". Verify `cargo test -p rules terrain_cost_exceeds_the_remainder` passes
 - [ ] 4.3 Add `leftover_movement_is_not_banked` (D5): a 5-foot Stride does not reduce the next Stride below Speed 25. Cite Player Core "Stride". Verify `cargo test -p rules leftover_movement_is_not_banked` passes
 - [ ] 4.4 Add `speed_0` (E22): an empty path succeeds at cost 0; a one-square path returns `ExceedsSpeed`; Step returns `StepRequiresTenFeet`. Position stays. Cite Player Core "Speed" and "Step". Verify `cargo test -p rules speed_0` passes
-- [ ] 4.5 Add `speed_not_a_multiple_of_five`: Speed 7, including an empty path, returns `SpeedNotMultipleOfFive` and does not move. Do not change `CharacterBuild` validation. Cite Player Core "Speed". Verify `cargo test -p rules speed_not_a_multiple_of_five` passes
+- [ ] 4.5 Add `speed_not_a_multiple_of_five` (Q3): Speed 7, including an empty path, is rejected when the move is validated with `SpeedNotMultipleOfFive` and does not move. Do not change `CharacterBuild` validation. Do not apply a 5-foot Speed floor. Cite Player Core "Speed". Verify `cargo test -p rules speed_not_a_multiple_of_five` passes
 - [ ] 4.6 Add `a_gap_in_the_path_is_rejected`: a square two steps away with nothing between returns `PathNotAdjacent`, and the position and counter stay. Cite Player Core "Grid Movement". Verify `cargo test -p rules a_gap_in_the_path_is_rejected` passes
 - [ ] 4.7 Add `an_empty_path_does_not_search`: an empty path at Speed 25 costs 0, emits no events, ends on the start, and does not insert a destination three squares away. There is no path-search function. Cite Player Core "Stride". Verify `cargo test -p rules an_empty_path_does_not_search` passes and `rg find_path crates/rules/src/grid.rs` finds nothing
 - [ ] 4.8 Add `off_grid` (E15): a path square outside the caller-supplied width and height returns `OffGrid` and the position is unchanged. Cite Player Core "Grid Movement". Verify `cargo test -p rules off_grid` passes
 - [ ] 4.9 Add `stride_emits_left_and_entered_events` (D17): origin, then one orthogonal square, then one diagonal square, costs 10, `triggers` is true, and the events are Left origin, Entered orthogonal, Left orthogonal, Entered diagonal. Cite Player Core "Stride". Verify `cargo test -p rules stride_emits_left_and_entered_events` passes
-- [ ] 4.10 Add `a_stride_does_not_spend_actions`: a `CombatantState` with 2 actions remaining and the reaction not ready is not an argument; after a legal Stride those fields are unchanged, and the outcome has a foot cost and no action cost. Cite Player Core "Stride". Verify `cargo test -p rules a_stride_does_not_spend_actions` passes
+- [ ] 4.10 Add `a_stride_does_not_spend_actions` (Q9): a `CombatantState` with 2 actions remaining and the reaction not ready is not an argument; after a legal Stride those fields are unchanged, and the outcome has a foot cost and no action cost. Cite Player Core "Stride". Verify `cargo test -p rules a_stride_does_not_spend_actions` passes
+- [ ] 4.11 Add `a_diagonal_needs_no_wall_check` (Q6): a one-square open diagonal Stride from a fresh counter costs 5 and is not rejected for a blocked corner. There is no wall input. Record in the test comment the future ruling that a diagonal is blocked only when both orthogonal neighbours block, and that this change does not apply it. Verify `cargo test -p rules a_diagonal_needs_no_wall_check` passes
 
 ## 5. Step
 
 - [ ] 5.1 Add `step` per design.md. Add `step_into_difficult_terrain` (E9): Step into difficult terrain and Step into greater difficult terrain both return `StepIntoDifficultTerrain` and do not move. Cite Player Core "Step". Verify `cargo test -p rules step_into_difficult_terrain` passes
 - [ ] 5.2 Add `step_with_speed_5` (E10): Speed 5 into an open square returns `StepRequiresTenFeet` and does not move. Cite Player Core "Step". Verify `cargo test -p rules step_with_speed_5` passes
 - [ ] 5.3 Add `step_advances_parity` (E11): a diagonal Step from a fresh counter costs 5, then a diagonal Stride costs 10. Cite Player Core "Step" and record the D6 substitute in the test comment. Verify `cargo test -p rules step_advances_parity` passes
-- [ ] 5.4 Add `step_on_a_10_ft_diagonal_costs_5`: with the counter already counting one diagonal, a diagonal Step costs 5 rather than 10, the counter then counts two, and the next diagonal Stride costs 5. Cite Player Core "Step". Verify `cargo test -p rules step_on_a_10_ft_diagonal_costs_5` passes
+- [ ] 5.4 Add `step_on_a_10_ft_diagonal_costs_5` (Q4): with the counter already counting one diagonal, the diagonal Step is allowed, moves 5 feet rather than 10, the counter then counts two, and the next diagonal Stride costs 5. Cite Player Core "Step". Verify `cargo test -p rules step_on_a_10_ft_diagonal_costs_5` passes
 - [ ] 5.5 Add `a_step_is_one_square`: a two-square Step and an empty Step both return `StepNotOneSquare` and do not move. Cite Player Core "Step". Verify `cargo test -p rules a_step_is_one_square` passes
 - [ ] 5.6 Add `shared_diagonal_counter_includes_step`: one counter, Stride one diagonal (5), Step one orthogonal (5, counter unchanged), Stride one diagonal (10). Cite Player Core "Diagonal Movement". Verify `cargo test -p rules shared_diagonal_counter_includes_step` passes
 - [ ] 5.7 Add `step_events_are_non_triggering`: one diagonal Step costs 5, `triggers` is false, and the events are Left the start, then Entered the destination. Cite Player Core "Step". Verify `cargo test -p rules step_events_are_non_triggering` passes
 
 ## 6. Occupancy
 
-- [ ] 6.1 Add `through_an_ally` (E12): a same-faction creature on the first square of a two-square path does not stop the Stride, the path enters that square, and the end square is empty. Cite Player Core "Moving Through a Creature's Space" and record the D7 substitute. Verify `cargo test -p rules through_an_ally` passes
+- [ ] 6.1 Add `through_an_ally` (E12, Q5): a same-faction creature on the first square of a two-square path does not stop the Stride, the path enters that square, and the end square is empty. Cite Player Core "Moving Through a Creature's Space" and record the D7 substitute. Verify `cargo test -p rules through_an_ally` passes
 - [ ] 6.2 Add `through_an_enemy` (E13): entering an other-faction square, including ending on it, returns `EnemySquare` and does not move. Cite Player Core "Moving Through a Creature's Space". Verify `cargo test -p rules through_an_enemy` passes
-- [ ] 6.3 Add `ending_in_an_ally_square` (E14): ending on a same-faction creature returns `OccupiedEnd` and does not move. Cite Player Core "Moving Through a Creature's Space" and record the D8 substitute. Verify `cargo test -p rules ending_in_an_ally_square` passes
+- [ ] 6.3 Add `ending_in_an_ally_square` (E14, Q5): ending on a same-faction creature returns `OccupiedEnd` and does not move. Cite Player Core "Moving Through a Creature's Space" and record the D8 substitute, including that the next-action move out is encounter-core. Verify `cargo test -p rules ending_in_an_ally_square` passes
+- [ ] 6.4 Add `prone_dead_willing_and_tiny_sharing_is_out_of_scope` (Q7): ending a Stride on a same-faction creature returns `OccupiedEnd` and does not move. The occupant has no prone, dead, willing, or Tiny exception. Cite Player Core "Sharing a Space" and record that those rules are out of scope. Verify `cargo test -p rules prone_dead_willing_and_tiny_sharing_is_out_of_scope` passes
 
 ## 7. Distance, reach, and range
 

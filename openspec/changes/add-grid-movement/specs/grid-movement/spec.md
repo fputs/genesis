@@ -94,6 +94,21 @@ Each creature SHALL have one diagonal counter in turn state, not on Creature and
 - **WHEN** the creature Strides one diagonal square, Steps one orthogonal square, and Strides one diagonal square, all on that counter
 - **THEN** the costs are 5 feet, then 5 feet for the Step, then 10 feet, and the orthogonal Step did not advance the counter
 
+### Requirement: Step and Crawl share one counter
+
+Step and Crawl SHALL share the one diagonal counter for that creature's turn. A diagonal Step SHALL advance that counter. This capability SHALL NOT implement Crawl. Positioning owns Crawl.
+
+**Rule**: Player Core pg. 421 counts all movement in the turn, and Crawl on pg. 416 is movement. https://2e.aonprd.com/Rules.aspx?ID=2357 https://2e.aonprd.com/Actions.aspx?ID=2293
+**Why**: Crawl needs prone, which positioning owns.
+**Substitute**: Step advances the shared turn counter. Crawl is not a function of this change.
+**Intent**: Positioning's Crawl will take the counter Step already updates.
+
+#### Scenario: Step and Crawl share the diagonal counter
+
+- **GIVEN** Speed 25 and one fresh turn counter
+- **WHEN** the creature Steps one diagonal square
+- **THEN** the counter counts one diagonal, a diagonal Stride on that same counter costs 10 feet, and no Crawl action is resolved
+
 ### Requirement: Entering a square has one cost
 
 The cost to enter a square SHALL be a base plus that square's terrain only. An orthogonal base SHALL be 5 feet. A diagonal base SHALL alternate 5 feet, then 10 feet, using the turn's diagonal counter. Difficult terrain SHALL add 5 feet and greater difficult terrain SHALL add 10 feet. That extra SHALL NOT be multiplied on a diagonal. The square being left SHALL add no cost.
@@ -123,7 +138,7 @@ The cost to enter a square SHALL be a base plus that square's terrain only. An o
 
 ### Requirement: Stride follows Speed along the path
 
-Stride SHALL succeed only when every entered square is adjacent to the previous one and the total cost is at most Speed. A cost equal to Speed SHALL succeed. Speed left over SHALL NOT carry into the next action. On success Stride SHALL return that total cost, the end square, and the updated counter.
+Stride SHALL succeed only when every entered square is adjacent to the previous one and the total cost is at most Speed. A cost equal to Speed SHALL succeed. Speed left over SHALL NOT carry into the next action. On success Stride SHALL return that total cost, the end square, and the updated counter. A path whose cost is above Speed SHALL be rejected with no partial move.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2305 (Player Core pg. 418, Stride)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420, Speed)
@@ -133,7 +148,7 @@ Stride SHALL succeed only when every entered square is adjacent to the previous 
 - **GIVEN** a Medium creature with Speed 25 on open ground and a fresh counter
 - **WHEN** it Strides five orthogonal squares
 - **THEN** the move succeeds and the cost is 25 feet
-- **AND** when it instead Strides six orthogonal squares, the result is an exceeds-Speed error, the position stays the start square, and the counter stays fresh
+- **AND** when it instead Strides six orthogonal squares, the result is an exceeds-Speed error, no square of that path is entered, the position stays the start square, and the counter stays fresh
 
 #### Scenario: Terrain cost exceeds the remainder
 
@@ -149,7 +164,7 @@ Stride SHALL succeed only when every entered square is adjacent to the previous 
 
 ### Requirement: Movement Speeds are multiples of five
 
-Stride and Step SHALL accept Speed 0 and any positive multiple of 5 feet. A Speed that is not a multiple of 5 SHALL return a typed error. Speed 0 SHALL allow a Stride that enters no square. A path whose cost is above Speed SHALL return an exceeds-Speed error, including a non-empty path at Speed 0.
+Stride and Step SHALL accept Speed 0 and any positive multiple of 5 feet. When a move is validated, a Speed that is not a multiple of 5 SHALL return a typed error. Creature validation SHALL stay unchanged. Speed 0 SHALL allow a Stride that enters no square. A path above Speed SHALL return an exceeds-Speed error, including a non-empty path at Speed 0. A 5-foot Speed floor under penalties SHALL NOT be applied. That floor is out of scope.
 
 **Rule**: Player Core movement uses Speeds in multiples of 5 feet. The book does not tell an engine to reject another stored number. https://2e.aonprd.com/Rules.aspx?ID=2347
 **Why**: A creature build may store a non-negative Speed that is not a multiple of 5, because creature validation only rejects a negative Speed.
@@ -208,7 +223,7 @@ Step SHALL follow a path of exactly one adjacent square and SHALL require Speed 
 
 - **GIVEN** a turn counter that already counts one diagonal, and Speed 25
 - **WHEN** the creature Steps one diagonal square and then Strides one diagonal square
-- **THEN** the Step costs 5 feet rather than 10, the counter then counts two diagonals, and the following Stride costs 5 feet
+- **THEN** the Step is allowed, it moves 5 feet rather than 10, the counter then counts two diagonals, and the following Stride costs 5 feet
 
 #### Scenario: A Step is one square
 
@@ -218,7 +233,7 @@ Step SHALL follow a path of exactly one adjacent square and SHALL require Speed 
 
 ### Requirement: Same faction can be crossed
 
-Same faction SHALL count as willing. A path SHALL be allowed to enter a same-faction square and SHALL NOT end on a square occupied by another creature. Entering another faction's square SHALL return an enemy-square error. Ending on a same-faction creature SHALL return an occupied-end error. Passing through an unwilling creature SHALL NOT be resolved here.
+Same faction SHALL count as willing. A path SHALL be allowed to enter a same-faction square and SHALL NOT end on a square occupied by another creature. Entering another faction's square SHALL return an enemy-square error. Ending on a same-faction creature SHALL return an occupied-end error. Passing through an unwilling creature SHALL NOT be resolved here. The book's allowance that the next action may move out of a willing creature's square SHALL NOT be implemented. Encounter-core owns it.
 
 **Rule**: Player Core pg. 422 lets you move through a willing creature. An unwilling creature needs Tumble Through. A move may end in a willing creature's square only when another move immediately leaves. https://2e.aonprd.com/Rules.aspx?ID=2360
 **Why**: Phase 1 has no willingness flag and no action sequencing. Tumble Through needs a skill check that is deferred.
@@ -244,6 +259,21 @@ Same faction SHALL count as willing. A path SHALL be allowed to enter a same-fac
 - **GIVEN** a same-faction creature on the destination square
 - **WHEN** the creature ends its Stride on that square
 - **THEN** the result is an occupied-end error and the position stays the start square
+
+### Requirement: Special square sharing is out of scope
+
+This capability SHALL NOT let a move end in another creature's square because that creature is prone, dead, willing, or Tiny. Those sharing rules are out of scope.
+
+**Rule**: Player Core pg. 422 lets you share a space with a prone creature that is willing, unconscious, or dead and your size or smaller. Tiny creatures may end in another creature's space. https://2e.aonprd.com/Rules.aspx?ID=2361 https://2e.aonprd.com/Rules.aspx?ID=2362
+**Why**: Prone and Tiny footprints are deferred.
+**Substitute**: Ending on any other creature stays an occupied-end or enemy-square error. No prone, dead, willing, or Tiny exception exists.
+**Intent**: Positioning and creature sizes can add sharing later.
+
+#### Scenario: Prone dead willing and Tiny sharing is out of scope
+
+- **GIVEN** a same-faction creature on the destination square
+- **WHEN** the creature ends its Stride there
+- **THEN** the result is an occupied-end error, the position stays the start square, and prone, dead, willing, and Tiny do not make an exception
 
 ### Requirement: The caller supplies the map
 
@@ -400,6 +430,21 @@ Stride and Step SHALL move only through squares the caller listed, in that order
 - **WHEN** the creature Strides
 - **THEN** it stays on the start square, the cost is 0 feet, no square is entered, and the destination is not added to the path
 
+### Requirement: Corner cutting waits for walls
+
+This capability SHALL NOT represent walls and SHALL NOT reject a diagonal move because an orthogonal neighbour blocks a corner. Phase 1 has no walls. This capability SHALL NOT apply the future ruling that a diagonal is blocked only when both orthogonal neighbours block.
+
+**Rule**: The checklist's Player Core rows do not define corner cutting.
+**Why**: Phase 1 maps have no walls, so no corner can block a diagonal.
+**Substitute**: A diagonal move is not rejected for a blocked corner. The future ruling is recorded and not applied: a diagonal is blocked only when both orthogonal neighbours block.
+**Intent**: Wall geometry can be added later without revisiting the ruling.
+
+#### Scenario: A diagonal needs no wall check
+
+- **GIVEN** an open one-square diagonal path and no wall data
+- **WHEN** the creature Strides that path from a fresh counter
+- **THEN** the Stride succeeds at 5 feet and is not rejected for a blocked corner
+
 ### Requirement: Movement reports leave and enter
 
 A successful move SHALL return leave and enter events in path order. Each entered square SHALL be preceded by leaving the square the creature occupied before it. A Stride result SHALL be marked triggering. A Step result SHALL be marked non-triggering. No reaction SHALL be resolved.
@@ -421,7 +466,7 @@ A successful move SHALL return leave and enter events in path order. Each entere
 
 ### Requirement: Movement does not spend actions
 
-Stride and Step SHALL NOT read or write actions remaining and SHALL NOT return an action cost.
+Stride and Step SHALL NOT read or write actions remaining and SHALL NOT return an action cost. Action cost and turn spending SHALL NOT be implemented here. Encounter-core owns them.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2305 (Player Core pg. 418, Stride costs 1 action; spending it is encounter-core)
 

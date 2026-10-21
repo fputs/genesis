@@ -11,7 +11,7 @@ A fight on a 5-foot grid cannot resolve Stride, Step, reach, or range until diag
 - Keep one diagonal counter per creature per turn, off the immutable Creature. It resets at end of turn. Movement off-turn uses a fresh counter.
 - Accept only Small and Medium creatures (one square). Reject a path over Speed, a Speed that is not a multiple of 5, an occupied end square, an enemy square, a Step into difficult terrain, a square outside the map, and arithmetic overflow. A failed move does not partially apply.
 - Return a range increment count and its untyped penalty as plain numbers. Do not add that penalty to an attack roll.
-- Ledger every RAW deviation in `design.md`. No change to modifiers, and no new dependency.
+- Ledger every RAW deviation in `design.md`. Answer Designer QA Q1–Q9 with a scenario or an explicit out-of-scope line, and map each question from `design.md`. No change to modifiers, and no new dependency.
 
 ## Capabilities
 

@@ -20,8 +20,9 @@
 - Path search. No function takes a destination and returns a route.
 - Action spending, turn order, and reactions. `triggers` is only a mark.
 - Modifier stacking, attack totals, and edits to `check.rs`.
-- Cover, flanking, prone, Crawl, Stand, Drop Prone, hidden squares, forced movement, Tumble Through, and footprints other than 1×1.
+- Cover, flanking, prone, Crawl, Stand, Drop Prone, hidden squares, forced movement, Tumble Through, and footprints other than 1×1. Crawl will share the turn's diagonal counter when positioning adds it.
 - The 5-foot Speed floor. No Speed penalty exists yet.
+- Walls and corner cutting. Sharing a square with a prone, dead, willing, or Tiny creature.
 
 ## Decisions
 
@@ -35,6 +36,10 @@ crates/rules/src/grid.rs    squares, movement, distance, reach, range
 `grid.rs` does not read a clock, a file, the network, or a global, and it does not use `Cell`, `RefCell`, `Mutex`, or `unsafe`. It does not take `Dice`. It does not take `&Creature` or `&mut CombatantState`. Callers copy `speed_feet` and reach in. `Cargo.toml` gains no dependency. `lib.rs` keeps `#![forbid(unsafe_code)]`.
 
 Alternative considered: store the diagonal counter on `CombatantState`. Rejected. That amends `creature-template` and mixes turn geometry into Hit Point state.
+
+### No pathfinding API
+
+Callers supply an explicit ordered path of squares. Stride and Step validate that path. They do not search. No function takes a destination and returns a route.
 
 ### Public shape
 
@@ -135,6 +140,22 @@ Range count is `ceil(distance / increment)` and at least 1, so an exact multiple
 ### What is not edited
 
 Do not edit `crates/rules/src/check.rs`, `crates/rules/src/combatant.rs`, or `crates/rules/src/dice.rs`. Do not add a modifiers module or a modifiers spec. Do not add a path-search function. Tests live in `grid.rs` under `#[cfg(test)]` and call the public functions. Each test comment cites the Player Core section for that scenario. A test builds a `ScriptedDice` and asserts it is unused.
+
+## QA questions
+
+Designer rulings Q1–Q9. Each row names the scenario or the out-of-scope line that answers it.
+
+| Q | Ruling | Answer |
+|---|---|---|
+| Q1 | Step and Crawl share the turn's diagonal counter. Crawl itself is out of scope (positioning). | Scenario "Step and Crawl share the diagonal counter". Out of scope: requirement "Step and Crawl share one counter" — this capability does not implement Crawl. |
+| Q2 | A path over Speed is rejected with no partial move. | Scenario "Exact Speed". Requirement "Stride follows Speed along the path" rejects that path with no partial move. Requirement "A failed move does nothing" applies no prefix of the path. |
+| Q3 | A Speed that is not a multiple of 5 is rejected at validation. The 5-ft floor under penalties is out of scope. | Scenario "Speed not a multiple of five". Validation here is the move's check (`SpeedNotMultipleOfFive`). Creature validation stays unchanged. Out of scope: requirement "Movement Speeds are multiples of five" — a 5-foot Speed floor under penalties is not applied. |
+| Q4 | A Step on the counter's 10-ft diagonal is allowed, moves 5 ft, and advances the counter. | Scenario "Step on a 10-ft diagonal costs 5". |
+| Q5 | Passing through a same-faction square is allowed. Ending any move there is rejected. RAW's next action moves out is out of scope (encounter-core). | Scenarios "Through an ally" and "Ending in an ally square". Out of scope: requirement "Same faction can be crossed" — the next-action move out is not implemented. |
+| Q6 | Corner-cutting is out of scope. Phase 1 has no walls. Future ruling: a diagonal is blocked only when both orthogonal neighbours block. | Requirement "Corner cutting waits for walls" and scenario "A diagonal needs no wall check". The future ruling is recorded there and is not applied. |
+| Q7 | Sharing a square with a prone, dead, willing, or Tiny creature is out of scope. | Requirement "Special square sharing is out of scope" and scenario "Prone dead willing and Tiny sharing is out of scope". |
+| Q8 | There is no pathfinding API. Callers supply explicit ordered paths. | Design, "No pathfinding API", above. Scenario "An empty path does not search". |
+| Q9 | Action cost and turn spending are out of scope (encounter-core). Movement legality and cost, plus Left/Entered events, are in. | Out of scope: requirement "Movement does not spend actions" and scenario "A Stride does not spend actions". In: scenario "Exact Speed" for legality and foot cost, and scenario "Stride emits left and entered events". |
 
 ## Deviations
 
