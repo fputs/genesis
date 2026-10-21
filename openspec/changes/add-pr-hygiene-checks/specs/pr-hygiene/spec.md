@@ -407,23 +407,15 @@ When the body has `OpenSpec-Change: <id>` and the diff removes `openspec/changes
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 
-#### Scenario: A named change that stays active skips archive-last
+#### Scenario: Edited re-reads the body
 
-- **GIVEN** a pull_request body line `OpenSpec-Change: add-foo`
-- **AND** the head still has `openspec/changes/add-foo/`
-- **AND** the head commit edits `openspec/changes/add-foo/proposal.md`
+- **GIVEN** a pull_request `edited` event
+- **AND** the diff removes `openspec/changes/add-foo/`
+- **AND** the edited body adds `OpenSpec-Change: add-foo`
+- **AND** the head message does not contain `openspec archive add-foo`
 - **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-- **AND** the log does not include `archive commit is not last`
-
-#### Scenario: A removal without a reference skips archive-last
-
-- **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
-- **AND** the body has no `OpenSpec-Change: add-foo` line
-- **AND** the head commit also changes `README.md`
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-- **AND** the log does not include `archive commit is not last`
+- **THEN** the job fails
+- **AND** the log includes `archive commit is not last`
 
 ### Requirement: Each archived change
 
@@ -461,15 +453,23 @@ When several `OpenSpec-Change:` lines name ids the diff removes, the head commit
 
 Archive-last SHALL NOT fail a named id that is still present, and SHALL NOT fail a removed directory that no change-reference line names.
 
-#### Scenario: Edited re-reads the body
+#### Scenario: A named change that stays active skips archive-last
 
-- **GIVEN** a pull_request `edited` event
-- **AND** the diff removes `openspec/changes/add-foo/`
-- **AND** the edited body adds `OpenSpec-Change: add-foo`
-- **AND** the head message does not contain `openspec archive add-foo`
+- **GIVEN** a pull_request body line `OpenSpec-Change: add-foo`
+- **AND** the head still has `openspec/changes/add-foo/`
+- **AND** the head commit edits `openspec/changes/add-foo/proposal.md`
 - **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `archive commit is not last`
+- **THEN** the job passes
+- **AND** the log does not include `archive commit is not last`
+
+#### Scenario: A removal without a reference skips archive-last
+
+- **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
+- **AND** the body has no `OpenSpec-Change: add-foo` line
+- **AND** the head commit also changes `README.md`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+- **AND** the log does not include `archive commit is not last`
 
 ### Requirement: The bullet lands before the archive commit
 
