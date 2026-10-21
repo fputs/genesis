@@ -1,6 +1,6 @@
 # Genesis
 
-Genesis is a game built on a Pathfinder 2e Remaster rules engine, with a basic map editor planned for Phase 2. Phase 1 is the rules crate, `crates/rules`.
+Genesis is a game built on a rules engine, with a basic map editor planned for Phase 2. Phase 1 is the rules crate, `crates/rules`. The books those mechanics are derived from are named in the Attribution section of [`NOTICE-ORC.md`](NOTICE-ORC.md).
 
 ## Status
 
@@ -82,6 +82,6 @@ Archiving moves the change under `openspec/changes/archive/` and updates `opensp
 
 Code in this repository is under the MIT License. See [`LICENSE`](LICENSE). Copyright (c) 2026 Evan Burkey.
 
-Pathfinder rules content implemented in the engine is used under the ORC License. See [`NOTICE-ORC.md`](NOTICE-ORC.md).
+The mechanics derived from the books listed in the Attribution section of [`NOTICE-ORC.md`](NOTICE-ORC.md), and any new mechanics this product adds, are Licensed Material under the ORC License.
 
 Contributors follow the licensing requirements in [`docs/architect/licensing.md`](docs/architect/licensing.md).

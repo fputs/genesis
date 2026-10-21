@@ -62,15 +62,17 @@ Rules text and rules data do not include Paizo proper nouns (characters, deities
 
 Check: a rules entry that contains a Paizo proper noun, a lore paragraph, or Paizo art fails the check.
 
-## LIC-7. No Pathfinder branding beyond factual attribution, and no compatibility claim
+## LIC-7. No Pathfinder branding beyond the Attribution book titles, and no compatibility claim
 
-Do not put "Pathfinder" in the product title, a logo, or other branding. Do not use the Paizo compatibility logo. Do not claim that the product is compatible with Pathfinder, and do not claim that Paizo sponsors, endorses, or approves it. A mention of Pathfinder is limited to factual attribution of the books in LIC-3.
+Do not put "Pathfinder" in the product title, a logo, or other branding. Do not use the Paizo compatibility logo. Do not claim that the product is compatible with Pathfinder, and do not claim that Paizo sponsors, endorses, or approves it. Pathfinder may be named only as the book titles in the Attribution section of `NOTICE-ORC.md`. Repeating those same book titles as the permitted sources (LIC-3) or as a rules entry's source (LIC-4) is that Attribution naming.
+
+The store page and marketing text carry no compatibility wording and no endorsement wording.
 
 The research quotes ORC I.b and II.d.i: the ORC grants no trademark rights and no permission to imply a connection with the licensor. The Compatibility License grant is limited to printed books and electronic books, and it says standalone game systems are not authorized (https://paizo.com/licenses/compatibility). This product is not under that license. Do not add a Paizo trademark line or a compatibility line to `NOTICE-ORC.md`.
 
 **UNVERIFIED**: the research marks nominative fair use of a compatibility phrase as a lawyer question, not a grant from Paizo. This project does not use that phrase.
 
-Check: the product title, logos, and `NOTICE-ORC.md` contain no compatibility claim and no endorsement claim. A Pathfinder mention is a book title or a factual statement that the engine implements those books' rules.
+Check: the product title, logos, store page, marketing text, `README.md`, and `NOTICE-ORC.md` contain no compatibility claim and no endorsement claim. A Pathfinder mention is one of the book titles in the Attribution section of `NOTICE-ORC.md`.
 
 ## LIC-8. The four-part notice is placed in four places
 
