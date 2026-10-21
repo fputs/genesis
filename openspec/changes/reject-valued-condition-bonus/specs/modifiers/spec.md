@@ -11,7 +11,7 @@
 
 ### Requirement: Valued conditions are validated at construction
 
-A frightened or sickened modifier with no rank, a type other than status, or a bonus at any rank including 0, SHALL be rejected at construction with InvalidValuedCondition and SHALL NOT panic. A penalty of rank above 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. A penalty of rank 0 SHALL stay legal and contribute nothing. Any other condition with no rank SHALL stay legal. A bonus and a penalty of a condition with no value SHALL both apply.
+A frightened or sickened modifier with no rank, non-status type, or a bonus at any rank including 0, SHALL be rejected at construction with InvalidValuedCondition and SHALL NOT panic. A penalty of rank above 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. A penalty of rank 0 SHALL stay legal and contribute nothing. Any other condition with no rank SHALL stay legal. A bonus and a penalty of a condition whose modifiers are not derived from its value SHALL both apply.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
@@ -19,7 +19,7 @@ A frightened or sickened modifier with no rank, a type other than status, or a b
 
 #### Scenario: A condition bonus does not hide that condition's penalty
 
-- **GIVEN** condition 10, which has no value, from source 7 on the attack roll at sequence 4, with a status bonus of +2 at rank 3 and a status penalty of -1 at rank 1
+- **GIVEN** condition 10, a condition whose modifiers are not derived from its value, from source 7 on the attack roll at sequence 4, with a status bonus of +2 at rank 3 and a status penalty of -1 at rank 1
 - **WHEN** they are totaled with either modifier first
 - **THEN** the status bonus of +2 is applied
 - **AND** the status penalty of -1 is applied
