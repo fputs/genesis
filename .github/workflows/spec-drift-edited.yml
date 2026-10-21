@@ -1,0 +1,27 @@
+name: Spec drift edited
+
+on:
+  pull_request:
+    types: [edited]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spec-drift-edited-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  spec-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @fission-ai/openspec@1.14.3
+      - run: node --test scripts/spec-drift-check.test.mjs
+      - run: node scripts/spec-drift-check.mjs

@@ -11,7 +11,12 @@ const scriptPath = fileURLToPath(new URL("./spec-drift-check.mjs", import.meta.u
 const workflowPath = fileURLToPath(
   new URL("../.github/workflows/ci.yml", import.meta.url),
 );
+const editedWorkflowPath = fileURLToPath(
+  new URL("../.github/workflows/spec-drift-edited.yml", import.meta.url),
+);
 const workflow = readFileSync(workflowPath, "utf8");
+const editedWorkflow = readFileSync(editedWorkflowPath, "utf8");
+const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
 
 const STUB_LINE = "stub-openspec: validate --all --strict";
 const OPEN = "- [ ] 1.1 Open\n";
@@ -24,6 +29,76 @@ function completed(id) {
 
 function unknown(id) {
   return `spec-drift: unknown change ${id}`;
+}
+
+function shownInvalid(token) {
+  const shown = /\s/.test(token) ? JSON.stringify(token) : token;
+  return `spec-drift: invalid change id ${shown}`;
+}
+
+function whitespaceReferenceCases() {
+  const tokens = [
+    ["a tab", "\tadd-foo"],
+    ["a nbsp", "\u00a0add-foo"],
+    ["an em space", "\u2003add-foo"],
+    ["a tabbed Add-Foo", "\tAdd-Foo"],
+  ];
+  const docs = {
+    event: "pull_request",
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "docs/architect/decisions.md": "new\n" },
+    excludes: [MISSING],
+  };
+  const code = {
+    event: "pull_request",
+    base: {
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "crates/rules/src/lib.rs": "new\n" },
+    excludes: [MISSING],
+  };
+  const rows = [];
+  for (const [label, token] of tokens) {
+    const body = `OpenSpec-Change: ${token}`;
+    const line = shownInvalid(token);
+    rows.push(
+      failing(`Docs-only PR with ${label} before the id is invalid`, [line], { ...docs, body }),
+    );
+    rows.push(failing(`Code PR with ${label} before the id is invalid`, [line], { ...code, body }));
+  }
+  const hidden = shownInvalid("\tadd-foo");
+  const mixed = "OpenSpec-Change: add-dice-and-checks\nOpenSpec-Change: \tadd-foo";
+  rows.push(
+    failing("A valid id does not hide a whitespace token", [hidden], {
+      event: "pull_request",
+      body: mixed,
+      base: {
+        "Cargo.toml": "old\n",
+        "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "Cargo.toml": "new\n" },
+      excludes: [MISSING],
+    }),
+  );
+  rows.push(
+    failing("Docs-only valid id does not hide a whitespace token", [hidden], {
+      event: "pull_request",
+      body: mixed,
+      base: {
+        "docs/architect/decisions.md": "old\n",
+        "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    }),
+  );
+  return rows;
 }
 
 function passing(name, fields = {}) {
@@ -330,7 +405,121 @@ const cases = [
       "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
     },
     head: { "Cargo.toml": "new\n" },
-    excludes: ["spec-drift: unknown change"],
+    excludes: ["spec-drift: unknown change", "spec-drift: invalid change id"],
+  }),
+  failing("An uppercase id is not skipped", ["spec-drift: invalid change id Add-Foo"], {
+    event: "pull_request",
+    body: "OpenSpec-Change: Add-Foo",
+    base: {
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "crates/rules/src/lib.rs": "new\n" },
+    excludes: [MISSING],
+  }),
+  failing(
+    "A valid id does not hide an invalid token",
+    ["spec-drift: invalid change id Add-Foo"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change: add-dice-and-checks\nOpenSpec-Change: Add-Foo",
+      base: {
+        "Cargo.toml": "old\n",
+        "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+      },
+      head: { "Cargo.toml": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  failing(
+    "docs-only PR with OpenSpec-Change: Add-Foo fails",
+    ["spec-drift: invalid change id Add-Foo"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change: Add-Foo",
+      base: {
+        "docs/architect/decisions.md": "old\n",
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  failing(
+    "An empty or spaceless change line is invalid",
+    ["spec-drift: invalid change id\n", "spec-drift: invalid change id Add"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change:\nOpenSpec-Change:Add",
+      base: { "docs/architect/decisions.md": "old\n" },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  failing("A spaceless change id is invalid", ["spec-drift: invalid change id add-foo"], {
+    event: "pull_request",
+    body: "OpenSpec-Change:add-foo",
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "docs/architect/decisions.md": "new\n" },
+    excludes: [MISSING],
+  }),
+  failing(
+    "Two spaces before the change id are invalid",
+    [`spec-drift: invalid change id ${JSON.stringify("  add-foo")}`],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change:  add-foo",
+      base: {
+        "docs/architect/decisions.md": "old\n",
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  failing("A tab after the colon is invalid", [
+    `spec-drift: invalid change id ${JSON.stringify("\tadd-foo")}`,
+  ], {
+    event: "pull_request",
+    body: "OpenSpec-Change:\tadd-foo",
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "docs/architect/decisions.md": "new\n" },
+    excludes: [MISSING],
+  }),
+  failing("Completed changes are listed in byte order", [completed("Zed"), completed("alpha")], {
+    base: {
+      "openspec/changes/Zed/tasks.md": DONE,
+      "openspec/changes/alpha/tasks.md": DONE,
+    },
+    assertOutput(output) {
+      const byte = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+      assert.notEqual(byte("Zed", "alpha"), "Zed".localeCompare("alpha", "en"));
+      assert.notEqual(byte("Zed", "alpha"), "Zed".localeCompare("alpha", "sv"));
+      assert.notEqual(byte("Zed", "alpha"), "Zed".localeCompare("alpha", "fr"));
+      const zed = output.indexOf(completed("Zed"));
+      const alpha = output.indexOf(completed("alpha"));
+      assert.ok(zed >= 0 && alpha > zed, output);
+    },
+  }),
+  passing("A scripts-only pull request is not a code path", {
+    event: "pull_request",
+    body: "",
+    base: { "scripts/note.mjs": "old\n" },
+    head: { "scripts/note.mjs": "new\n" },
+    excludes: [MISSING],
+  }),
+  passing("Git diff runs with LC_ALL=C", {
+    event: "pull_request",
+    body: "",
+    base: { "docs/note.md": "old\n" },
+    head: { "docs/note.md": "new\n" },
+    recordGitLocale: true,
   }),
   passing("An active id exists", {
     event: "pull_request",
@@ -511,6 +700,7 @@ const cases = [
     base: { "openspec/changes/add-spec-drift-check/proposal.md": "old\n" },
     head: { "openspec/changes/add-spec-drift-check/proposal.md": "new\n" },
   }),
+  ...whitespaceReferenceCases(),
 ];
 
 for (const row of cases) {
@@ -524,9 +714,80 @@ test("Job triggers match the Cargo workflow", () => {
   assert.match(header, /push:/);
   assert.match(header, /pull_request:/);
   assert.match(header, /branches:\s*\[main]/);
+  assert.doesNotMatch(workflow, /edited/);
+  assert.doesNotMatch(workflow, /\bif:/);
+  assert.match(jobBlock(workflow, "ci"), /cargo fmt --check/);
   const job = jobBlock(workflow, "spec-drift");
   assert.match(job, /fetch-depth:\s*0/);
   assert.match(job, /node scripts\/spec-drift-check\.mjs/);
+  assert.match(editedWorkflow, /pull_request:/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /branches:\s*\[main]/);
+  assert.doesNotMatch(editedWorkflow, /cargo /);
+  const ciSteps = stepsBlock(job);
+  const editedSteps = stepsBlock(jobBlock(editedWorkflow, "spec-drift"));
+  assert.equal(editedSteps, ciSteps);
+  const suite = editedSteps.indexOf("node --test scripts/spec-drift-check.test.mjs");
+  const script = editedSteps.indexOf("node scripts/spec-drift-check.mjs");
+  assert.ok(suite >= 0);
+  assert.ok(script > suite);
+  const editedJobs = editedWorkflow
+    .slice(editedWorkflow.indexOf("jobs:"))
+    .match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(editedJobs, ["  spec-drift:"]);
+});
+
+test("Editing the body does not replace a failed Cargo check", () => {
+  assert.match(workflow, /pull_request:\n\s+branches: \[main]/);
+  assert.doesNotMatch(workflow, /edited/);
+  assert.doesNotMatch(workflow, /\bif:/);
+  assert.doesNotMatch(workflow, /types:/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /branches:\s*\[main]/);
+  assert.match(editedWorkflow, /node scripts\/spec-drift-check\.mjs/);
+  assert.doesNotMatch(editedWorkflow, /cargo fmt/);
+  assert.doesNotMatch(editedWorkflow, /^ {2}ci:/m);
+});
+
+test("The edited workflow reuses the spec-drift job name", () => {
+  assert.match(editedWorkflow, /pull_request:/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /branches:\s*\[main]/);
+  assert.match(editedWorkflow, /permissions:\n  contents: read\n/);
+  assert.match(
+    editedWorkflow,
+    /group: spec-drift-edited-\$\{\{ github\.event\.pull_request\.number \}\}/,
+  );
+  assert.match(editedWorkflow, /cancel-in-progress:\s*true/);
+  const jobs = editedWorkflow
+    .slice(editedWorkflow.indexOf("jobs:"))
+    .match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(jobs, ["  spec-drift:"]);
+  const job = jobBlock(editedWorkflow, "spec-drift");
+  const suite = job.indexOf("node --test scripts/spec-drift-check.test.mjs");
+  const script = job.indexOf("node scripts/spec-drift-check.mjs");
+  assert.ok(suite >= 0);
+  assert.ok(script > suite);
+  assert.equal(stepsBlock(job), stepsBlock(jobBlock(workflow, "spec-drift")));
+  assert.doesNotMatch(editedWorkflow, /pr-hygiene/);
+});
+
+test("Dropping the change line on edit fails", async () => {
+  const fields = {
+    event: "pull_request",
+    base: {
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+    },
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  };
+  await runCase(
+    passing("kept the line", {
+      ...fields,
+      body: "OpenSpec-Change: add-dice-and-checks",
+    }),
+  );
+  await runCase(failing("edited drops the line", [MISSING], { ...fields, body: "" }));
 });
 
 test("Cargo steps stay", () => {
@@ -565,6 +826,13 @@ test("Each case is a fixture repository", async () => {
     await runCase(row);
   }
 });
+
+function stepsBlock(job) {
+  const marker = "\n    steps:\n";
+  const start = job.indexOf(marker);
+  assert.ok(start >= 0, "missing steps");
+  return job.slice(start);
+}
 
 function jobBlock(yaml, id) {
   const lines = yaml.split("\n");
@@ -626,6 +894,15 @@ async function runCase(row) {
     const code = row.validateStatus ?? 0;
     await writeFile(stub, `#!/bin/sh\necho "${STUB_LINE}"\nexit ${code}\n`);
     await chmod(stub, 0o755);
+    const localeLog = join(dir, "git-locale.txt");
+    if (row.recordGitLocale) {
+      const gitStub = join(bin, "git");
+      await writeFile(
+        gitStub,
+        "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf '%s\\n' \"$LC_ALL\" > \"$GIT_LOCALE_LOG\"\nfi\nexec \"$REAL_GIT\" \"$@\"\n",
+      );
+      await chmod(gitStub, 0o755);
+    }
 
     const env = {
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
@@ -635,6 +912,11 @@ async function runCase(row) {
       SPEC_DRIFT_ROOT: dir,
       SPEC_DRIFT_BASE_SHA: baseSha,
     };
+    if (row.recordGitLocale) {
+      env.LC_ALL = "fr_FR.UTF-8";
+      env.GIT_LOCALE_LOG = localeLog;
+      env.REAL_GIT = realGit;
+    }
     if (row.body !== undefined) {
       env.SPEC_DRIFT_BODY = row.body;
     } else if (row.event === "pull_request") {
@@ -653,6 +935,12 @@ async function runCase(row) {
     }
     for (const line of row.excludes ?? []) {
       assert.ok(!output.includes(line), `unexpected ${line}\n${output}`);
+    }
+    if (row.recordGitLocale) {
+      assert.equal(readFileSync(localeLog, "utf8").trim(), "C");
+    }
+    if (row.assertOutput) {
+      row.assertOutput(output);
     }
     if (row.assertRepo) {
       row.assertRepo(dir);

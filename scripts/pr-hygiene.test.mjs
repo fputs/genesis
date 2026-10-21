@@ -12,8 +12,12 @@ const workflowPath = fileURLToPath(
   new URL("../.github/workflows/pr-hygiene.yml", import.meta.url),
 );
 const ciPath = fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url));
+const editedWorkflowPath = fileURLToPath(
+  new URL("../.github/workflows/spec-drift-edited.yml", import.meta.url),
+);
 const workflow = readFileSync(workflowPath, "utf8");
 const ciWorkflow = readFileSync(ciPath, "utf8");
+const editedWorkflow = readFileSync(editedWorkflowPath, "utf8");
 const scriptSource = readFileSync(scriptPath, "utf8");
 
 const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
@@ -25,6 +29,16 @@ const NEW_LOG = "## [Unreleased]\n\n### Added\n- old\n- new gate\n";
 const GATE_LOG = "## [Unreleased]\n\n### Added\n- old\n- Record the gate\n";
 const OUTSIDE_LOG = "## [Unreleased]\n\n### Added\n- old\n\n## [0.1.0]\n\n- shipped\n";
 const NO_HEADING = "# Changelog\n\n- old\n";
+const MOVED_BASE =
+  "## [Unreleased]\n\n### Added\n- old\n\n## [0.1.0]\n\n- Record the gate\n";
+const MOVED_HEAD =
+  "## [Unreleased]\n\n### Added\n- old\n- Record the gate\n\n## [0.1.0]\n\n- Record the gate\n";
+const EDITED_BASE = "## [Unreleased]\n\n### Added\n- Record the gate\n";
+const EDITED_HEAD = "## [Unreleased]\n\n### Added\n- Record the gate today\n";
+const FENCED_BULLET = "## [Unreleased]\n\n### Added\n- old\n\n```\n- brand new bullet\n```\n";
+const FENCED_OPEN = "```\n## [Unreleased]\n\n- brand new bullet\n```\n";
+const FENCED_CLOSE =
+  "## [Unreleased]\n\n### Added\n- old\n\n```\n## [0.1.0]\n```\n\n- brand new bullet\n";
 const MAIN_BULLET = "- main only bullet";
 const MAIN_LOG = `${LOG}${MAIN_BULLET}\n`;
 
@@ -109,7 +123,11 @@ const cases = [
     base: withLog({ "Cargo.toml": "old\n" }),
     head: { "Cargo.toml": "new\n" },
   }),
-  passing("A scripts-only pull request is not an implementation pull request", {
+  failing("A scripts-only pull request is not an implementation pull request", [MISSING], {
+    base: withLog({ "scripts/note.mjs": "old\n" }),
+    head: { "scripts/note.mjs": "new\n" },
+  }),
+  failing("A scripts-only pull request needs a changelog bullet", [MISSING], {
     base: withLog({ "scripts/note.mjs": "old\n" }),
     head: { "scripts/note.mjs": "new\n" },
   }),
@@ -241,7 +259,7 @@ const cases = [
     usePayloadForShas: true,
     usePayloadForBody: true,
   }),
-  passing("Extra words are not a change reference", {
+  failing("Extra words are not a change reference", [ARCHIVE], {
     body: "OpenSpec-Change: add-foo extra",
     base: {
       "openspec/changes/add-foo/proposal.md": "proposal\n",
@@ -255,7 +273,7 @@ const cases = [
       },
     ],
   }),
-  failing("A fenced line still counts", [ARCHIVE], {
+  failing("A fenced line does not exempt a removal", [ARCHIVE], {
     body: "```\nOpenSpec-Change: add-foo\n```",
     base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
     commits: [
@@ -266,7 +284,7 @@ const cases = [
     ],
   }),
   passing("The archive commit passes", {
-    body: "OpenSpec-Change: add-foo",
+    body: "",
     base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
     commits: [
       {
@@ -333,19 +351,19 @@ const cases = [
       },
     ],
   }),
-  failing("Edited re-reads the body", [ARCHIVE], {
+  failing("A body edit does not excuse a bad archive", [ARCHIVE], {
     action: "edited",
     usePayloadForBody: true,
     body: "OpenSpec-Change: add-foo",
     base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
     commits: [
       {
-        message: "update",
+        message: "fix typo",
         remove: ["openspec/changes/add-foo"],
       },
     ],
   }),
-  passing("An edited body drops the change reference", {
+  failing("An edited body drops the change reference", [ARCHIVE], {
     action: "edited",
     usePayloadForBody: true,
     body: "Edited without a change id.",
@@ -355,14 +373,28 @@ const cases = [
     },
     commits: [
       {
-        message: "update",
+        message: "fix typo",
         remove: ["openspec/changes/add-foo"],
         files: { "README.md": "new\n" },
       },
     ],
   }),
   passing("Two archived ids pass", {
-    body: "OpenSpec-Change: add-foo\nOpenSpec-Change: add-bar",
+    body: "",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "foo\n",
+      "openspec/changes/add-bar/proposal.md": "bar\n",
+    },
+    commits: [
+      {
+        message: "openspec archive add-bar --yes && openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo"), archiveRename("add-bar")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("Two archived ids fail", [ARCHIVE], {
+    body: "",
     base: {
       "openspec/changes/add-foo/proposal.md": "foo\n",
       "openspec/changes/add-bar/proposal.md": "bar\n",
@@ -405,7 +437,7 @@ const cases = [
     base: { "openspec/changes/add-foo/proposal.md": "old\n" },
     head: { "openspec/changes/add-foo/proposal.md": "new\n" },
   }),
-  passing("A removal without a reference skips archive-last", {
+  failing("A removal without a reference fails", [ARCHIVE], {
     body: "",
     base: {
       "openspec/changes/add-foo/proposal.md": "proposal\n",
@@ -487,6 +519,112 @@ const cases = [
   passing("A docs-only pull request with no changelog passes", {
     base: { "docs/architect/decisions.md": "old\n" },
     head: { "docs/architect/decisions.md": "new\n" },
+  }),
+  failing("An earlier archive add is not last", [ARCHIVE], {
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "copy the archive",
+        files: { "openspec/changes/archive/2026-10-21-add-foo/proposal.md": "proposal\n" },
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        remove: ["openspec/changes/add-foo"],
+      },
+    ],
+  }),
+  failing("An empty head commit fails", [ARCHIVE], {
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "move",
+        rename: [archiveRename("add-foo")],
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        empty: true,
+      },
+    ],
+  }),
+  failing("A specs-only head commit fails", [ARCHIVE], {
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "move",
+        rename: [archiveRename("add-foo")],
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        files: { "openspec/specs/unrelated/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("A phrase below the subject does not count", [ARCHIVE], {
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "Record the archive\n\nopenspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  passing("A pre-existing archive allows the removal commit", {
+    base: {
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+      "openspec/changes/archive/2026-10-21-add-foo/proposal.md": "proposal\n",
+    },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        remove: ["openspec/changes/add-foo"],
+      },
+    ],
+  }),
+  failing("A moved bullet is not new", [MISSING], {
+    base: { "crates/rules/src/lib.rs": "old\n", "CHANGELOG.md": MOVED_BASE },
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": MOVED_HEAD },
+  }),
+  failing("An edited bullet is not new", [MISSING], {
+    base: { "Cargo.toml": "old\n", "CHANGELOG.md": EDITED_BASE },
+    head: { "Cargo.toml": "new\n", "CHANGELOG.md": EDITED_HEAD },
+  }),
+  failing("A fenced bullet is not new", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": FENCED_BULLET },
+  }),
+  failing("A fenced heading does not open the section", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": FENCED_OPEN },
+  }),
+  passing("A fenced heading does not close the section", {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": FENCED_CLOSE },
+  }),
+  passing("Exempt categories together pass without a bullet", {
+    base: withLog({
+      "docs/architect/decisions.md": "old\n",
+      "openspec/specs/changelog/spec.md": "old\n",
+      ".cursor/rules/example.md": "old\n",
+      "README.md": "old\n",
+      "Cargo.lock": "old\n",
+      "rust-toolchain.toml": "old\n",
+    }),
+    head: {
+      "docs/architect/decisions.md": "new\n",
+      "openspec/specs/changelog/spec.md": "new\n",
+      ".cursor/rules/example.md": "new\n",
+      "README.md": "new\n",
+      "Cargo.lock": "new\n",
+      "rust-toolchain.toml": "new\n",
+    },
+  }),
+  failing("A missing path uses C-locale git text", [MISSING], {
+    gitStub: "locale",
+    excludes: [ARCHIVE, "chemin inexistant"],
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    remove: ["CHANGELOG.md"],
+    head: { "crates/rules/src/lib.rs": "new\n" },
   }),
 ];
 
@@ -612,7 +750,7 @@ test("The check uses the event head", async () => {
     assert.ok(log.includes(`diff -z --name-status --find-renames ${mergeBase} ${built.headSha}`), log);
     assert.ok(log.includes(`show ${mergeBase}:CHANGELOG.md`), log);
     assert.ok(!log.includes(`show ${built.baseSha}:CHANGELOG.md`), log);
-    assert.ok(log.includes(`--format=%B ${built.headSha}`), log);
+    assert.ok(log.includes(`--format=%s ${built.headSha}`), log);
     assert.ok(!log.includes(runnerSha), log);
     assert.ok(!/^HEAD\b/m.test(log) && !log.includes(" HEAD"), log);
   } finally {
@@ -777,15 +915,28 @@ test("The job runs the suite first", () => {
 test("Cargo and spec-drift stay", () => {
   assert.match(ciWorkflow, /push:\n\s+branches: \[main]/);
   assert.match(ciWorkflow, /pull_request:\n\s+branches: \[main]/);
+  assert.doesNotMatch(ciWorkflow, /edited/);
+  assert.doesNotMatch(ciWorkflow, /\bif:/);
   const cargo = jobBlock(ciWorkflow, "ci");
   assert.match(cargo, /cargo fmt --check/);
   assert.match(cargo, /cargo clippy --workspace --all-targets -- -D warnings/);
   assert.match(cargo, /cargo build --workspace/);
   assert.match(cargo, /cargo test --workspace/);
+  assert.doesNotMatch(cargo, /\bif:/);
   const drift = jobBlock(ciWorkflow, "spec-drift");
   assert.match(drift, /node --test scripts\/spec-drift-check\.test\.mjs/);
   assert.match(drift, /node scripts\/spec-drift-check\.mjs/);
+  assert.doesNotMatch(drift, /\bif:/);
   assert.doesNotMatch(ciWorkflow, /pr-hygiene/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /node scripts\/spec-drift-check\.mjs/);
+  const editedJobs = editedWorkflow
+    .slice(editedWorkflow.indexOf("jobs:"))
+    .match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(editedJobs, ["  spec-drift:"]);
+  assert.doesNotMatch(editedWorkflow, /pr-hygiene/);
+  const hygieneJobs = workflow.slice(workflow.indexOf("jobs:")).match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(hygieneJobs, ["  pr-hygiene:"]);
 });
 
 test("An in-progress run is cancelled", () => {
@@ -926,7 +1077,11 @@ async function applyCommit(dir, commit) {
     await writeTree(dir, commit.files);
   }
   git(dir, ["add", "-A"]);
-  git(dir, ["commit", "-m", commit.message ?? "head"]);
+  const args = ["commit", "-m", commit.message ?? "head"];
+  if (commit.empty) {
+    args.push("--allow-empty");
+  }
+  git(dir, args);
 }
 
 function makeRunnerMerge(built) {
@@ -1009,10 +1164,16 @@ function spawnScript(built, row) {
   if (row.gitStub) {
     const bin = join(built.dir, ".stub-bin");
     mkdirSync(bin);
-    const body =
-      row.gitStub === "broken-nul"
-        ? "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf 'M\\0'\n  exit 0\nfi\nexec \"$REAL_GIT\" \"$@\"\n"
-        : "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  echo \"diff failed\" >&2\n  exit 1\nfi\nexec \"$REAL_GIT\" \"$@\"\n";
+    let body =
+      "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  echo \"diff failed\" >&2\n  exit 1\nfi\nexec \"$REAL_GIT\" \"$@\"\n";
+    if (row.gitStub === "broken-nul") {
+      body =
+        "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf 'M\\0'\n  exit 0\nfi\nexec \"$REAL_GIT\" \"$@\"\n";
+    } else if (row.gitStub === "locale") {
+      env.LC_ALL = "fr_FR.UTF-8";
+      body =
+        "#!/bin/sh\nif [ \"$LC_ALL\" != \"C\" ]; then\n  echo \"chemin inexistant\" >&2\n  exit 1\nfi\nexec \"$REAL_GIT\" \"$@\"\n";
+    }
     writeFileSync(join(bin, "git"), body);
     chmodSync(join(bin, "git"), 0o755);
     env.REAL_GIT = realGit;
