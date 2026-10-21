@@ -25,3 +25,7 @@ Deferred: attributes, proficiency, saves, skills, spells, classes, and broader c
 ## 2026-10-20 — Phase 1 order revised
 
 2026-10-20: Phase 1 order revised: modifiers (circumstance, status, untyped stacking; minimal) moves to change 3, right after dice-and-checks, because encounter-core needs unconscious -4 status. creature-template gains uses_dying_rules (default false; without it a creature dies at 0 HP). RAW fixes vs v1 tracked in docs/designer/pf2e-citations.md.
+
+## 2026-10-20 — Workflow (Evan)
+
+2026-10-20: Workflow (Evan): Evan reviews only specs. Per change: (1) spec-only PR (proposal, design, tasks, spec deltas); Evan approves and merges it. (2) After merge, Architect launches implementation on its own PR, no further approval. (3) Implementation merges when CI is green, all tasks checked, v1-ported acceptance tests pass, Architect review against spec passes, and Chief of Staff accepts; Architect then merges and archives the change. Any deviation from spec stops work and goes back to Evan as a spec amendment. No force-push; only merged PR branches are deleted.
