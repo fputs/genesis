@@ -63,23 +63,24 @@ pub enum Statistic {
 }
 
 impl Modifier {
-    pub fn with_statistic(self, statistic: Statistic) -> Self;
+    pub fn bonus(ty: BonusType, value: i32, source: SourceId, sequence: u32, level: Option<u32>, statistic: Statistic) -> Result<Self, ModifierError>;
+    pub fn penalty(ty: PenaltyType, value: i32, source: SourceId, sequence: u32, level: Option<u32>, statistic: Statistic) -> Result<Self, ModifierError>;
     pub fn statistic(self) -> Statistic;
     pub fn condition_id(self) -> Option<ConditionId>;
 }
 ```
 
-`bonus` and `penalty` still take the same arguments. An unset statistic is `Attack`, so current callers share one statistic and the existing same-source tests still collapse. `attack_modifiers` leaves `Attack`. `ac_modifiers` sets `ArmorClass`. `perception_modifiers` sets `Perception`. A damage slice summed by itself may stay on the default; `damage_dealt` does not gain a parameter.
+`bonus` and `penalty` take a `Statistic`. There is no default, and `Attack` is not implied for a modifier that forgot to choose. `attack_modifiers` passes `Attack`. `ac_modifiers` passes `ArmorClass`. `perception_modifiers` passes `Perception`. Every damage modifier passes `Damage`, including the modifiers `damage_dealt` folds and the bonuses in `damage_keeps_the_highest_circumstance_bonus`. `damage_dealt` keeps its signature. The caller tags the slice before the call.
 
 `condition_id` and `statistic` are public so the new scenarios assert through the public API. Tests stay in `modifiers.rs`. No `unwrap` in library code. No new dependency.
 
-Alternative considered: a required statistic argument on `bonus` and `penalty`. Rejected. It would touch every call site for a default that is already `Attack`.
+Alternative considered: leave an unset statistic as `Attack`. Rejected. A damage modifier would then merge with an attack modifier from the same source.
 
 ## Risks / Trade-offs
 
 - [Equal-sequence penalty totals change from the milder value to the worse value] → Update `an_equal_sequence_keeps_the_higher_value` so its penalty half expects -8. Do not delete that test. The bonus half still expects +4.
 - [Condition grouping after the split changes who frightened rank 3 can hide] → The new frightened scenario is the guard. The single-modifier frightened bonus test stays.
-- [A uniform damage slice left on the default statistic] → Duplicate collapse inside that slice is unchanged. Mixed statistics are explicit via `with_statistic`.
+- [Call sites that built a modifier without a statistic] → Pass `Attack`, `ArmorClass`, `Perception`, or `Damage` at the construction site. Do not invent an `Attack` default.
 
 ## Migration Plan
 
@@ -87,4 +88,4 @@ No stored data. `total` keeps its signature. Callers that depended on the milder
 
 ## Open Questions
 
-None. The comparison order, the default statistic, and the condition-id substitute are decided above.
+None. The comparison order, the required statistic, and the condition-id substitute are decided above.

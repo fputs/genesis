@@ -219,3 +219,18 @@ Frightened and sickened grouping SHALL key on (condition, statistic), not the co
 - **THEN** both modifiers survive
 - **AND** the attack total is -2
 - **AND** the Armor Class total is -2
+
+### Requirement: Damage sets its statistic explicitly
+
+A damage modifier SHALL set its statistic to damage. It SHALL NOT take the attack-roll statistic by default. A damage modifier and an attack modifier that share a source SHALL both remain. Each statistic SHALL keep its own total.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
+
+#### Scenario: A same-source damage modifier and attack modifier do not merge
+
+- **GIVEN** source 4 at sequence 2, a damage circumstance bonus of +2 and an attack-roll circumstance bonus of +3
+- **WHEN** they are resolved together in either order
+- **THEN** both modifiers remain
+- **AND** the damage total is +2
+- **AND** the attack-roll total is +3

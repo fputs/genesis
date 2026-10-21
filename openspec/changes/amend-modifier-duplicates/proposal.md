@@ -24,6 +24,6 @@ None.
 
 ## Impact
 
-- The implementation edits `crates/rules/src/modifiers.rs` only. `total` keeps its signature. No new crate and no new dependency. `crates/rules` stays free of Bevy, serde, files, network, clock, and global randomness. Callers still pass sequence numbers. Tests use `ScriptedDice`.
+- The implementation edits `crates/rules/src/modifiers.rs` and the call sites that build a modifier. `bonus` and `penalty` take a statistic. There is no attack-roll default. Damage modifiers pass damage. `total` and `damage_dealt` keep their signatures. No new crate and no new dependency. `crates/rules` stays free of Bevy, serde, files, network, clock, and global randomness. Callers still pass sequence numbers. Tests use `ScriptedDice`.
 - `source_prefers` today keeps `candidate.value > current.value` for a penalty at an equal sequence. That is the defect R-01 corrects. Same-type stacking across different sources is unchanged: the highest bonus, the worst penalty, and the lowest sequence on a cross-source tie.
 - The implementation pull request adds an Unreleased changelog bullet, then archives with `openspec archive amend-modifier-duplicates --yes` as its last commit. This pull request does not archive.
