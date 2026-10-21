@@ -71,7 +71,7 @@ A grep of `openspec/specs`, `docs`, and unarchived design notes found no selecti
 
 - [Existing tests chain `with_condition`] → They handle `Result`. `a_frightened_circumstance_penalty_becomes_status_minus_rank` expects the error and is not deleted.
 - [The oracle's source table drifts from production] → The table is the order in decision 2. It includes `MultipleAttackPenalty` and the range-penalty and circumstance variants. It does not add a second MAP source.
-- [The rulings log still says frightened and sickened are rewritten to status] → This change copies the designer's file exactly, including that earlier amendment and R-03. The implementation does not edit it. The spec replaces the rewrite.
+- [Amendment 2 says frightened and sickened are rewritten to status] → This change copies the designer's file exactly. R-03 in that file replaces the sentence: frightened and sickened are status by construction, and grouping uses their type as declared. The implementation does not edit the log.
 
 ## Migration Plan
 

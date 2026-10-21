@@ -4,7 +4,7 @@
 
 ### Requirement: Frightened grouping follows the split
 
-A frightened or sickened modifier with no rank, or with a declared type other than status, SHALL be rejected at construction with a typed error and SHALL NOT panic. A penalty of rank above 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. Rank 0 SHALL stay legal and contribute nothing. Any other condition with no rank SHALL stay legal. A status bonus tagged with either condition SHALL keep its declared type and value and SHALL NOT hide that penalty.
+A frightened or sickened modifier with no rank, or with a declared type other than status, SHALL be rejected at construction with InvalidValuedCondition and SHALL NOT panic. A penalty of rank above 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. Rank 0 SHALL stay legal and contribute nothing. Any other condition with no rank SHALL stay legal. A status bonus tagged with either condition SHALL keep its declared type and value and SHALL NOT hide that penalty.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
@@ -64,6 +64,22 @@ A frightened or sickened modifier with no rank, or with a declared type other th
 - **THEN** one status penalty is applied in both orders
 - **AND** its value is -2, the negation of rank 2
 - **AND** the attack-roll total is -2 in both orders
+
+#### Scenario: Sickened with item type and rank 1 is rejected
+
+- **GIVEN** a sickened item penalty of rank 1
+- **WHEN** it is created
+- **THEN** the result is InvalidValuedCondition
+- **AND** no modifier is returned
+- **AND** creation does not panic
+
+#### Scenario: Frightened untyped with rank 1 is rejected
+
+- **GIVEN** a frightened untyped penalty of rank 1
+- **WHEN** it is created
+- **THEN** the result is InvalidValuedCondition
+- **AND** no modifier is returned
+- **AND** creation does not panic
 
 ### Requirement: Condition groups ignore the source key
 
