@@ -1,4 +1,4 @@
-The source code is under the MIT License (see LICENSE), and the game rules mechanics derived from the books listed under Attribution are Licensed Material under the ORC License.
+The source code is under the MIT License (see LICENSE), and the game rules mechanics derived from the books listed under Attribution, and any new mechanics this product adds, are Licensed Material under the ORC License.
 
 # ORC Notice
 
