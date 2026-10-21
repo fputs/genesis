@@ -9,7 +9,7 @@
 **Goals:**
 
 - Group on (condition, statistic, bonus or penalty, type) after the frightened and sickened rewrite to status.
-- After equal source ids, compare higher level, then the canonical duplicate-key comparison.
+- After equal source ids, the higher level wins. That step is an engineering tiebreak with no rules effect, and Rules 2266 (Player Core p.398) is context only. Then the canonical duplicate-key comparison.
 - Make that comparison a total order over distinct modifiers.
 
 **Non-Goals:**
@@ -25,7 +25,7 @@
 
 Rewrite frightened and sickened penalties to status before grouping. Rank 0 still contributes nothing. The group key is then (condition, statistic, bonus or penalty, type). Different types do not share a group, so they stack (Player Core p.400). There is no type tiebreak.
 
-`condition_prefers` keeps grouped value, then highest rank, a rank over none, then newest sequence, then lowest source id. When the source ids are equal it continues with the higher level, a level over none, then `key_prefers`. Equal modifiers keep the incumbent.
+`condition_prefers` keeps grouped value, then highest rank, a rank over none, then newest sequence, then lowest source id. When the source ids are equal it continues with the higher level, a level over none, then `key_prefers`. The level step is an engineering tiebreak with no rules effect. Rules 2266 (Player Core p.398) is context only. Equal modifiers keep the incumbent.
 
 Circumstance -2 and status -2 are different groups. Circumstance -2 applies alone. Status -3 beats status -2. Every order applies those two and totals -5. Item -2 and circumstance -3 are different types, so both apply, and circumstance -2 loses to circumstance -3. Every order totals -5. Same type at level 1 and level 4 keeps level 4. Two frightened status penalties at rank 2 keep level 3, and the rewrite sets the value to -2.
 

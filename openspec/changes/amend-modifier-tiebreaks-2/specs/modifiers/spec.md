@@ -42,10 +42,10 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 
 ### Requirement: Condition-group ties break on rank, sequence, and source id
 
-After the worst penalty or the highest bonus, the order SHALL be the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect. The higher level SHALL then win, and a level SHALL beat none. The canonical duplicate-key comparison SHALL decide. This order SHALL be a total order over distinct modifiers.
+After the worst penalty or the highest bonus, the order SHALL be the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect. The higher level SHALL then win, and a level SHALL beat none. That level step SHALL be an engineering tiebreak with no rules effect. The canonical duplicate-key comparison SHALL decide. This order SHALL be a total order over distinct modifiers.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values; context only, the value step is RAW)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects; context only)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 
 #### Scenario: Two frightened penalties report the lower source in both orders
