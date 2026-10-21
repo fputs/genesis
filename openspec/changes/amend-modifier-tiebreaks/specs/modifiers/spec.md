@@ -52,6 +52,13 @@ On one statistic, for one type, only the highest bonus and only the worst penalt
 - **THEN** the untyped total is -7
 - **AND** that -5 is the value the existing multiple attack penalty returns
 
+#### Scenario: A condition bonus and penalty both apply
+
+- **GIVEN** condition 10 on the attack roll, a circumstance bonus of +2 and a circumstance penalty of -1, from the same source at the same sequence
+- **WHEN** they are totaled with either modifier first
+- **THEN** both modifiers are applied in both orders
+- **AND** the total is +1 in both orders
+
 #### Scenario: An overflowing modifier sum returns an error
 
 - **GIVEN** untyped penalties of -2147483648 and -1 from different sources
@@ -81,7 +88,7 @@ On one statistic, for one type, only the highest bonus and only the worst penalt
 
 ### Requirement: One effect and the highest condition rank
 
-Each modifier SHALL carry a source id, a sequence number, and its statistic. The key (source id, statistic, type, bonus or penalty) SHALL become one before the sum and SHALL NOT group different conditions. Within a key, the higher level wins, then the higher rank, otherwise the newer (greater) sequence. Value SHALL NOT override that. A repeated condition on one statistic SHALL keep the highest value before rank or sequence. A condition with no rank SHALL apply once per statistic.
+Each modifier SHALL carry a source id, a sequence number, and its statistic. The key (source id, statistic, type, bonus or penalty) SHALL become one before the sum and SHALL NOT group different conditions. Within a key, the higher level wins, then the higher rank, otherwise the newer (greater) sequence. Value SHALL NOT override that. A repeated condition on one statistic SHALL use the condition-group order. A condition with no rank SHALL apply once per statistic.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -150,7 +157,7 @@ Each modifier SHALL carry a source id, a sequence number, and its statistic. The
 
 ### Requirement: Duplicate key comparison is a total order
 
-Within a duplicate key the kept modifier SHALL follow a total order: higher level, a level over none, higher rank, a rank over none, then the greater sequence. If those tie, ruling R-01 (an extension consistent with RAW via Rules 2282, not a deviation) SHALL keep the higher bonus or the more negative penalty. If the value ties, the lower condition id SHALL win, and a missing condition id SHALL lose. The lower source id SHALL then win. It is an engineering tiebreak, not a deviation.
+Within a duplicate key the kept modifier SHALL follow a total order: higher level, a level over none, higher rank, a rank over none, then the greater sequence. If those tie, ruling R-01 (an extension consistent with RAW via Rules 2282, not a deviation) SHALL keep the higher bonus or the more negative penalty. If the value ties, the lower condition id SHALL win and a missing id SHALL lose, then the lower source id. Both steps SHALL be engineering tiebreaks with no rules effect, not a deviation.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -240,7 +247,7 @@ Frightened and sickened grouping SHALL key on (condition, statistic) only, never
 
 ### Requirement: Condition groups ignore the source key
 
-Condition modifiers SHALL group by (condition, statistic) only, never by source key, after the bonus and penalty split. Unequal condition ids, including a present id against none, SHALL NOT share a source key. Within a group the order SHALL be the worst penalty or the higher bonus, the highest value, then the highest rank, then the newest sequence, then the lowest source id. Only that value comparison SHALL have a rules effect. Rank, sequence, and source id SHALL be engineering tiebreaks.
+Condition modifiers SHALL group by (condition, statistic) only, never by source key, after the bonus and penalty split. Unequal condition ids, including a present id against none, SHALL NOT share a source key. Within a group the order SHALL be the worst penalty or the highest bonus. For a condition with a value, that SHALL be the highest condition value. Then the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -268,6 +275,37 @@ Condition modifiers SHALL group by (condition, statistic) only, never by source 
 - **THEN** the status penalty is -3 in both orders
 - **AND** the total is -3 in both orders
 
+#### Scenario: Frightened 1, 3, and 2 give -3 in all six orders
+
+- **GIVEN** on the attack roll, frightened 1 from source 1 at sequence 1, frightened 3 from source 2 at sequence 2, and frightened 2 from source 3 at sequence 3
+- **WHEN** they are totaled in all 6 orders
+- **THEN** every result applies one status penalty of -3
+- **AND** that penalty has sequence 2
+- **AND** every total is -3
+
+#### Scenario: Removing frightened 2 leaves frightened 1
+
+- **GIVEN** frightened 2 from source 1 and frightened 1 from source 2, on the attack roll
+- **WHEN** the frightened 2 entry is removed and the remaining list is totaled
+- **THEN** the status penalty is -1
+- **AND** the total is -1
+- **AND** frightened 1 is applied
+
+### Requirement: A non-derived modifier keeps the larger one
+
+When a condition's penalty or bonus is not derived from its value, the larger modifier SHALL win: the worst penalty or the highest bonus. This SHALL be our extension, consistent with Rules 2282 (Player Core pg. 400), and SHALL NOT be the text of Rules 2455. It SHALL be a ruling, not a deviation.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+
+#### Scenario: A non-derived penalty keeps the larger modifier
+
+- **GIVEN** condition 10 on the attack roll, a circumstance penalty of -4 from source 1 at sequence 5 and rank 1, and a circumstance penalty of -1 from source 2 at sequence 5 and rank 2
+- **WHEN** they are totaled with either modifier first
+- **THEN** the circumstance penalty is -4 in both orders
+- **AND** the kept rank is 1
+- **AND** the total is -4 in both orders
+
 ### Requirement: Comparisons end on the lower source id
 
 Every comparison SHALL end on the lower source id, so the resolution, the total, and the reported modifier SHALL be independent of input order. Stacking SHALL keep the highest bonus or worst penalty, then the lowest sequence, then the lower condition id, a missing id losing, then the lower source id. Duplicate-key and condition-group comparisons SHALL end on that same source id. For any input set, every ordering SHALL produce an identical result.
@@ -285,9 +323,18 @@ Every comparison SHALL end on the lower source id, so the resolution, the total,
 - **AND** the total is +2 in both orders
 - **AND** the tiebreak is recorded as rule, Duplicate Effects and same-type stacking name no further instance once the bonus or penalty is chosen; why not, they are silent when those match; substitute, the lower source id wins; intent, every input order reports the same modifier and the same total
 
+#### Scenario: The lowest sequence beats the lower source id
+
+- **GIVEN** circumstance bonuses of +2 on the attack roll, from source 2 at sequence 1 and from source 1 at sequence 4, with no condition
+- **WHEN** they are totaled with either modifier first
+- **THEN** one circumstance bonus is applied
+- **AND** its source id is 2 in both orders
+- **AND** its sequence number is 1
+- **AND** the total is +2 in both orders
+
 ### Requirement: Conditions stay separate state
 
-Conditions SHALL stay separate state. Collapsing SHALL affect only the numeric total. Frightened and sickened from one source SHALL both remain when the worse status penalty is applied. Decrementing frightened SHALL leave sickened present.
+Conditions SHALL stay separate state. Collapsing SHALL affect only the numeric total. Frightened and sickened from one source SHALL both remain when the worse status penalty is applied. Decrementing frightened SHALL leave sickened present. Removing one condition SHALL leave the other present at its rank.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
@@ -304,3 +351,37 @@ Conditions SHALL stay separate state. Collapsing SHALL affect only the numeric t
 - **THEN** the status penalty is -2
 - **AND** the total is -2
 - **AND** the list still contains sickened at rank 1
+
+#### Scenario: Removing frightened leaves sickened 1
+
+- **GIVEN** one caller's list for one attack roll and source 4, holding frightened 3 as a status penalty at sequence 1 and level 1, and sickened 1 as a status penalty at sequence 2 and level 5
+- **WHEN** the list is totaled
+- **THEN** the status penalty is -3
+- **AND** the total is -3
+- **WHEN** frightened is removed entirely and the list is totaled again
+- **THEN** the status penalty is -1
+- **AND** the total is -1
+- **AND** the list still contains sickened at rank 1
+- **AND** frightened is absent
+
+### Requirement: A zero rank contributes nothing
+
+A frightened or sickened rank of 0 SHALL contribute no modifier and SHALL NOT appear among the applied modifiers. Another condition on that statistic SHALL still apply. A rank of 0 alone SHALL total 0.
+
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=91 (Player Core pg. 446, Sickened)
+
+#### Scenario: Frightened 0 plus sickened 1 gives -1
+
+- **GIVEN** frightened 0 as a status penalty at rank 0 and sickened 1 as a status penalty at rank 1, on the attack roll
+- **WHEN** they are totaled
+- **THEN** the total is -1
+- **AND** sickened 1 is applied
+- **AND** frightened is not among the applied modifiers
+
+#### Scenario: Frightened 0 alone gives total 0
+
+- **GIVEN** frightened 0 alone as a status penalty at rank 0 on the attack roll
+- **WHEN** it is totaled
+- **THEN** the total is 0
+- **AND** no modifier is applied
