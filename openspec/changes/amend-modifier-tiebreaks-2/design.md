@@ -16,7 +16,7 @@
 
 - A new crate, a new dependency, or a new field on `Modifier`.
 - Changing stacking, or the steps inside the duplicate-key comparison.
-- Editing `docs/designer/rules-rulings.md` before the designer reviews the type order.
+- Editing `docs/designer/rules-rulings.md` further. This change copies amendment 2. The implementation leaves that file as copied.
 - Changing the frightened and sickened rewrite. The kept modifier is still a status penalty of `-rank`.
 
 ## Decisions
@@ -38,5 +38,5 @@ The test is in `modifiers.rs` and adds no crate. A test-local generator uses a f
 ## Risks / Trade-offs
 
 - [Grouping sees the pre-rewrite type] → Frightened and sickened become status before the key is formed, so a frightened circumstance penalty joins the status group.
-- [The designer rulings file is still the pre-amendment copy] → Amendment 2 is copied in this change and is not edited by the implementation.
+- [The implementation edits the rulings log] → This change copies amendment 2. The implementation leaves `docs/designer/rules-rulings.md` as copied.
 - [`key_prefers` sees the raw value] → For frightened and sickened the grouped value is `-rank`. A raw-value difference after the other steps tie still picks one modifier, and the rewrite then sets `-rank`.
