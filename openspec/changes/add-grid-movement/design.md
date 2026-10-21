@@ -119,6 +119,8 @@ pub enum GridError {
 
 `move_trait_allowed(immobilized: bool) -> Result<(), GridError>` returns `Immobilized` or `Ok(())`. Stride and Step call it. Crawl, Stand, and Drop Prone are not implemented.
 
+`validate_speed(speed_feet: i32) -> Result<(), GridError>` is DEV-21 (`docs/designer/rules-deviations.md`). It returns `Ok(())` for 0 and every positive multiple of 5. Any other non-negative Speed returns `SpeedNotMultipleOfFive`. A negative Speed returns `NegativeSpeed` and is not reported as a multiple-of-5 failure. That negative result is the grid guard; the creature rule Speed >= 0 stays in `add-modifiers`. Stride and Step call `validate_speed` after the negative check and before they measure a path. `try_new` does not gain `SpeedNotMultipleOfFive`.
+
 `distance`, `adjacent`, and `in_reach` take two squares and two sizes. `in_reach` also takes `reach_feet: u32`. `range_band(distance_feet: i32, increment_feet: i32) -> Result<RangeBand, GridError>` returns the count and the penalty. `penalty` is a plain `i32`. It is not a modifier bucket and it is not added to `multiple_attack_penalty`.
 
 Unlisted terrain is `Open`. The first listing of a square wins. An occupant whose `FactionId` differs from the mover makes that square an enemy square. Otherwise a matching `FactionId` is same faction. The mover is not in the occupant list.
@@ -139,7 +141,7 @@ Range count is `ceil(distance / increment)` and at least 1, so an exact multiple
 
 ### What is not edited
 
-Do not edit `crates/rules/src/check.rs`, `crates/rules/src/combatant.rs`, or `crates/rules/src/dice.rs`. Do not add a modifiers module or a modifiers spec. Do not add a path-search function. Tests live in `grid.rs` under `#[cfg(test)]` and call the public functions. Each test comment cites the Player Core section for that scenario. A test builds a `ScriptedDice` and asserts it is unused.
+Do not edit `crates/rules/src/check.rs`, `crates/rules/src/combatant.rs`, or `crates/rules/src/dice.rs`. Do not add `SpeedNotMultipleOfFive` to creature validation. `add-modifiers` keeps only Speed >= 0. Do not add a modifiers module or a modifiers spec. Do not add a path-search function. Tests live in `grid.rs` under `#[cfg(test)]` and call the public functions. Each test comment cites the Player Core section for that scenario. A test builds a `ScriptedDice` and asserts it is unused.
 
 ## QA questions
 
@@ -149,7 +151,7 @@ Designer rulings Q1–Q9. Each row names the scenario or the out-of-scope line t
 |---|---|---|
 | Q1 | Step and Crawl share the turn's diagonal counter. Crawl itself is out of scope (positioning). | Scenario "Step and Crawl share the diagonal counter". Out of scope: requirement "Step and Crawl share one counter" — this capability does not implement Crawl. |
 | Q2 | A path over Speed is rejected with no partial move. | Scenario "Exact Speed". Requirement "Stride follows Speed along the path" rejects that path with no partial move. Requirement "A failed move does nothing" applies no prefix of the path. |
-| Q3 | A Speed that is not a multiple of 5 is rejected at validation. The 5-ft floor under penalties is out of scope. | Scenario "Speed not a multiple of five". Validation here is the move's check (`SpeedNotMultipleOfFive`). Creature validation stays unchanged. Out of scope: requirement "Movement Speeds are multiples of five" — a 5-foot Speed floor under penalties is not applied. |
+| Q3 | A Speed that is not a multiple of 5 is rejected at validation. The 5-ft floor under penalties is out of scope. | Requirement "DEV-21 validates Speed in 5-foot steps", citing docs/designer/rules-deviations.md DEV-21. Scenarios "Speed not a multiple of five", "Multiples of five pass Speed validation", and "A Step uses the Speed validation". add-modifiers keeps only Speed >= 0. Out of scope: requirement "Movement Speeds are multiples of five" — a 5-foot Speed floor under penalties is not applied. |
 | Q4 | A Step on the counter's 10-ft diagonal is allowed, moves 5 ft, and advances the counter. | Scenario "Step on a 10-ft diagonal costs 5". |
 | Q5 | Passing through a same-faction square is allowed. Ending any move there is rejected. RAW's next action moves out is out of scope (encounter-core). | Scenarios "Through an ally" and "Ending in an ally square". Out of scope: requirement "Same faction can be crossed" — the next-action move out is not implemented. |
 | Q6 | Corner-cutting is out of scope. Phase 1 has no walls. Future ruling: a diagonal is blocked only when both orthogonal neighbours block. | Requirement "Corner cutting waits for walls" and scenario "A diagonal needs no wall check". The future ruling is recorded there and is not applied. |
@@ -179,7 +181,7 @@ Each item is rule, why not, substitute, intent. D1, D3, D4, D5, D11, D12, D13, a
 
 9. **D16, no Speed floor; immobilized is a flag. Scope.** Rule: Player Core pg. 420 says penalties cannot reduce Speed below 5 feet (https://2e.aonprd.com/Rules.aspx?ID=2346), and pg. 444 says immobilized blocks move actions (https://2e.aonprd.com/Conditions.aspx?ID=81). Why not: no Speed penalty exists yet, and immobilized is not a condition. Substitute: the floor is not applied. `move_trait_allowed` reads a bool. Speed 0 allows an empty Stride and rejects Step. Intent: the check is ready for Crawl, Stand, and Drop Prone, and Speed is used as stored.
 
-10. **Speed that is not a multiple of 5. Architecture.** Rule: grid Speeds are multiples of 5 (https://2e.aonprd.com/Rules.aspx?ID=2347). Why not: `creature-template` accepts any non-negative Speed, including 7. Substitute: movement returns `SpeedNotMultipleOfFive` and does not change creature validation. Intent: Stride does not invent a square cost for a Speed the grid cannot divide.
+10. **DEV-21, Speed is a multiple of 5. Validation.** Rule: docs/designer/rules-deviations.md DEV-21. Player Core Speeds are multiples of 5 feet (https://2e.aonprd.com/Rules.aspx?ID=2347) and a square is 5 feet (https://2e.aonprd.com/Rules.aspx?ID=2356). The book does not state the rejection. Why not: `add-modifiers` keeps only Speed >= 0, and `creature-template` still stores Speed 7. Substitute: `validate_speed` returns `SpeedNotMultipleOfFive` for a non-negative Speed that is not a multiple of 5. Speed 0 stays valid. Intent: this change owns that validation. Stride does not invent a square cost.
 
 11. **Range penalty is not applied. Scope, checklist E19.** Rule: Player Core pg. 403 gives -2 per extra increment, and pg. 400 says that untyped penalty adds with the multiple attack penalty (https://2e.aonprd.com/Rules.aspx?ID=2290, https://2e.aonprd.com/Rules.aspx?ID=2282). Why not: attack rolls are encounter-core, and `add-modifiers` is a parallel change. Substitute: 130 feet at increment 60 returns count 3 and penalty -4, and nothing else. Intent: encounter-core can add that -4 to MAP's -5 later. This change does not produce the checklist's summed -9.
 

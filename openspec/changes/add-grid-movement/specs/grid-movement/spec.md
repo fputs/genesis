@@ -164,14 +164,14 @@ Stride SHALL succeed only when every entered square is adjacent to the previous 
 
 ### Requirement: Movement Speeds are multiples of five
 
-Stride and Step SHALL accept Speed 0 and any positive multiple of 5 feet. When a move is validated, a Speed that is not a multiple of 5 SHALL return a typed error. Creature validation SHALL stay unchanged. Speed 0 SHALL allow a Stride that enters no square. A path above Speed SHALL return an exceeds-Speed error, including a non-empty path at Speed 0. A 5-foot Speed floor under penalties SHALL NOT be applied. That floor is out of scope.
+Once Speed validation has passed, Stride and Step SHALL accept Speed 0 and any positive multiple of 5 feet. Speed 0 SHALL allow a Stride that enters no square. A path above Speed SHALL return an exceeds-Speed error, including a non-empty path at Speed 0. A 5-foot Speed floor under penalties SHALL NOT be applied. That floor is out of scope.
 
-**Rule**: Player Core movement uses Speeds in multiples of 5 feet. The book does not tell an engine to reject another stored number. https://2e.aonprd.com/Rules.aspx?ID=2347
-**Why**: A creature build may store a non-negative Speed that is not a multiple of 5, because creature validation only rejects a negative Speed.
-**Substitute**: Movement returns a typed error and does not change creature validation.
-**Intent**: Stride cannot spend a Speed the grid cannot divide into squares.
+**Rule**: Player Core pg. 420 says penalties cannot reduce Speed below 5 feet. https://2e.aonprd.com/Rules.aspx?ID=2346
+**Why**: No Speed penalty exists yet.
+**Substitute**: The floor is not applied. Speed 0 remains a legal empty Stride.
+**Intent**: Movement uses the validated Speed it is given.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420, Speed)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2346 (Player Core pg. 420, Speed penalties)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2304 (Player Core pg. 418, Step requires Speed 10)
 
 #### Scenario: Speed 0
@@ -182,10 +182,35 @@ Stride and Step SHALL accept Speed 0 and any positive multiple of 5 feet. When a
 - **AND** a Stride into the adjacent square is an exceeds-Speed error and the position stays
 - **AND** a Step into that square is rejected because Speed is under 10 feet, and the position stays
 
+### Requirement: DEV-21 validates Speed in 5-foot steps
+
+This capability SHALL validate that a Speed is a multiple of 5 feet. That check is DEV-21 in docs/designer/rules-deviations.md. It SHALL accept 0 and every positive multiple of 5, and SHALL reject any other non-negative Speed with a typed error. Stride and Step SHALL use it before measuring a path. A negative Speed SHALL remain a negative-Speed error, checked first. This capability SHALL NOT take the rule that Speed is at least 0. add-modifiers keeps that rule.
+
+**Rule**: Player Core Speeds come in 5-foot steps. The book states no rejection for another number. https://2e.aonprd.com/Rules.aspx?ID=2347
+**Why**: A square is 5 feet, and docs/designer/rules-deviations.md DEV-21 makes the rejection a validation choice.
+**Substitute**: Grid validation rejects a non-negative Speed that is not a multiple of 5. Speed 0 stays valid.
+**Intent**: Stride does not invent a square cost. add-modifiers keeps only Speed greater than or equal to 0.
+
+**Source**: docs/designer/rules-deviations.md DEV-21
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420, Speed)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2356 (Player Core pg. 421, a square is 5 feet)
+
 #### Scenario: Speed not a multiple of five
 
 - **GIVEN** Speed 7 and an empty path
-- **WHEN** the creature Strides
+- **WHEN** Speed is validated with no path, and the creature Strides
+- **THEN** both results are a speed-not-multiple-of-five error, the position stays the start square, and the error is not a negative-Speed error
+
+#### Scenario: Multiples of five pass Speed validation
+
+- **GIVEN** Speeds 0, 5, 10, and 25, and no path
+- **WHEN** each Speed is validated
+- **THEN** each is accepted
+
+#### Scenario: A Step uses the Speed validation
+
+- **GIVEN** Speed 7 and one open adjacent square
+- **WHEN** the creature Steps
 - **THEN** the result is a speed-not-multiple-of-five error and the position stays the start square
 
 ### Requirement: Step is five feet
