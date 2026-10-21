@@ -188,9 +188,10 @@ A DC taken from a modifier SHALL equal 10 plus that modifier.
 
 ### Requirement: Flat checks roll one bare d20
 
-A flat check SHALL roll one d20 and SHALL NOT add a modifier. A DC of 1 or lower SHALL succeed without a roll. A DC of 21 or higher SHALL fail without a roll. An automatic result SHALL be an ordinary success or an ordinary failure. Several flat checks that would cause or prevent the same thing SHALL roll once, against the highest of those DCs. Flat checks for different things SHALL roll separately.
+A flat check SHALL roll one d20 and SHALL NOT add a modifier. A rolled flat check SHALL return the full degree of success, including the natural 20 and natural 1 step. Consumers that have no critical entry SHALL treat a critical success as a success and a critical failure as a failure. A DC of 1 or lower SHALL succeed without a roll. A DC of 21 or higher SHALL fail without a roll. An automatic result SHALL be an ordinary success or an ordinary failure.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2278 (Player Core pg. 400, Flat Checks)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2287 (Natural 1 and Natural 20)
 
 #### Scenario: Modifiers are ignored
 
@@ -220,7 +221,19 @@ A flat check SHALL roll one d20 and SHALL NOT add a modifier. A DC of 1 or lower
 
 - **GIVEN** a flat check at DC 20 and a scripted natural 20
 - **WHEN** the flat check is resolved
-- **THEN** the roll is consumed, the total is 20, and the degree is success
+- **THEN** the roll is consumed, the total is 20, and the degree is critical success
+
+#### Scenario: DC 20 natural 1 is a critical failure
+
+- **GIVEN** a flat check at DC 20 and a scripted natural 1
+- **WHEN** the flat check is resolved
+- **THEN** the roll is consumed, the total is 1, and the degree is critical failure
+
+### Requirement: Flat checks for the same thing roll once
+
+Several flat checks that would cause or prevent the same thing SHALL roll once, against the highest of those DCs. Flat checks for different things SHALL roll separately.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2278 (Player Core pg. 400, Flat Checks)
 
 #### Scenario: The same thing rolls once at the highest DC
 
