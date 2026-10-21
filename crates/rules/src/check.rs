@@ -936,6 +936,16 @@ mod tests {
         assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
     }
 
+    /// Player Core, "Flat Checks" and "Natural 1 and Natural 20".
+    #[test]
+    fn dc_20_natural_1_is_a_critical_failure() {
+        let mut dice = ScriptedDice::new([1]);
+        let roll = flat_check(&mut dice, 20);
+        assert_eq!(dice.remaining(), 0);
+        assert_eq!(roll.natural, Some(1));
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalFailure);
+    }
+
     /// Player Core, "Flat Checks".
     #[test]
     fn the_same_thing_rolls_once_at_the_highest_dc() {
