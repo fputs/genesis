@@ -74,3 +74,4 @@ An implementation pull request adds a changelog entry under ## [Unreleased] befo
 - Code should explain itself; comment only *why*, never *what*.
 - Record a tabletop substitute in the spec as: rule, why not, substitute, intent.
 - An implementation pull request writes its CHANGELOG.md entry under ## [Unreleased] before the work is done. There is no separate changelog pull request after merge.
+- All contributors, human or bot, follow `docs/architect/licensing.md`. Every rules spec or doc cites its source book and page.
