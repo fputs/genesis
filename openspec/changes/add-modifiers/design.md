@@ -23,7 +23,6 @@
 - Shield bonuses. The shields change owns Raise a Shield. This change's Armor Class total does not read `shield_ac_bonus`.
 - Resistance, weakness, and immunity. Resistance has its own floor of 0 (Rules 2318, Player Core pg. 408, https://2e.aonprd.com/Rules.aspx?ID=2318). This change does not apply it.
 - The Speed floor of 5 feet. That applies when penalties reduce Speed, and Phase 1 has no Speed-penalty producer. Speed 0 remains a legal baked value.
-- Rejecting a Speed that is not a multiple of 5 (DEV-21). That check moves to add-grid-movement. This change keeps Speed greater than or equal to 0: a negative Speed is rejected, and Speed 0 is accepted.
 - Reflex saves, the Aid action, and a condition tracker with durations. Aid supplies only a circumstance modifier. This change does not prepare, roll, or resolve Aid. Frightened and sickened enter as ranks. Durations stay with encounter-core.
 - A new crate or a new dependency.
 
@@ -97,9 +96,14 @@ Attack-roll modifiers and Armor Class modifiers are different slices. The fold o
 
 ### 5. The public fold uses the template checks
 
-`try_new` still returns `TemplateError::NonPositiveHitPoints` when Hit Points are not at least 1, and `TemplateError::NegativeSpeed` when Speed is negative. Speed 0 stays valid. A Speed that is not a multiple of 5 is not rejected here. DEV-21 moves to add-grid-movement.
+`try_new` still returns `TemplateError::NonPositiveHitPoints` when Hit Points are not at least 1, and `TemplateError::NegativeSpeed` when Speed is negative (Rules 2346, Player Core pg. 420). Speed 0 stays valid. A Speed that is not a multiple of 5, such as 7, returns `TemplateError::SpeedNotMultipleOfFive`. This is validation (DEV-21).
 
-After `fold_contributions` has summed a non-empty list, it applies those same two checks. Failure returns `FoldError::Statistics` and not a Creature. Overflow, an empty list, and a bad damage die stay the errors they already are. `derive` still builds from the validated base and does not call the fallible fold. Folding only that base still equals `derive`.
+- **Rule**: Rules 2347 (Player Core pg. 420, https://2e.aonprd.com/Rules.aspx?ID=2347) defines Speed. Rules 2356 (Player Core pg. 421, https://2e.aonprd.com/Rules.aspx?ID=2356) defines a square as 5 feet. Player Core has no explicit multiple-of-5 rule.
+- **Why not**: A Speed of 7 cannot be spent in 5-foot squares without a rounding rule this change does not own.
+- **Substitute**: Reject that Speed at `try_new` and in `fold_contributions`. Speed 0, which is a multiple of 5, stays valid.
+- **Intent**: Baked Speeds that reach the grid are whole squares. The 5-foot penalty floor stays out of scope.
+
+After `fold_contributions` has summed a non-empty list, it applies those same checks, including the multiple-of-5 Speed check. Failure returns `FoldError::Statistics` and not a Creature. Overflow, an empty list, and a bad damage die stay the errors they already are. `derive` still builds from the validated base and does not call the fallible fold. Folding only that base still equals `derive`.
 
 ```rust
 pub enum FoldError {
