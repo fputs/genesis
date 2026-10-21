@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, and creature templates.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, and creature templates.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -8,6 +8,7 @@
 mod check;
 mod combatant;
 mod dice;
+mod grid;
 mod modifiers;
 
 pub use check::{
@@ -31,3 +32,8 @@ pub use modifiers::{
 
 #[cfg(any(test, feature = "test-support"))]
 pub use dice::ScriptedDice;
+pub use grid::{
+    DiagonalCounter, FactionId, GridError, MapBounds, MoveInput, MoveOutcome, Occupant, RangeBand,
+    Size, SizeData, Space, Square, SquareEvent, Terrain, adjacent, distance, in_reach,
+    move_trait_allowed, range_band, size_data, step, stride, validate_speed,
+};
