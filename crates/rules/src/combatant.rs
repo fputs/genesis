@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::check::{CheckRoll, DegreeOfSuccess, resolve_check};
 use crate::dice::{Dice, Faces};
+use crate::modifiers::{Modifier, ModifierError, total};
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -96,6 +97,10 @@ pub enum FoldError {
     DamageDie,
     /// The contribution list was empty.
     Empty,
+    /// Hit Points or Speed would fail [`CharacterBuild::try_new`].
+    ///
+    /// Player Core, Hit Points and Speed.
+    Statistics,
 }
 
 /// One melee strike on a creature.
@@ -168,21 +173,36 @@ pub enum TemplateError {
     NonPositiveHitPoints,
     /// Speed was negative. Player Core, Speed.
     NegativeSpeed,
+    /// Speed was not a multiple of 5. Validation (DEV-21).
+    ///
+    /// Rules 2347 define Speed. Rules 2356 define a square as 5 feet. Player Core has no
+    /// explicit multiple-of-5 rule.
+    SpeedNotMultipleOfFive,
 }
 
 impl CharacterBuild {
-    /// Rejects non-positive Hit Points and a negative Speed. Speed 0 is stored.
+    /// Rejects non-positive Hit Points, a negative Speed, and a Speed that is not a multiple of 5.
+    /// Speed 0 is stored.
     ///
-    /// Player Core, "Getting Knocked Out" and Speed.
+    /// Player Core, "Getting Knocked Out" and Speed. The multiple-of-5 check is validation (DEV-21).
     pub fn try_new(parts: BuildParts) -> Result<Self, TemplateError> {
-        if parts.hit_points <= 0 {
-            return Err(TemplateError::NonPositiveHitPoints);
-        }
-        if parts.speed_feet < 0 {
-            return Err(TemplateError::NegativeSpeed);
-        }
+        check_statistics(parts.hit_points, parts.speed_feet)?;
         Ok(Self { parts })
     }
+}
+
+fn check_statistics(hit_points: i32, speed_feet: i32) -> Result<(), TemplateError> {
+    if hit_points <= 0 {
+        return Err(TemplateError::NonPositiveHitPoints);
+    }
+    if speed_feet < 0 {
+        return Err(TemplateError::NegativeSpeed);
+    }
+    // A speed that is not a whole number of 5-foot squares cannot be spent on the grid (DEV-21).
+    if speed_feet % 5 != 0 {
+        return Err(TemplateError::SpeedNotMultipleOfFive);
+    }
+    Ok(())
 }
 
 /// One derivation layer. Numerics are added. `Option` fields replace when `Some`.
@@ -252,8 +272,10 @@ pub fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
 ///
 /// An empty list, a sum past `i32`, or a damage die the strike cannot store is
 /// [`FoldError`]. A negative reach sum cannot be stored, so it is [`FoldError::Overflow`].
+/// Hit Points of 0 or less, a negative Speed, or a Speed that is not a multiple of 5 is
+/// [`FoldError::Statistics`]. Speed 0 is accepted.
 ///
-/// Player Core, Hit Points.
+/// Player Core, Hit Points and Speed.
 pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError> {
     if ordered.is_empty() {
         return Err(FoldError::Empty);
@@ -322,6 +344,7 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
     let damage_dice = DieCount::new(damage_dice).map_err(|_| FoldError::DamageDie)?;
     let damage_faces = Faces::try_from_i32(damage_faces).map_err(|_| FoldError::DamageDie)?;
     let reach_feet = ReachFeet::new(reach_feet).map_err(|_| FoldError::Overflow)?;
+    check_statistics(hit_points, speed_feet).map_err(|_| FoldError::Statistics)?;
 
     Ok(Creature {
         hit_points,
@@ -457,41 +480,125 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
     }
 }
 
-/// Rolls `faces` once, adds `bonus`, and subtracts that from current Hit Points, floored at 0.
+/// Why a Hit Point change was rejected.
 ///
-/// A negative total is clamped to 0, so this never raises Hit Points. The addition and the
-/// subtraction are checked, so an overflowing `i32` does not panic. A sum above `i32::MAX` drops
-/// Hit Points to 0.
+/// Player Core, Hit Points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HpError {
+    /// The sum does not fit in `i32`. Hit Points are left unchanged.
+    Overflow,
+}
+
+/// Damage after modifiers. The result is never negative.
+///
+/// The floor of 1 applies only when the total without penalties is at least 1 and the total
+/// with penalties is 0 or below (Rules 2302). That 1 is chosen before critical doubling, so
+/// the smallest critical hit the floor produced deals 2 (DEV-14; Rules 2307). Any other
+/// non-positive total is clamped to 0 before doubling, so a critical hit of `i32::MIN` is 0
+/// and not an overflow. Resistance is not an argument; its floor of 0 stays out of scope.
+///
+/// Player Core, "Damage Rolls" and "Doubling and Halving".
+pub fn damage_dealt(
+    rolled_plus_baked: i32,
+    modifiers: &[Modifier],
+    critical: bool,
+) -> Result<i32, ModifierError> {
+    let folded = total(modifiers)?;
+    let penalties = applied_penalty_total(folded.applied())?;
+    // Both terms are `i32`, so their sum fits in `i64`.
+    let with_penalties = i64::from(rolled_plus_baked) + i64::from(folded.get());
+    let without_penalties = with_penalties
+        .checked_sub(penalties)
+        .ok_or(ModifierError::Overflow)?;
+    let dealt = if without_penalties >= 1 && with_penalties <= 0 {
+        1
+    } else if with_penalties <= 0 {
+        0
+    } else {
+        i32::try_from(with_penalties).map_err(|_| ModifierError::Overflow)?
+    };
+    if critical {
+        dealt.checked_mul(2).ok_or(ModifierError::Overflow)
+    } else {
+        Ok(dealt)
+    }
+}
+
+/// Sum of the penalties that survived the fold. Bonuses are not included.
+///
+/// The sum is `i64` so a penalty total below `i32::MIN` is still negative when bonuses
+/// bring the folded total back into range.
+fn applied_penalty_total(applied: &[Modifier]) -> Result<i64, ModifierError> {
+    let mut sum = 0i64;
+    for modifier in applied {
+        if modifier.penalty_type().is_some() {
+            sum = sum
+                .checked_add(i64::from(modifier.value()))
+                .ok_or(ModifierError::Overflow)?;
+        }
+    }
+    Ok(sum)
+}
+
+/// Rolls `faces` once, folds `bonus` and `modifiers`, and subtracts that from current Hit Points, floored at 0.
+///
+/// [`damage_dealt`] clamps a non-positive total to 0, and applies the floor of 1 before critical
+/// doubling when penalties reduce a total of at least 1. An overflowing total returns
+/// [`HpError::Overflow`] and leaves the state unchanged.
 ///
 /// At 0 Hit Points, `uses_dying_rules` false marks the state dead. True records that dying applies
 /// and does not choose a dying value. The creature and the build are not written.
 ///
-/// Player Core, "Getting Knocked Out".
+/// Player Core, "Getting Knocked Out" and "Damage Rolls".
 pub fn apply_dice_damage(
     state: &mut CombatantState,
     creature: &Creature,
     dice: &mut impl Dice,
     faces: Faces,
     bonus: i32,
-) {
+    modifiers: &[Modifier],
+    critical: bool,
+) -> Result<(), HpError> {
     let rolled = i32::from(dice.roll(faces));
-    let amount = match rolled.checked_add(bonus) {
-        Some(total) if total > 0 => total,
-        // Zero and negative totals deal no damage, so Hit Points are not raised.
-        Some(_) => 0,
-        // The sum is above `i32::MAX`, so Hit Points fall to 0.
-        None => {
-            state.hit_points = 0;
-            note_hit_points(state, creature);
-            return;
-        }
-    };
-    state.hit_points = match state.hit_points.checked_sub(amount) {
-        Some(next) => next.max(0),
-        // `amount` is non-negative, so a missing difference is below 0.
-        None => 0,
+    let rolled_plus_baked = rolled.checked_add(bonus).ok_or(HpError::Overflow)?;
+    let amount =
+        damage_dealt(rolled_plus_baked, modifiers, critical).map_err(|_| HpError::Overflow)?;
+    // A non-positive result is not a penalty floor. Subtracting it would raise Hit Points.
+    if amount > 0 {
+        state.hit_points = match state.hit_points.checked_sub(amount) {
+            Some(next) => next.max(0),
+            None => 0,
+        };
+        note_hit_points(state, creature);
+    }
+    Ok(())
+}
+
+/// Adds `amount` and caps current Hit Points at the creature's maximum.
+///
+/// An add that does not fit in `i32` returns [`HpError::Overflow`] and leaves the state unchanged.
+/// Current Hit Points stay from 0 through the maximum.
+///
+/// Player Core, Healing.
+pub fn apply_healing(
+    state: &mut CombatantState,
+    creature: &Creature,
+    amount: i32,
+) -> Result<(), HpError> {
+    let added = state
+        .hit_points
+        .checked_add(amount)
+        .ok_or(HpError::Overflow)?;
+    let maximum = creature.hit_points.max(0);
+    state.hit_points = if added < 0 {
+        0
+    } else if added > maximum {
+        maximum
+    } else {
+        added
     };
     note_hit_points(state, creature);
+    Ok(())
 }
 
 fn note_hit_points(state: &mut CombatantState, creature: &Creature) {
@@ -898,7 +1005,16 @@ mod tests {
         let before = creature.clone();
 
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([8]),
+            d8(),
+            1,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::Dead);
         assert!(!state.dying_entered);
@@ -907,7 +1023,16 @@ mod tests {
         assert_eq!(creature, before);
 
         let mut grazed = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut grazed, &creature, &mut ScriptedDice::new([1]), d8(), 1);
+        apply_dice_damage(
+            &mut grazed,
+            &creature,
+            &mut ScriptedDice::new([1]),
+            d8(),
+            1,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(grazed.hit_points, 7);
         assert_eq!(grazed.vital, Vital::Alive);
         assert!(!grazed.dying_entered);
@@ -923,7 +1048,16 @@ mod tests {
         let before = creature.clone();
 
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([8]),
+            d8(),
+            1,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::EnterDying);
         assert!(state.dying_entered);
@@ -1346,7 +1480,16 @@ mod tests {
         let creature = derive(&build(fighter_with_hp(9, None)));
         let before = creature.clone();
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([8]),
+            d8(),
+            1,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::Dead);
         assert!(!state.dying_entered);
@@ -1360,7 +1503,16 @@ mod tests {
         let creature = derive(&build(fighter_with_hp(9, Some(true))));
         let before = creature.clone();
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([8]),
+            d8(),
+            1,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_ne!(state.vital, Vital::Dead);
         assert_eq!(state.vital, Vital::EnterDying);
@@ -1373,7 +1525,16 @@ mod tests {
     fn damage_above_0_does_not_kill() {
         let creature = derive(&build(fighter_with_hp(9, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([1]), d8(), 1);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([1]),
+            d8(),
+            1,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 7);
         assert_eq!(state.vital, Vital::Alive);
         assert_eq!(creature.hit_points, 9);
@@ -1443,20 +1604,25 @@ mod tests {
         );
     }
 
-    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Damage Rolls".
+    ///
+    /// An overflowing total leaves Hit Points unchanged and returns the overflow error.
     #[test]
     fn damage_past_i32_floors_hit_points_at_0() {
         let creature = derive(&build(fighter_with_hp(9, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(
+        let result = apply_dice_damage(
             &mut state,
             &creature,
             &mut ScriptedDice::new([1]),
             d8(),
             i32::MAX,
+            &[],
+            false,
         );
-        assert_eq!(state.hit_points, 0);
-        assert_eq!(state.vital, Vital::Dead);
+        assert_eq!(result, Err(HpError::Overflow));
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(state.vital, Vital::Alive);
     }
 
     /// Player Core, "Getting Knocked Out".
@@ -1465,17 +1631,32 @@ mod tests {
         let creature = derive(&build(fighter_with_hp(1, Some(true))));
         let mut state = new_combatant_state(CombatantId(1), &creature);
         state.hit_points = i32::MIN;
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([1]), d8(), 0);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([1]),
+            d8(),
+            0,
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::EnterDying);
         assert!(state.dying_entered);
     }
 
-    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Damage Rolls".
+    ///
+    /// A baked negative total is not a penalty modifier, so the floor of 1 does not apply.
+    /// The total is clamped to 0 before doubling, and applying it does not raise Hit Points.
     #[test]
     fn a_negative_total_does_not_raise_hit_points() {
         let creature = derive(&build(fighter_with_hp(9, None)));
         assert_eq!(creature.hit_points, 9);
+        let baked = 1i32.checked_add(-5).expect("1 + -5 fits");
+        assert!(baked < 0);
+        assert_eq!(damage_dealt(baked, &[], false).expect("damage"), 0);
         let mut state = new_combatant_state(CombatantId(1), &creature);
         let mut dice = ScriptedDice::new([1]);
         apply_dice_damage(
@@ -1484,28 +1665,345 @@ mod tests {
             &mut dice,
             Faces::new(4).expect("d4"),
             -5,
-        );
+            &[],
+            false,
+        )
+        .expect("damage fits");
         assert_eq!(state.hit_points, 9);
+        assert_eq!(state.hit_points, creature.hit_points);
         assert_eq!(creature.hit_points, 9);
         assert_eq!(state.temp_hit_points, 0);
         assert_eq!(state.vital, Vital::Alive);
         assert_eq!(dice.remaining(), 0);
     }
 
-    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Damage Rolls".
     ///
-    /// `1 + i32::MIN` is negative. Clamping that total to 0 leaves Hit Points unchanged.
+    /// `1 + i32::MIN` is negative and is not a penalty modifier, so the floor of 1 does not
+    /// apply. The total is clamped to 0, and current Hit Points stay where they are.
     #[test]
     fn healing_past_i32_max_leaves_hit_points_unchanged() {
         let total = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
-        assert_eq!(total.max(0), 0);
+        assert!(total < 0);
+        assert_eq!(damage_dealt(total, &[], false).expect("damage"), 0);
 
         let creature = derive(&build(fighter_with_hp(1, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
         let mut dice = ScriptedDice::new([1]);
-        apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MIN);
+        apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MIN, &[], false)
+            .expect("damage fits");
         assert_eq!(dice.remaining(), 0);
         assert_eq!(state.hit_points, 1);
         assert_eq!(state.vital, Vital::Alive);
+    }
+
+    fn foldable(hit_points: i32, speed_feet: i32) -> Contribution {
+        Contribution {
+            hit_points,
+            speed_feet,
+            damage_dice: 1,
+            damage_faces: 8,
+            reach_feet: 5,
+            ..Contribution::default()
+        }
+    }
+
+    /// Rules 2346. Player Core, Hit Points.
+    #[test]
+    fn a_folded_zero_hit_points_is_rejected() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(
+            fold_contributions(&[foldable(0, 25)]),
+            Err(FoldError::Statistics)
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2346. Player Core, Speed.
+    #[test]
+    fn a_folded_negative_speed_is_rejected() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(
+            fold_contributions(&[foldable(12, -5)]),
+            Err(FoldError::Statistics)
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2346. Player Core, Speed.
+    #[test]
+    fn folded_speed_zero_is_accepted() {
+        let dice = ScriptedDice::new([8]);
+        let creature = fold_contributions(&[foldable(12, 0)]).expect("speed 0 is valid");
+        assert_eq!(creature.speed_feet, 0);
+        assert_eq!(creature.hit_points, 12);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2347. Rules 2356. Validation (DEV-21).
+    #[test]
+    fn speed_7_is_rejected_at_load() {
+        let dice = ScriptedDice::new([8]);
+        let mut parts = fighter_parts();
+        parts.hit_points = 12;
+        parts.speed_feet = 7;
+        assert_eq!(
+            CharacterBuild::try_new(parts).unwrap_err(),
+            TemplateError::SpeedNotMultipleOfFive
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2347. Rules 2356. Validation (DEV-21).
+    #[test]
+    fn a_folded_speed_7_is_rejected() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(
+            fold_contributions(&[foldable(12, 7)]),
+            Err(FoldError::Statistics)
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, Healing.
+    #[test]
+    fn damage_and_healing_keep_current_hit_points_in_range() {
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut damaged = new_combatant_state(CombatantId(1), &creature);
+        damaged.hit_points = 2;
+        let mut dice = ScriptedDice::new([5]);
+        apply_dice_damage(&mut damaged, &creature, &mut dice, d8(), 0, &[], false)
+            .expect("damage fits");
+        assert_eq!(damaged.hit_points, 0);
+        assert_eq!(dice.remaining(), 0);
+
+        let mut healed = new_combatant_state(CombatantId(1), &creature);
+        assert_eq!(healed.hit_points, 9);
+        apply_healing(&mut healed, &creature, 4).expect("healing fits");
+        assert_eq!(healed.hit_points, 9);
+    }
+
+    /// Player Core, Healing.
+    #[test]
+    fn healing_that_does_not_fit_returns_an_error() {
+        let dice = ScriptedDice::new([8]);
+        let creature = derive(&build(fighter_with_hp(i32::MAX, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        assert_eq!(state.hit_points, i32::MAX);
+        assert_eq!(
+            apply_healing(&mut state, &creature, 1),
+            Err(HpError::Overflow)
+        );
+        assert_eq!(state.hit_points, i32::MAX);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Damage Rolls".
+    /// Rules 2302. DEV-14.
+    #[test]
+    fn penalties_reduce_damage_to_1() {
+        let dice = ScriptedDice::new([8]);
+        let penalty = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Untyped,
+            -6,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+        )
+        .expect("penalty");
+        assert_eq!(damage_dealt(4, &[penalty], false).expect("damage"), 1);
+        assert_eq!(
+            damage_dealt(4, &[penalty], false).expect("damage"),
+            damage_dealt(4, &[penalty], false).expect("damage")
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. The floor of 1 applies only when penalties reduce the total.
+    ///
+    /// A rolled 0 with no penalties is not that case, so the damage stays 0, including on a
+    /// critical hit.
+    #[test]
+    fn a_zero_total_without_penalties_deals_0() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(damage_dealt(0, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(0, &[], true).expect("damage"), 0);
+        assert_eq!(
+            damage_dealt(0, &[], false).expect("damage"),
+            damage_dealt(0, &[], false).expect("damage")
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. A baked 1d4-5 with no penalty modifier is not the penalty floor.
+    ///
+    /// A scripted 1 and a bonus of -5 are clamped to 0, not raised to 1, and current Hit Points stay 9.
+    #[test]
+    fn a_baked_1d4_minus_5_without_a_penalty_is_not_floored() {
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut dice,
+            Faces::new(4).expect("d4"),
+            -5,
+            &[],
+            false,
+        )
+        .expect("the sum fits");
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), 0);
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(state.vital, Vital::Alive);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, "Damage Rolls".
+    ///
+    /// `1 + i32::MIN` fits and is not a penalty, so it is not floored to 1. The pre-crit
+    /// total is clamped to 0, so doubling it is 0 rather than an overflow, and Hit Points
+    /// stay unchanged.
+    #[test]
+    fn an_extreme_negative_bonus_does_not_overflow_silently() {
+        let sum = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
+        assert_eq!(damage_dealt(sum, &[], false).expect("damage"), 0);
+        assert_eq!(
+            damage_dealt(sum, &[], true).expect("clamped before doubling"),
+            0
+        );
+
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
+        apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MIN, &[], false)
+            .expect("the sum fits");
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(state.vital, Vital::Alive);
+        assert_eq!(dice.remaining(), 0);
+
+        let mut critical = new_combatant_state(CombatantId(1), &creature);
+        let mut critical_dice = ScriptedDice::new([1]);
+        apply_dice_damage(
+            &mut critical,
+            &creature,
+            &mut critical_dice,
+            d8(),
+            i32::MIN,
+            &[],
+            true,
+        )
+        .expect("clamped before doubling");
+        assert_eq!(critical.hit_points, 9);
+        assert_eq!(critical.vital, Vital::Alive);
+        assert_eq!(critical_dice.remaining(), 0);
+    }
+
+    /// Rules 2302. A non-positive total is clamped to 0 before critical doubling.
+    #[test]
+    fn a_negative_damage_total_is_clamped_to_0_before_doubling() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(-4, &[], true).expect("damage"), 0);
+        assert_eq!(damage_dealt(i32::MIN, &[], false).expect("damage"), 0);
+        assert_eq!(
+            damage_dealt(i32::MIN, &[], true).expect("not an overflow"),
+            0
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. A penalty on a total that was already below 1 does not raise it to 1.
+    #[test]
+    fn a_penalty_on_a_non_positive_total_deals_0() {
+        let dice = ScriptedDice::new([8]);
+        let penalty = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Untyped,
+            -1,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+        )
+        .expect("penalty");
+        assert_eq!(damage_dealt(-4, &[penalty], false).expect("damage"), 0);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. Rules 2307. DEV-14.
+    ///
+    /// The bonus brings 0 to 2 and the penalty brings that to 0, so the floor is 1.
+    /// A critical hit doubles that 1 to 2.
+    #[test]
+    fn a_bonus_and_penalty_that_reach_zero_deal_1() {
+        let dice = ScriptedDice::new([8]);
+        let bonus = crate::modifiers::Modifier::bonus(
+            crate::modifiers::BonusType::Circumstance,
+            2,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+        )
+        .expect("bonus");
+        let penalty = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Circumstance,
+            -2,
+            crate::modifiers::SourceId(2),
+            2,
+            None,
+        )
+        .expect("penalty");
+        assert_eq!(
+            damage_dealt(0, &[bonus, penalty], false).expect("damage"),
+            1
+        );
+        assert_eq!(
+            damage_dealt(0, &[penalty, bonus], false).expect("damage"),
+            1
+        );
+        assert_eq!(damage_dealt(0, &[bonus, penalty], true).expect("damage"), 2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. With no penalty, a positive total stays itself and a non-positive total is not raised to 1.
+    #[test]
+    fn no_penalty_does_not_apply_the_floor_of_1() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(damage_dealt(4, &[], false).expect("damage"), 4);
+        assert_eq!(damage_dealt(0, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(4, &[], true).expect("damage"), 8);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Damage Rolls".
+    /// Player Core, "Doubling and Halving".
+    /// Rules 2302 and Rules 2307. DEV-14 applies the floor before doubling.
+    #[test]
+    fn minimum_critical_damage_is_2() {
+        let dice = ScriptedDice::new([8]);
+        let penalty = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Untyped,
+            -6,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+        )
+        .expect("penalty");
+        assert_eq!(damage_dealt(4, &[penalty], true).expect("damage"), 2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Damage Rolls".
+    #[test]
+    fn an_overflowing_damage_total_returns_an_error() {
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
+        let result =
+            apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MAX, &[], false);
+        assert_eq!(result, Err(HpError::Overflow));
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(dice.remaining(), 0);
     }
 }
