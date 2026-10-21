@@ -32,19 +32,17 @@ Alternative considered: reject every token that matches `YYYY-MM-DD-*` as an inv
 
 ### 2. A prefix line is a reference or an invalid id
 
-After one trailing CR is removed and both ends are trimmed, a reference is `OpenSpec-Change:` plus one U+0020 plus one kebab token. Trim does not remove whitespace between the colon and the token, so indentation around the whole line still passes.
+After one trailing CR is removed and surrounding whitespace is trimmed, a line that starts with the exact case-sensitive `OpenSpec-Change:` is a reference. It is valid if and only if it is that prefix, then exactly one U+0020, then one kebab id. Otherwise it is an invalid id and is not skipped. `openspec-change: foo` does not start with that prefix, so it is ignored. Indentation around the whole line still trims away.
 
-A line that starts with `OpenSpec-Change:` and is anything else is an invalid id. It is not skipped. Extra words, a missing space, a tab, and a second space are this case. The logged token is the remainder after that one U+0020 when the line has it, otherwise the remainder after the colon. One valid line does not hide it, and the job does not also log `spec-drift: code change missing OpenSpec-Change`.
+The invalid-id line is `spec-drift: invalid change id` plus the whole remainder after `OpenSpec-Change:`, escaped, with nothing stripped. One valid line does not hide an invalid one, and the job does not also log `spec-drift: code change missing OpenSpec-Change`.
 
-Whitespace for "one token" is ASCII whitespace plus Unicode space separators (category Zs). U+200B is not whitespace, so `OpenSpec-Change:` plus one U+0020 plus U+200B plus `add-foo` is one token that fails the kebab grammar.
-
-Alternative considered: keep skipping two-or-more words, which is why `OpenSpec-Change: \tAdd-Foo extra` beside a valid line exits 0. Rejected. A line that claims to be a change reference and is not one token is a mistake on every pull request.
+Alternative considered: skip two-or-more words, which is why a line of `OpenSpec-Change:`, a space, a tab, and `Add-Foo extra` beside a valid line exits 0. Rejected. A line that starts with the prefix and is not one kebab id is a mistake on every pull request.
 
 ### 3. Invalid tokens are escaped per UTF-16 code unit
 
-Replace `JSON.stringify`. For each UTF-16 code unit, copy it when it is U+0020 through U+007E, otherwise write `\u` and four lowercase hex digits. Do not add quotes. A tab is `\u0009`, not `\t`. An empty token stays `spec-drift: invalid change id` with no trailing token. A supplementary character is two code units, each escaped.
+Replace `JSON.stringify`. The logged text is the whole remainder after `OpenSpec-Change:`, with nothing stripped. For each UTF-16 code unit, write `\u` and four lowercase hex digits when the unit is outside U+0020 through U+007E or is `\`. Copy every other unit. Do not add quotes. A tab is `\u0009`, not `\t`. A typed `\u00a0` becomes `\u005cu00a0`, which differs from the escape of a real NBSP. An empty remainder leaves the line as `spec-drift: invalid change id`.
 
-Alternative considered: keep `JSON.stringify` for tokens that match `\s`. Rejected. It leaves U+200B raw, emits U+00A0 and U+2003 raw, and wraps other whitespace in quotes.
+Alternative considered: keep `JSON.stringify` for tokens that match `\s`. Rejected. It leaves U+200B raw, emits U+00A0 and U+2003 raw, wraps other whitespace in quotes, and is not reversible for a typed backslash.
 
 ### 4. One job-level group for both spec-drift jobs
 
@@ -58,7 +56,7 @@ concurrency:
   cancel-in-progress: true
 ```
 
-On a pull request the number is set, so an edit cancels the in-progress spec-drift job from either workflow. On a push the number is empty, so the group is the sha and does not cancel a pull request job. Remove the workflow-level `spec-drift-edited-<number>` group. The Cargo `ci` job has no concurrency key, so a body edit still cannot cancel it or replace a failed Cargo check.
+On a pull request the number is set, so an edit cancels the in-progress spec-drift job from either workflow. The newest run in the group survives, and older pending or running runs are cancelled. On a push the number is empty, so the group is the sha and does not cancel a pull request job. Remove the workflow-level `spec-drift-edited-<number>` group. The Cargo `ci` job has no concurrency key, so a body edit still cannot cancel it or replace a failed Cargo check. The group key stays `spec-drift-${{ github.event.pull_request.number || github.sha }}`.
 
 Alternative considered: workflow-level concurrency on `ci.yml` with the same group. Rejected. That would cancel the Cargo job when the body is edited.
 
@@ -74,6 +72,7 @@ Completed-change ids sort with `(left < right) - (left > right)` style compariso
 
 - [A pull request that put a note after the id, such as `OpenSpec-Change: add-foo extra`, now fails as an invalid id] → Fail closed. The line has to be exactly one token.
 - [Cancelling an in-progress spec-drift job leaves that check cancelled until the new run finishes] → Accepted. A stale success must not become the newest result. The Cargo job is outside the group.
+- [An `edited` event, including a title-only edit, cancels an in-flight `ci.yml` spec-drift job] → The required check must be the job `spec-drift`, not the CI workflow. The Cargo job stays outside the group, so a failed Cargo check is not replaced.
 - [A body that copies the archive folder name `2026-10-21-foo` fails on a code path] → Use the stripped id `foo`, or the active directory name when that is the id.
 - [Existing whitespace tests expect `JSON.stringify`] → Update them to the `\u` lines in the same implementation. Do not loosen them.
 

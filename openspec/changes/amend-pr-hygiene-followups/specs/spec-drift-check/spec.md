@@ -87,7 +87,7 @@ On push and on pull_request to `main`, the job SHALL fail when any active change
 
 ### Requirement: Change reference line
 
-A change reference SHALL be one trimmed body line, after one trailing carriage return is removed, of `OpenSpec-Change:` plus one U+0020 plus one token. A token of `a-z` and `0-9` groups separated by single hyphens, not starting or ending with a hyphen, SHALL be the id. Any other token SHALL fail, SHALL NOT be skipped or case-folded, and the log SHALL include `spec-drift: invalid change id <token>`. Fenced lines SHALL count the same. This SHALL be the AGENTS.md line.
+A body line, after one trailing CR is removed and surrounding whitespace is trimmed, that starts with the exact case-sensitive `OpenSpec-Change:` SHALL be a reference. It SHALL be valid if and only if it is that prefix, then exactly one U+0020, then one kebab id. Otherwise it SHALL be an invalid id and SHALL NOT be skipped or case-folded. Fenced lines SHALL count the same. This SHALL be the AGENTS.md line. The id SHALL be one or more `[a-z0-9]` groups joined by single hyphens.
 
 #### Scenario: A trimmed line is a reference
 
@@ -137,7 +137,7 @@ A change reference SHALL be one trimmed body line, after one trailing carriage r
 - **AND** the body line is `OpenSpec-Change:` immediately followed by a tab and `add-foo`
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job fails
-- **AND** the log includes `spec-drift: invalid change id \u0009add-foo`
+- **AND** the log line is `spec-drift: invalid change id` immediately followed by `\u0009add-foo`
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
 
 #### Scenario: Two spaces before the id are invalid
@@ -146,8 +146,33 @@ A change reference SHALL be one trimmed body line, after one trailing carriage r
 - **AND** the body line is `OpenSpec-Change:` plus two U+0020 spaces plus `add-foo`
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job fails
-- **AND** the log includes `spec-drift: invalid change id` followed by three U+0020 spaces and `add-foo`
-- **AND** the token is not wrapped in JSON quotes
+- **AND** the log line is `spec-drift: invalid change id` immediately followed by those two U+0020 spaces and `add-foo`
+- **AND** nothing in that remainder was stripped
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: A lowercase prefix is ignored
+
+- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
+- **AND** the only body line is `openspec-change: foo`
+- **AND** `openspec/changes/foo/` exists
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+- **AND** the log does not include `spec-drift: invalid change id`
+- **AND** the log does not include `spec-drift: unknown change foo`
+
+### Requirement: Invalid change line
+
+An empty line `OpenSpec-Change:` and a spaceless line `OpenSpec-Change:Add` SHALL both be invalid on any pull request. Each SHALL fail. The log SHALL include `spec-drift: invalid change id`. Neither SHALL be ignored or treated only as a missing reference.
+
+#### Scenario: An empty or spaceless change line is invalid
+
+- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
+- **AND** the body contains a line `OpenSpec-Change:` and a line `OpenSpec-Change:Add`
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes a line whose text is exactly `spec-drift: invalid change id`
+- **AND** the log includes a line whose text is exactly `spec-drift: invalid change idAdd`
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
 
 ### Requirement: Existing change id
@@ -252,7 +277,7 @@ An id SHALL exist only when it is an active change id or an archive-stripped id.
 
 ### Requirement: Visible invalid change id
 
-An invalid-id log line SHALL escape every UTF-16 code unit outside U+0020 through U+007E as `\u` plus four lowercase hex digits. Printable ASCII SHALL be copied unchanged, with no JSON quotes. An empty token SHALL omit the token.
+An invalid-id line SHALL be `spec-drift: invalid change id` plus the whole remainder after `OpenSpec-Change:`, with nothing stripped. Every UTF-16 code unit outside U+0020 through U+007E, and `\`, SHALL be written as `\u` plus four lowercase hex digits. Other printable ASCII SHALL be copied. The line SHALL NOT use JSON quotes.
 
 #### Scenario: A zero-width space is visible
 
@@ -281,9 +306,20 @@ An invalid-id log line SHALL escape every UTF-16 code unit outside U+0020 throug
 - **AND** the log includes `spec-drift: invalid change id \u2003add-foo`
 - **AND** the log does not contain U+2003
 
+#### Scenario: A typed backslash escape differs from a real NBSP
+
+- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
+- **AND** one body line is `OpenSpec-Change:` plus one U+0020 plus the characters `\u00a0` plus `add-foo`
+- **AND** another body line is `OpenSpec-Change:` plus one U+0020 plus U+00A0 plus `add-foo`
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id \u005cu00a0add-foo`
+- **AND** the log includes `spec-drift: invalid change id \u00a0add-foo`
+- **AND** those two lines differ
+
 ### Requirement: Malformed change line
 
-A trimmed body line that starts with `OpenSpec-Change:` and is not exactly `OpenSpec-Change:` plus one U+0020 plus one non-whitespace token SHALL fail as an invalid id on every pull request. It SHALL NOT be skipped. A valid line beside it SHALL NOT make the check pass.
+A reference that is not exactly the prefix, one U+0020, and one kebab id SHALL fail as an invalid id on every pull request. It SHALL NOT be skipped. A valid line beside it SHALL NOT make the check pass.
 
 #### Scenario: A tabbed extra word beside a valid line fails
 
@@ -308,7 +344,7 @@ A trimmed body line that starts with `OpenSpec-Change:` and is not exactly `Open
 
 ### Requirement: Shared spec-drift concurrency
 
-The `spec-drift` job in `.github/workflows/ci.yml` and in `.github/workflows/spec-drift-edited.yml` SHALL share job-level group `spec-drift-${{ github.event.pull_request.number || github.sha }}` with `cancel-in-progress: true`. The Cargo job SHALL NOT use that group. A push SHALL NOT join a pull request group.
+The `spec-drift` job in `.github/workflows/ci.yml` and in `.github/workflows/spec-drift-edited.yml` SHALL share job-level group `spec-drift-${{ github.event.pull_request.number || github.sha }}` with `cancel-in-progress: true`. The newest run in the group SHALL survive, and older pending or running runs SHALL be cancelled. The Cargo job SHALL NOT use that group. A push SHALL NOT join a pull request group.
 
 #### Scenario: Both spec-drift jobs share a pull request group
 
