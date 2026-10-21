@@ -238,6 +238,12 @@ const cases = [
     base: { "crates/rules/src/lib.rs": "old\n" },
     head: { "crates/rules/src/lib.rs": "new\n" },
   }),
+  failing("A non-ASCII crate path is a code path", [MISSING], {
+    event: "pull_request",
+    body: "",
+    base: { "crates/rules/src/naïve.rs": "old\n" },
+    head: { "crates/rules/src/naïve.rs": "new\n" },
+  }),
   failing("Root Cargo.toml is a code path", [MISSING], {
     event: "pull_request",
     body: "",
@@ -261,6 +267,12 @@ const cases = [
     body: "",
     base: { ".github/workflows/ci.yml": "old\n" },
     head: { ".github/workflows/ci.yml": "new\n" },
+  }),
+  failing("A quoted .github path is a code path", [MISSING], {
+    event: "pull_request",
+    body: "",
+    base: { '.github/workflows/ci".yml': "old\n" },
+    head: { '.github/workflows/ci".yml': "new\n" },
   }),
   failing("Deleting a crate file is a code path", [MISSING], {
     event: "pull_request",

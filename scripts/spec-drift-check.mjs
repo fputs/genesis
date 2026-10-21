@@ -183,32 +183,40 @@ function referenceFailures(root, body, baseSha) {
 function changedPaths(root, baseSha) {
   const result = spawnSync(
     "git",
-    ["-c", "core.quotePath=off", "diff", "--name-status", "--find-renames", baseSha, "HEAD"],
+    ["diff", "-z", "--name-status", "--find-renames", baseSha, "HEAD"],
     { cwd: root, encoding: "utf8" },
   );
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "git diff failed").trim();
     throw new Error(detail);
   }
+  // quotePath would escape non-ASCII and quotes, and those code paths would miss the reference check.
+  const fields = (result.stdout ?? "").split("\0");
   const paths = [];
-  for (const line of result.stdout.split("\n")) {
-    if (line === "") {
+  let index = 0;
+  while (index < fields.length) {
+    const status = fields[index];
+    if (status === "") {
+      index += 1;
       continue;
     }
-    const parts = line.split("\t");
-    const status = parts[0] ?? "";
     if (status.startsWith("R") || status.startsWith("C")) {
-      if (parts[1]) {
-        paths.push(parts[1]);
+      const from = fields[index + 1];
+      const to = fields[index + 2];
+      if (from) {
+        paths.push(from);
       }
-      if (parts[2]) {
-        paths.push(parts[2]);
+      if (to) {
+        paths.push(to);
       }
+      index += 3;
       continue;
     }
-    if (parts[1]) {
-      paths.push(parts[1]);
+    const path = fields[index + 1];
+    if (path) {
+      paths.push(path);
     }
+    index += 2;
   }
   return paths;
 }
