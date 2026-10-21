@@ -491,9 +491,11 @@ pub enum HpError {
 
 /// Damage after modifiers. Penalties that bring the total to 0 or below deal 1, before a critical hit doubles it.
 ///
-/// DEV-14: RAW (Rules 2302 and Rules 2307) does not state whether that floor is before or after
-/// doubling. This applies it first, so the smallest critical hit deals 2. Resistance is not an
-/// argument; its floor of 0 stays out of scope.
+/// The floor applies only when the applied penalty total is negative and the sum is 0 or below.
+/// A non-positive sum with no penalty stays that sum. DEV-14: RAW (Rules 2302 and Rules 2307)
+/// does not state whether the floor is before or after doubling. This applies it first, so the
+/// smallest critical hit that the floor produced deals 2. Resistance is not an argument; its
+/// floor of 0 stays out of scope.
 ///
 /// Player Core, "Damage Rolls" and "Doubling and Halving".
 pub fn damage_dealt(
@@ -501,16 +503,30 @@ pub fn damage_dealt(
     modifiers: &[Modifier],
     critical: bool,
 ) -> Result<i32, ModifierError> {
-    let modifier_total = total(modifiers)?.get();
+    let folded = total(modifiers)?;
+    let penalties = applied_penalty_total(folded.applied())?;
     let sum = rolled_plus_baked
-        .checked_add(modifier_total)
+        .checked_add(folded.get())
         .ok_or(ModifierError::Overflow)?;
-    let dealt = if sum <= 0 { 1 } else { sum };
+    let dealt = if penalties < 0 && sum <= 0 { 1 } else { sum };
     if critical {
         dealt.checked_mul(2).ok_or(ModifierError::Overflow)
     } else {
         Ok(dealt)
     }
+}
+
+/// Sum of the penalties that survived the fold. Bonuses are not included.
+fn applied_penalty_total(applied: &[Modifier]) -> Result<i32, ModifierError> {
+    let mut sum = 0i32;
+    for modifier in applied {
+        if modifier.penalty_type().is_some() {
+            sum = sum
+                .checked_add(modifier.value())
+                .ok_or(ModifierError::Overflow)?;
+        }
+    }
+    Ok(sum)
 }
 
 /// Rolls `faces` once, folds `bonus` and `modifiers`, and subtracts that from current Hit Points, floored at 0.
@@ -535,12 +551,14 @@ pub fn apply_dice_damage(
     let rolled_plus_baked = rolled.checked_add(bonus).ok_or(HpError::Overflow)?;
     let amount =
         damage_dealt(rolled_plus_baked, modifiers, critical).map_err(|_| HpError::Overflow)?;
-    state.hit_points = match state.hit_points.checked_sub(amount) {
-        Some(next) => next.max(0),
-        // `amount` is at least 1, so a missing difference is below 0.
-        None => 0,
-    };
-    note_hit_points(state, creature);
+    // A non-positive result is not a penalty floor. Subtracting it would raise Hit Points.
+    if amount > 0 {
+        state.hit_points = match state.hit_points.checked_sub(amount) {
+            Some(next) => next.max(0),
+            None => 0,
+        };
+        note_hit_points(state, creature);
+    }
     Ok(())
 }
 
@@ -1618,11 +1636,15 @@ mod tests {
 
     /// Player Core, "Damage Rolls".
     ///
-    /// A negative total deals 1, so current Hit Points fall by 1 and are not raised.
+    /// A baked negative total is not a penalty modifier, so the floor of 1 does not apply.
+    /// Applying it does not raise current Hit Points.
     #[test]
     fn a_negative_total_does_not_raise_hit_points() {
         let creature = derive(&build(fighter_with_hp(9, None)));
         assert_eq!(creature.hit_points, 9);
+        let baked = 1i32.checked_add(-5).expect("1 + -5 fits");
+        assert!(baked < 0);
+        assert_eq!(damage_dealt(baked, &[], false).expect("damage"), baked);
         let mut state = new_combatant_state(CombatantId(1), &creature);
         let mut dice = ScriptedDice::new([1]);
         apply_dice_damage(
@@ -1635,8 +1657,8 @@ mod tests {
             false,
         )
         .expect("damage fits");
-        assert_eq!(state.hit_points, 8);
-        assert!(state.hit_points < creature.hit_points);
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(state.hit_points, creature.hit_points);
         assert_eq!(creature.hit_points, 9);
         assert_eq!(state.temp_hit_points, 0);
         assert_eq!(state.vital, Vital::Alive);
@@ -1645,11 +1667,13 @@ mod tests {
 
     /// Player Core, "Damage Rolls".
     ///
-    /// `1 + i32::MIN` is negative. That total deals 1.
+    /// `1 + i32::MIN` is negative and is not a penalty modifier, so the floor of 1 does not
+    /// apply and current Hit Points stay where they are.
     #[test]
     fn healing_past_i32_max_leaves_hit_points_unchanged() {
         let total = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
         assert!(total < 0);
+        assert_eq!(damage_dealt(total, &[], false).expect("damage"), total);
 
         let creature = derive(&build(fighter_with_hp(1, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
@@ -1657,8 +1681,8 @@ mod tests {
         apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MIN, &[], false)
             .expect("damage fits");
         assert_eq!(dice.remaining(), 0);
-        assert_eq!(state.hit_points, 0);
-        assert_eq!(state.vital, Vital::Dead);
+        assert_eq!(state.hit_points, 1);
+        assert_eq!(state.vital, Vital::Alive);
     }
 
     fn foldable(hit_points: i32, speed_feet: i32) -> Contribution {
@@ -1780,6 +1804,22 @@ mod tests {
         assert_eq!(
             damage_dealt(4, &[penalty], false).expect("damage"),
             damage_dealt(4, &[penalty], false).expect("damage")
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. The floor of 1 applies only when penalties reduce the total.
+    ///
+    /// A rolled 0 with no penalties is not that case, so the damage stays 0, including on a
+    /// critical hit.
+    #[test]
+    fn a_zero_total_without_penalties_deals_0() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(damage_dealt(0, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(0, &[], true).expect("damage"), 0);
+        assert_eq!(
+            damage_dealt(0, &[], false).expect("damage"),
+            damage_dealt(0, &[], false).expect("damage")
         );
         assert_eq!(dice.remaining(), 1);
     }
