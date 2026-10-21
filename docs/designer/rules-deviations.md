@@ -50,3 +50,7 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 | FIX-14 | A hidden creature doesn't make the observer off-guard | A creature you're hidden from is off-guard to you | https://2e.aonprd.com/Conditions.aspx?ID=79 (PC 444) | 9, 10 |
 | FIX-15 | Massive damage only from a blow taken while above 0 HP | Damage ≥ 2× max HP "in one blow" kills, with **no HP precondition**. Reverted to RAW per the 2026-10-20 ruling. | https://2e.aonprd.com/Rules.aspx?ID=2332 (PC 412) | 5 |
 | FIX-16 | A reaction attack never takes MAP | Exception: **a readied attack uses the MAP from when it was Readied**. The merged dice-and-checks requirement must be amended. | https://2e.aonprd.com/Actions.aspx?ID=2299 (PC 417) | 2 (amend), 12 |
+
+## Known defects
+
+- Penalty tie at equal (source, sequence) keeps the milder penalty; RAW keeps the worse. Rules 2282 (same-type stacking), https://2e.aonprd.com/Rules.aspx?ID=2282 (PC 400). Fixed by amend-modifier-duplicates.
