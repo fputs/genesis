@@ -1,7 +1,5 @@
 use crate::dice::Dice;
-use crate::modifiers::{
-    BonusType, Modifier, ModifierError, PenaltyType, SourceId, Statistic, total,
-};
+use crate::modifiers::{Statistic, attack_check_parts, total};
 
 /// Four degrees of success on a d20 check.
 ///
@@ -305,107 +303,34 @@ pub fn multiple_attack_penalty(input: MapInput) -> i32 {
     }
 }
 
-/// Adds the natural roll, attack bonus, untyped MAP, a circumstance penalty, and another untyped penalty.
+/// Adds the natural roll, attack bonus, the multiple attack penalty, a circumstance penalty, and the range penalty.
 ///
 /// The penalty arguments are folded as modifiers. A 0 argument is omitted, because a modifier
-/// cannot be zero. MAP is not dropped by keeping only the worse of MAP and the circumstance penalty.
-/// Each addend is an [`AttackTotalTerm`], so the sum fits in `i32`.
+/// cannot be zero. The multiple attack penalty reuses its reserved source and is applied once.
+/// It is not dropped by keeping only the worse of that penalty and the circumstance penalty.
+/// The range penalty is the other untyped internal penalty. A positive untyped term is a raw
+/// addend. A reserved source does not skip same-type stacking. Each addend is an
+/// [`AttackTotalTerm`], so the sum fits in `i32`.
 ///
-/// Player Core, Penalties.
+/// Player Core, Penalties. Player Core, "Multiple Attack Penalty". Player Core, "Range Penalty".
 pub fn attack_check_total(
     natural: u8,
     attack_bonus: AttackTotalTerm,
     map: AttackTotalTerm,
     circumstance_penalty: AttackTotalTerm,
-    other_untyped_penalty: AttackTotalTerm,
+    range_penalty: AttackTotalTerm,
 ) -> i32 {
-    let mut modifiers = Vec::new();
-    let mut raw_extra = 0i64;
-    push_attack_term(
-        &mut modifiers,
-        &mut raw_extra,
-        map.get(),
-        AttackTerm::Untyped,
-        SourceId(1),
-        1,
-    );
-    push_attack_term(
-        &mut modifiers,
-        &mut raw_extra,
-        circumstance_penalty.get(),
-        AttackTerm::Circumstance,
-        SourceId(2),
-        2,
-    );
-    push_attack_term(
-        &mut modifiers,
-        &mut raw_extra,
-        other_untyped_penalty.get(),
-        AttackTerm::Untyped,
-        SourceId(3),
-        3,
-    );
-    let folded = match total(&modifiers) {
+    let parts = attack_check_parts(map.get(), circumstance_penalty.get(), range_penalty.get());
+    let folded = match total(&parts.modifiers) {
         Ok(total) => i64::from(total.get(Statistic::Attack)),
         // The terms are bounded, so this sum fits. A miss still returns the natural roll.
         Err(_) => return i32::from(natural),
     };
-    let sum = i64::from(natural) + i64::from(attack_bonus.get()) + folded + raw_extra;
+    let sum = i64::from(natural) + i64::from(attack_bonus.get()) + folded + parts.raw_extra;
     match i32::try_from(sum) {
         Ok(total) => total,
         // Each term is bounded so four of them plus any `u8` still fit in `i32`.
         Err(_) => i32::from(natural),
-    }
-}
-
-enum AttackTerm {
-    Untyped,
-    Circumstance,
-}
-
-/// A positive untyped term is not a modifier. It is added as a raw number so this function's
-/// signature still sums it. Zero is omitted.
-fn push_attack_term(
-    modifiers: &mut Vec<Modifier>,
-    raw_extra: &mut i64,
-    value: i32,
-    kind: AttackTerm,
-    source: SourceId,
-    sequence: u32,
-) {
-    if value == 0 {
-        return;
-    }
-    let built = match kind {
-        AttackTerm::Untyped if value < 0 => Modifier::penalty(
-            PenaltyType::Untyped,
-            value,
-            source,
-            sequence,
-            None,
-            Statistic::Attack,
-        ),
-        AttackTerm::Circumstance if value < 0 => Modifier::penalty(
-            PenaltyType::Circumstance,
-            value,
-            source,
-            sequence,
-            None,
-            Statistic::Attack,
-        ),
-        AttackTerm::Circumstance => Modifier::bonus(
-            BonusType::Circumstance,
-            value,
-            source,
-            sequence,
-            None,
-            Statistic::Attack,
-        ),
-        AttackTerm::Untyped => Err(ModifierError::UntypedBonus),
-    };
-    match built {
-        Ok(modifier) => modifiers.push(modifier),
-        Err(_) => *raw_extra += i64::from(value),
     }
 }
 
