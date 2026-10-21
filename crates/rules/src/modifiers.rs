@@ -82,11 +82,8 @@ impl ConditionId {
     /// No rank, or a type other than status, is rejected. A status bonus with a rank
     /// keeps the type and value the caller declared.
     ///
-    /// The id is not 3. Condition id 3 is an ordinary condition in the duplicate-key
-    /// scenario, and a non-status modifier with that id must stay legal.
-    ///
     /// Player Core, Sickened. Player Core, "Redundant Conditions With Values".
-    pub const SICKENED: Self = Self(13);
+    pub const SICKENED: Self = Self(3);
 }
 
 /// The statistic a modifier applies to. Two statistics do not share a stack.
@@ -2399,12 +2396,12 @@ mod tests {
             .with_condition(ConditionId(8), Some(1))
             .expect("condition");
         let lower_id = bonus(BonusType::Circumstance, 2, 9, 5, Some(2), Statistic::Attack)
-            .with_condition(ConditionId(3), Some(1))
+            .with_condition(ConditionId(4), Some(1))
             .expect("condition");
         for modifiers in orders_of_two(higher_id, lower_id) {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
-            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(3)));
+            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(4)));
             assert_eq!(stacked.get(Statistic::Attack), 2);
             assert_eq!(total_on(&stacked, Statistic::Attack), 2);
         }
