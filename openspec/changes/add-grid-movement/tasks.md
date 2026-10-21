@@ -74,8 +74,8 @@ Each scenario in `specs/grid-movement/spec.md` has exactly one test. The test na
 
 ## 9. Changelog and proof
 
-- [ ] 9.1 Add one bullet under `## [Unreleased]` `### Added` in `CHANGELOG.md` describing 5-foot grid movement, diagonal cost, and range-increment data, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Added`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
-- [ ] 9.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
+- [x] 9.1 Add one bullet under `## [Unreleased]` `### Added` in `CHANGELOG.md` describing 5-foot grid movement, diagonal cost, and range-increment data, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Added`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
+- [x] 9.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
