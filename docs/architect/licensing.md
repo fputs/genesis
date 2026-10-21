@@ -64,7 +64,7 @@ Check: a rules entry that contains a Paizo proper noun, a lore paragraph, or Pai
 
 ## LIC-7. No Pathfinder branding beyond the Attribution book titles, and no compatibility claim
 
-Do not put "Pathfinder" in the product title, a logo, or other branding. Do not use the Paizo compatibility logo. Do not claim that the product is compatible with Pathfinder, and do not claim that Paizo sponsors, endorses, or approves it. Pathfinder may be named only as the book titles in the Attribution section of `NOTICE-ORC.md`. Repeating those same book titles as the permitted sources (LIC-3) or as a rules entry's source (LIC-4) is that Attribution naming.
+Do not put "Pathfinder" in the product title, a logo, or other branding. Do not use the Paizo compatibility logo. Do not claim that the product is compatible with Pathfinder, and do not claim that Paizo sponsors, endorses, or approves it. Pathfinder may be named only as the book titles in the Attribution section of `NOTICE-ORC.md`. Repeating those same book titles as the permitted sources (LIC-3) or as a rules entry's source (LIC-4) is that Attribution naming. Internal repository file and directory names are not product branding and are exempt; this does not cover product titles, store pages, marketing, or in-game UI.
 
 The store page and marketing text carry no compatibility wording and no endorsement wording.
 
