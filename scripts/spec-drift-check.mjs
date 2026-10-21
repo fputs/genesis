@@ -184,13 +184,23 @@ function referenceFailures(root, body, baseSha) {
   return failures;
 }
 
-function invalidChangeId(token) {
-  if (token.length === 0) {
-    return "spec-drift: invalid change id";
+function invalidChangeId(remainder) {
+  // JSON.stringify leaves U+200B raw, quotes some whitespace, and hides a typed backslash.
+  return `spec-drift: invalid change id${escapeRemainder(remainder)}`;
+}
+
+// Each UTF-16 code unit outside printable ASCII, and a backslash, is visible as \uXXXX.
+function escapeRemainder(text) {
+  let escaped = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index);
+    if (unit < 0x20 || unit > 0x7e || unit === 0x5c) {
+      escaped += `\\u${unit.toString(16).padStart(4, "0")}`;
+    } else {
+      escaped += text.charAt(index);
+    }
   }
-  // A raw tab or other space is invisible in the log and looks like a normal id.
-  const shown = /\s/.test(token) ? JSON.stringify(token) : token;
-  return `spec-drift: invalid change id ${shown}`;
+  return escaped;
 }
 
 function changedPaths(root, baseSha) {
@@ -263,50 +273,34 @@ function changeReferences(body) {
     if (!text.startsWith(REFERENCE_PREFIX)) {
       continue;
     }
-    const parsed = singleToken(text.slice(REFERENCE_PREFIX.length));
-    if (parsed === null) {
-      continue;
-    }
-    // Exactly one ASCII space (U+0020) is required. A tab, a kebab-case token
-    // jammed against the colon, or extra spaces are still an invalid id.
-    if (!parsed.spaced || !CHANGE_ID.test(parsed.token)) {
-      if (!invalidSeen.has(parsed.token)) {
-        invalidSeen.add(parsed.token);
-        invalidTokens.push(parsed.token);
+    const remainder = text.slice(REFERENCE_PREFIX.length);
+    const id = referenceId(remainder);
+    if (id === null) {
+      // A prefix line that is not one kebab id is a mistake on every pull request.
+      if (!invalidSeen.has(remainder)) {
+        invalidSeen.add(remainder);
+        invalidTokens.push(remainder);
       }
       continue;
     }
-    if (!seen.has(parsed.token)) {
-      seen.add(parsed.token);
-      ids.push(parsed.token);
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
     }
   }
   return { ids, invalidTokens };
 }
 
-// A reference is the prefix, exactly one ASCII space (U+0020), and one token.
-// Null means two or more words, which is not a reference. A token that starts
-// with whitespace (tab, NBSP, em space) is one invalid id, not a skipped line.
-// The raw remainder is kept so that whitespace is still there to show.
-function singleToken(rest) {
-  if (rest.charCodeAt(0) === 0x20 && rest.charCodeAt(1) !== 0x20) {
-    const token = rest.slice(1);
-    if (token.length === 0) {
-      return { token: "", spaced: false };
-    }
-    if (countWords(token) >= 2) {
-      return null;
-    }
-    if (/^\S+$/.test(token)) {
-      return { token, spaced: true };
-    }
-    return { token, spaced: false };
+// Valid only as exactly one U+0020 and one kebab id. The remainder is otherwise logged whole.
+function referenceId(remainder) {
+  if (remainder.charCodeAt(0) !== 0x20) {
+    return null;
   }
-  return { token: rest, spaced: false };
-}
-
-function countWords(token) {
-  return token.split(/\s+/).filter((word) => word.length > 0).length;
+  const id = remainder.slice(1);
+  if (!CHANGE_ID.test(id)) {
+    return null;
+  }
+  return id;
 }
 
 function changeExists(root, id) {
@@ -324,11 +318,15 @@ function changeExists(root, id) {
     if (!isDirectory(join(archiveDir, name))) {
       continue;
     }
-    if (name === id) {
-      return true;
-    }
     const dated = DATED_ARCHIVE.exec(name);
-    if (dated && dated[4] === id) {
+    if (dated) {
+      // The folder name is storage. Only the remainder after YYYY-MM-DD- is an id.
+      if (dated[4] === id) {
+        return true;
+      }
+      continue;
+    }
+    if (name === id) {
       return true;
     }
   }
