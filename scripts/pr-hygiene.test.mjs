@@ -1,0 +1,1076 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
+
+const scriptPath = fileURLToPath(new URL("./pr-hygiene.mjs", import.meta.url));
+const workflowPath = fileURLToPath(
+  new URL("../.github/workflows/pr-hygiene.yml", import.meta.url),
+);
+const ciPath = fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url));
+const workflow = readFileSync(workflowPath, "utf8");
+const ciWorkflow = readFileSync(ciPath, "utf8");
+const scriptSource = readFileSync(scriptPath, "utf8");
+
+const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
+
+const MISSING = "implementation PR missing CHANGELOG bullet";
+const ARCHIVE = "archive commit is not last";
+const LOG = "## [Unreleased]\n\n### Added\n- old\n";
+const NEW_LOG = "## [Unreleased]\n\n### Added\n- old\n- new gate\n";
+const GATE_LOG = "## [Unreleased]\n\n### Added\n- old\n- Record the gate\n";
+const OUTSIDE_LOG = "## [Unreleased]\n\n### Added\n- old\n\n## [0.1.0]\n\n- shipped\n";
+const NO_HEADING = "# Changelog\n\n- old\n";
+const MAIN_BULLET = "- main only bullet";
+const MAIN_LOG = `${LOG}${MAIN_BULLET}\n`;
+
+function withLog(files) {
+  return { "CHANGELOG.md": LOG, ...files };
+}
+
+function archiveRename(id) {
+  return {
+    from: `openspec/changes/${id}/proposal.md`,
+    to: `openspec/changes/archive/2026-10-21-${id}/proposal.md`,
+  };
+}
+
+function passing(name, fields = {}) {
+  return {
+    event: "pull_request",
+    action: "opened",
+    body: "",
+    excludes: [MISSING, ARCHIVE],
+    includes: [],
+    ...fields,
+    name,
+    status: 0,
+  };
+}
+
+function failing(name, lines, fields = {}) {
+  const excludes = fields.excludes ?? [
+    ...(lines.includes(MISSING) ? [] : [MISSING]),
+    ...(lines.includes(ARCHIVE) ? [] : [ARCHIVE]),
+  ];
+  return {
+    event: "pull_request",
+    action: "opened",
+    body: "",
+    ...fields,
+    name,
+    status: 1,
+    includes: lines,
+    excludes,
+  };
+}
+
+const cases = [
+  failing("A diff parse error fails closed", ["diff failed"], {
+    gitStub: "fail-diff",
+    base: { "docs/architect/decisions.md": "old\n" },
+    head: { "docs/architect/decisions.md": "new\n" },
+  }),
+  failing(
+    "A broken NUL record fails closed",
+    ["pr-hygiene: NUL record could not be parsed"],
+    {
+      gitStub: "broken-nul",
+      base: { "docs/architect/decisions.md": "old\n" },
+      head: { "docs/architect/decisions.md": "new\n" },
+    },
+  ),
+  failing(
+    "An event payload that cannot be parsed fails closed",
+    ["pr-hygiene: event payload could not be parsed"],
+    {
+      invalidPayload: true,
+      base: { "docs/architect/decisions.md": "old\n" },
+      head: { "docs/architect/decisions.md": "new\n" },
+    },
+  ),
+  failing("A rename into crates is an implementation pull request", [MISSING], {
+    base: withLog({ "docs/note.md": "same\n" }),
+    rename: [{ from: "docs/note.md", to: "crates/rules/note.md" }],
+  }),
+  failing("A crate file is an implementation pull request", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  }),
+  failing("A workflow file is an implementation pull request", [MISSING], {
+    base: withLog({ ".github/workflows/ci.yml": "old\n" }),
+    head: { ".github/workflows/ci.yml": "new\n" },
+  }),
+  failing("Root Cargo.toml is an implementation pull request", [MISSING], {
+    base: withLog({ "Cargo.toml": "old\n" }),
+    head: { "Cargo.toml": "new\n" },
+  }),
+  passing("A scripts-only pull request is not an implementation pull request", {
+    base: withLog({ "scripts/note.mjs": "old\n" }),
+    head: { "scripts/note.mjs": "new\n" },
+  }),
+  passing("A nested Cargo.toml is not a root manifest", {
+    base: withLog({ "docs/Cargo.toml": "old\n" }),
+    head: { "docs/Cargo.toml": "new\n" },
+  }),
+  passing("An added Unreleased bullet passes", {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+  }),
+  failing("A missing bullet fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  }),
+  failing("A bullet outside Unreleased fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": OUTSIDE_LOG },
+  }),
+  passing("Any Unreleased list item passes", {
+    base: withLog({ ".github/workflows/pr-hygiene.yml": "old\n" }),
+    head: {
+      ".github/workflows/pr-hygiene.yml": "new\n",
+      "CHANGELOG.md": GATE_LOG,
+    },
+  }),
+  failing("An unchanged existing bullet fails", [MISSING], {
+    base: withLog({ "Cargo.toml": "old\n" }),
+    head: { "Cargo.toml": "new\n" },
+  }),
+  passing("Docs-only passes without a bullet", {
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "AGENTS.md": "old\n",
+      "CHANGELOG.md": LOG,
+    },
+    head: {
+      "docs/architect/decisions.md": "new\n",
+      "AGENTS.md": "new\n",
+      "CHANGELOG.md": "## [Unreleased]\n\n### Added\nnote\n- old\n",
+    },
+  }),
+  passing("Openspec-only passes without a bullet", {
+    base: withLog({ "openspec/specs/changelog/spec.md": "old\n" }),
+    head: { "openspec/specs/changelog/spec.md": "new\n" },
+  }),
+  passing("A cursor-only pull request passes without a bullet", {
+    base: withLog({ ".cursor/rules/example.md": "old\n" }),
+    head: { ".cursor/rules/example.md": "new\n" },
+  }),
+  passing("A README-only pull request passes without a bullet", {
+    base: withLog({ "README.md": "old\n" }),
+    head: { "README.md": "new\n" },
+  }),
+  passing("A Cargo.lock-only pull request passes without a bullet", {
+    base: withLog({ "Cargo.lock": "old\n" }),
+    head: { "Cargo.lock": "new\n" },
+  }),
+  passing("A rust-toolchain-only pull request passes without a bullet", {
+    base: withLog({ "rust-toolchain.toml": "old\n" }),
+    head: { "rust-toolchain.toml": "new\n" },
+  }),
+  passing("The exempt path set together passes without a bullet", {
+    base: withLog({
+      ".cursor/rules/example.md": "old\n",
+      "README.md": "old\n",
+      "Cargo.lock": "old\n",
+      "rust-toolchain.toml": "old\n",
+    }),
+    head: {
+      ".cursor/rules/example.md": "new\n",
+      "README.md": "new\n",
+      "Cargo.lock": "new\n",
+      "rust-toolchain.toml": "new\n",
+    },
+  }),
+  failing("Docs plus a crate still needs a bullet", [MISSING], {
+    base: withLog({
+      "docs/architect/decisions.md": "old\n",
+      "crates/rules/src/lib.rs": "old\n",
+    }),
+    head: {
+      "docs/architect/decisions.md": "new\n",
+      "crates/rules/src/lib.rs": "new\n",
+    },
+  }),
+  failing("Openspec plus a workflow file still needs a bullet", [MISSING], {
+    base: withLog({
+      "openspec/specs/changelog/spec.md": "old\n",
+      ".github/workflows/ci.yml": "old\n",
+    }),
+    head: {
+      "openspec/specs/changelog/spec.md": "new\n",
+      ".github/workflows/ci.yml": "new\n",
+    },
+  }),
+  failing("Cursor plus a crate still needs a bullet", [MISSING], {
+    base: withLog({
+      ".cursor/rules/example.md": "old\n",
+      "crates/rules/src/lib.rs": "old\n",
+    }),
+    head: {
+      ".cursor/rules/example.md": "new\n",
+      "crates/rules/src/lib.rs": "new\n",
+    },
+  }),
+  failing("README plus root Cargo.toml still needs a bullet", [MISSING], {
+    base: withLog({ "README.md": "old\n", "Cargo.toml": "old\n" }),
+    head: { "README.md": "new\n", "Cargo.toml": "new\n" },
+  }),
+  failing("Cargo.lock plus a crate still needs a bullet", [MISSING], {
+    base: withLog({ "Cargo.lock": "old\n", "crates/rules/src/lib.rs": "old\n" }),
+    head: { "Cargo.lock": "new\n", "crates/rules/src/lib.rs": "new\n" },
+  }),
+  failing("rust-toolchain.toml plus a workflow file still needs a bullet", [MISSING], {
+    base: withLog({
+      "rust-toolchain.toml": "old\n",
+      ".github/workflows/ci.yml": "old\n",
+    }),
+    head: {
+      "rust-toolchain.toml": "new\n",
+      ".github/workflows/ci.yml": "new\n",
+    },
+  }),
+  failing("A label does not skip the bullet", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n" },
+    labels: ["skip-changelog"],
+    usePayloadForShas: true,
+    usePayloadForBody: true,
+  }),
+  passing("Extra words are not a change reference", {
+    body: "OpenSpec-Change: add-foo extra",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+      "README.md": "old\n",
+    },
+    commits: [
+      {
+        message: "remove",
+        remove: ["openspec/changes/add-foo"],
+        files: { "README.md": "new\n" },
+      },
+    ],
+  }),
+  failing("A fenced line still counts", [ARCHIVE], {
+    body: "```\nOpenSpec-Change: add-foo\n```",
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "update",
+        remove: ["openspec/changes/add-foo"],
+      },
+    ],
+  }),
+  passing("The archive commit passes", {
+    body: "OpenSpec-Change: add-foo",
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("A path outside archive and specs fails", [ARCHIVE], {
+    body: "OpenSpec-Change: add-foo",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+      "docs/producer/process.md": "old\n",
+    },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: {
+          "openspec/specs/changelog/spec.md": "spec\n",
+          "docs/producer/process.md": "new\n",
+        },
+      },
+    ],
+  }),
+  failing("A later fix-typo commit is not last", [ARCHIVE], {
+    body: "OpenSpec-Change: add-foo",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+      "docs/producer/process.md": "old\n",
+    },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+      {
+        message: "fix typo",
+        files: { "docs/producer/process.md": "typo\n" },
+      },
+    ],
+  }),
+  failing("A missing archive phrase fails", [ARCHIVE], {
+    body: "OpenSpec-Change: add-foo",
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "archive the change",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("A longer id does not cover a shorter id", [ARCHIVE], {
+    body: "OpenSpec-Change: add-foo",
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "openspec archive add-foo-extra --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("Edited re-reads the body", [ARCHIVE], {
+    action: "edited",
+    usePayloadForBody: true,
+    body: "OpenSpec-Change: add-foo",
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "update",
+        remove: ["openspec/changes/add-foo"],
+      },
+    ],
+  }),
+  passing("An edited body drops the change reference", {
+    action: "edited",
+    usePayloadForBody: true,
+    body: "Edited without a change id.",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+      "README.md": "old\n",
+    },
+    commits: [
+      {
+        message: "update",
+        remove: ["openspec/changes/add-foo"],
+        files: { "README.md": "new\n" },
+      },
+    ],
+  }),
+  passing("Two archived ids pass", {
+    body: "OpenSpec-Change: add-foo\nOpenSpec-Change: add-bar",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "foo\n",
+      "openspec/changes/add-bar/proposal.md": "bar\n",
+    },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes\nopenspec archive add-bar --yes",
+        rename: [archiveRename("add-foo"), archiveRename("add-bar")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("One of two archive phrases is missing", [ARCHIVE], {
+    body: "OpenSpec-Change: add-foo\nOpenSpec-Change: add-bar",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "foo\n",
+      "openspec/changes/add-bar/proposal.md": "bar\n",
+    },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo"), archiveRename("add-bar")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  passing("A duplicate reference counts once", {
+    body: "OpenSpec-Change: add-foo\nOpenSpec-Change: add-foo",
+    base: { "openspec/changes/add-foo/proposal.md": "proposal\n" },
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  passing("A named change that stays active skips archive-last", {
+    body: "OpenSpec-Change: add-foo",
+    base: { "openspec/changes/add-foo/proposal.md": "old\n" },
+    head: { "openspec/changes/add-foo/proposal.md": "new\n" },
+  }),
+  passing("A removal without a reference skips archive-last", {
+    body: "",
+    base: {
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+      "README.md": "old\n",
+    },
+    commits: [
+      {
+        message: "remove",
+        remove: ["openspec/changes/add-foo"],
+        files: { "README.md": "new\n" },
+      },
+    ],
+  }),
+  passing("The bullet is added before the archive commit", {
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    commits: [
+      {
+        message: "implement",
+        files: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("A bullet inside the archive commit is not last", [ARCHIVE], {
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({ "openspec/changes/add-foo/proposal.md": "proposal\n" }),
+    commits: [
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: {
+          "openspec/specs/changelog/spec.md": "spec\n",
+          "CHANGELOG.md": NEW_LOG,
+        },
+      },
+    ],
+  }),
+  passing("A body without a head SHA passes", {
+    body: "Ready.",
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+  }),
+  failing("Both checks fail together", [MISSING, ARCHIVE], {
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    commits: [
+      {
+        message: "squash",
+        remove: ["openspec/changes/add-foo"],
+        files: { "crates/rules/src/lib.rs": "new\n" },
+      },
+    ],
+    assertOutput(output) {
+      const bulletAt = output.indexOf(MISSING);
+      const archiveAt = output.indexOf(ARCHIVE);
+      assert.ok(bulletAt >= 0 && archiveAt > bulletAt, output);
+    },
+  }),
+  failing("The hygiene job enforces the bullet", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  }),
+  failing("Edited still checks the bullet", [MISSING], {
+    action: "edited",
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  }),
+  passing("A docs-only pull request with no changelog passes", {
+    base: { "docs/architect/decisions.md": "old\n" },
+    head: { "docs/architect/decisions.md": "new\n" },
+  }),
+];
+
+for (const row of cases) {
+  test(row.name, async () => {
+    await runCase(row);
+  });
+}
+
+test("NUL-split diff includes both rename sides", async () => {
+  const built = await buildFixture({
+    base: withLog({ "docs/note.md": "same\n" }),
+    rename: [{ from: "docs/note.md", to: "crates/rules/note.md" }],
+  });
+  const spyLog = join(built.dir, "spy.log");
+  try {
+    const result = spawnScript(built, { spyLog, body: "" });
+    const output = combined(result);
+    assert.equal(result.status, 1, output);
+    assert.ok(output.includes(MISSING), output);
+    const log = readFileSync(spyLog, "utf8");
+    assert.match(log, /^merge-base /m);
+    assert.match(log, /^diff -z /m);
+    const diff = git(built.dir, [
+      "diff",
+      "-z",
+      "--name-status",
+      "--find-renames",
+      built.branchPoint,
+      built.headSha,
+    ]).stdout;
+    assert.ok(diff.includes("docs/note.md\0"), diff);
+    assert.ok(diff.includes("crates/rules/note.md\0"), diff);
+  } finally {
+    await rm(built.dir, { recursive: true, force: true });
+  }
+
+  // The reverse rename fails only when the pre-image path is kept. Dropping
+  // that side would leave a docs path and the bullet check would not run.
+  await runCase(
+    failing("reverse rename", [MISSING], {
+      base: withLog({ "crates/rules/src/lib.rs": "same\n" }),
+      rename: [{ from: "crates/rules/src/lib.rs", to: "docs/lib.rs" }],
+    }),
+  );
+});
+
+test("A missing base fails closed", async () => {
+  await runCase({
+    status: 1,
+    omitBaseSha: true,
+    includes: ["pr-hygiene: base sha is required"],
+    excludes: [MISSING, ARCHIVE],
+    base: { "docs/architect/decisions.md": "old\n" },
+    head: { "docs/architect/decisions.md": "new\n" },
+  });
+  await runCase({
+    status: 1,
+    kind: "unrelated",
+    includes: ["pr-hygiene: no merge-base"],
+    excludes: [MISSING, ARCHIVE],
+  });
+});
+
+test("A missing head parent fails closed", async () => {
+  await runCase({
+    status: 1,
+    kind: "root-head",
+    includes: ["pr-hygiene: head commit has no parent"],
+    excludes: [MISSING, ARCHIVE],
+  });
+});
+
+test("The check uses the event head", async () => {
+  const built = await buildFixture({
+    base: {
+      "CHANGELOG.md": LOG,
+      "crates/rules/src/lib.rs": "base\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    },
+    main: {
+      "CHANGELOG.md": MAIN_LOG,
+      "crates/rules/src/lib.rs": "main\n",
+    },
+    commits: [
+      {
+        message: "implement",
+        files: {
+          "crates/rules/src/lib.rs": "pr\n",
+          "CHANGELOG.md": MAIN_LOG,
+        },
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  });
+  const spyLog = join(built.dir, "spy.log");
+  try {
+    const runnerSha = makeRunnerMerge(built);
+    assert.notEqual(runnerSha, built.headSha);
+    assert.notEqual(rev(built.dir), built.headSha);
+    const mergeBase = git(built.dir, ["merge-base", built.baseSha, built.headSha]).stdout.trim();
+    assert.equal(mergeBase, built.branchPoint);
+    assert.notEqual(mergeBase, built.baseSha);
+
+    const result = spawnScript(built, {
+      spyLog,
+      body: "OpenSpec-Change: add-foo",
+      usePayloadForShas: true,
+      usePayloadForBody: true,
+      useGithubEventName: true,
+    });
+    const output = combined(result);
+    assert.equal(result.status, 0, output);
+    assert.ok(!output.includes(MISSING), output);
+    assert.ok(!output.includes(ARCHIVE), output);
+
+    const log = readFileSync(spyLog, "utf8");
+    assert.ok(log.includes(`merge-base ${built.baseSha} ${built.headSha}`), log);
+    assert.ok(log.includes(`diff -z --name-status --find-renames ${mergeBase} ${built.headSha}`), log);
+    assert.ok(log.includes(`show ${mergeBase}:CHANGELOG.md`), log);
+    assert.ok(!log.includes(`show ${built.baseSha}:CHANGELOG.md`), log);
+    assert.ok(log.includes(`--format=%B ${built.headSha}`), log);
+    assert.ok(!log.includes(runnerSha), log);
+    assert.ok(!/^HEAD\b/m.test(log) && !log.includes(" HEAD"), log);
+  } finally {
+    await rm(built.dir, { recursive: true, force: true });
+  }
+});
+
+test("main advanced after branching", async () => {
+  const docs = await buildFixture({
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "crates/rules/src/lib.rs": "base\n",
+      "CHANGELOG.md": LOG,
+    },
+    main: {
+      "crates/rules/src/lib.rs": "from main\n",
+      "CHANGELOG.md": MAIN_LOG,
+    },
+    commits: [
+      {
+        message: "docs",
+        files: { "docs/architect/decisions.md": "new\n" },
+      },
+    ],
+  });
+  try {
+    const mergeBase = git(docs.dir, ["merge-base", docs.baseSha, docs.headSha]).stdout.trim();
+    assert.equal(mergeBase, docs.branchPoint);
+    const atMerge = git(docs.dir, ["show", `${mergeBase}:CHANGELOG.md`]).stdout;
+    const atMain = git(docs.dir, ["show", `${docs.baseSha}:CHANGELOG.md`]).stdout;
+    assert.equal(atMerge.includes(MAIN_BULLET), false);
+    assert.equal(atMain.includes(MAIN_BULLET), true);
+    const result = spawnScript(docs, { body: "" });
+    const output = combined(result);
+    assert.equal(result.status, 0, output);
+    assert.ok(!output.includes(MISSING), output);
+  } finally {
+    await rm(docs.dir, { recursive: true, force: true });
+  }
+
+  // The same bullet text exists on main after the branch point. It counts as
+  // added only when the base set is the changelog at the merge-base.
+  const impl = await buildFixture({
+    base: {
+      "crates/rules/src/lib.rs": "base\n",
+      "CHANGELOG.md": LOG,
+    },
+    main: {
+      "crates/rules/src/lib.rs": "from main\n",
+      "CHANGELOG.md": MAIN_LOG,
+    },
+    commits: [
+      {
+        message: "implement",
+        files: {
+          "crates/rules/src/lib.rs": "pr\n",
+          "CHANGELOG.md": MAIN_LOG,
+        },
+      },
+    ],
+  });
+  try {
+    const mergeBase = git(impl.dir, ["merge-base", impl.baseSha, impl.headSha]).stdout.trim();
+    const atMerge = git(impl.dir, ["show", `${mergeBase}:CHANGELOG.md`]).stdout;
+    assert.equal(atMerge.includes(MAIN_BULLET), false);
+    const result = spawnScript(impl, { body: "" });
+    const output = combined(result);
+    assert.equal(
+      result.status,
+      0,
+      `a bullet added only on main must be excluded from the base set\n${output}`,
+    );
+  } finally {
+    await rm(impl.dir, { recursive: true, force: true });
+  }
+});
+
+test("A missing head changelog fails", async () => {
+  await runCase(
+    failing("missing file", [MISSING], {
+      base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+      remove: ["CHANGELOG.md"],
+      head: { "crates/rules/src/lib.rs": "new\n" },
+    }),
+  );
+  await runCase(
+    failing("missing heading", [MISSING], {
+      base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+      head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NO_HEADING },
+    }),
+  );
+});
+
+test("A missing base changelog leaves no bullets", async () => {
+  await runCase(
+    passing("missing file", {
+      base: { "crates/rules/src/lib.rs": "old\n" },
+      head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+    }),
+  );
+  await runCase(
+    passing("missing heading", {
+      base: { "crates/rules/src/lib.rs": "old\n", "CHANGELOG.md": NO_HEADING },
+      head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": LOG },
+    }),
+  );
+});
+
+test("Each case is a fixture repository", async () => {
+  assert.ok(cases.length > 0);
+  const names = cases.map((row) => row.name);
+  assert.equal(new Set(names).size, names.length);
+  for (const row of cases) {
+    assert.equal(typeof row.status, "number");
+    assert.ok(Array.isArray(row.includes));
+    await runCase(row);
+  }
+});
+
+test("Job runs on the four pull request types", () => {
+  assert.match(workflow, /pull_request:/);
+  assert.match(workflow, /types:\s*\[opened, synchronize, reopened, edited]/);
+  assert.match(workflow, /branches:\s*\[main]/);
+  const job = jobBlock(workflow, "pr-hygiene");
+  assert.match(job, /node scripts\/pr-hygiene\.mjs/);
+});
+
+test("The job does not run on push", () => {
+  assert.doesNotMatch(workflow, /^push:/m);
+  assert.doesNotMatch(workflow, /\n\s*push:/);
+});
+
+test("Permissions are contents read only", () => {
+  assert.match(workflow, /permissions:\n  contents: read\n/);
+  assert.doesNotMatch(workflow, /pull-requests:/);
+  assert.doesNotMatch(workflow, /permissions:[\s\S]*contents: write/);
+});
+
+test("The job installs no npm package", () => {
+  const job = jobBlock(workflow, "pr-hygiene");
+  assert.doesNotMatch(job, /npm/);
+  assert.doesNotMatch(workflow, /npm/);
+  const specs = [...scriptSource.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]);
+  assert.ok(specs.length >= 4);
+  for (const specifier of specs) {
+    assert.match(specifier, /^node:/);
+  }
+  assert.doesNotMatch(scriptSource, /\brequire\s*\(/);
+});
+
+test("The job runs the suite first", () => {
+  const job = jobBlock(workflow, "pr-hygiene");
+  const suite = job.indexOf("node --test scripts/pr-hygiene.test.mjs");
+  const script = job.indexOf("node scripts/pr-hygiene.mjs");
+  assert.ok(suite >= 0);
+  assert.ok(script > suite);
+  assert.match(job, /node-version:\s*["']?22["']?/);
+  assert.match(job, /fetch-depth:\s*0/);
+  assert.doesNotMatch(job, /continue-on-error/);
+});
+
+test("Cargo and spec-drift stay", () => {
+  assert.match(ciWorkflow, /push:\n\s+branches: \[main]/);
+  assert.match(ciWorkflow, /pull_request:\n\s+branches: \[main]/);
+  const cargo = jobBlock(ciWorkflow, "ci");
+  assert.match(cargo, /cargo fmt --check/);
+  assert.match(cargo, /cargo clippy --workspace --all-targets -- -D warnings/);
+  assert.match(cargo, /cargo build --workspace/);
+  assert.match(cargo, /cargo test --workspace/);
+  const drift = jobBlock(ciWorkflow, "spec-drift");
+  assert.match(drift, /node --test scripts\/spec-drift-check\.test\.mjs/);
+  assert.match(drift, /node scripts\/spec-drift-check\.mjs/);
+  assert.doesNotMatch(ciWorkflow, /pr-hygiene/);
+});
+
+test("An in-progress run is cancelled", () => {
+  assert.match(
+    workflow,
+    /group: pr-hygiene-\$\{\{ github\.event\.pull_request\.number \}\}/,
+  );
+  assert.match(workflow, /cancel-in-progress:\s*true/);
+  const jobs = workflow.slice(workflow.indexOf("jobs:")).match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(jobs, ["  pr-hygiene:"]);
+});
+
+function jobBlock(yaml, id) {
+  const lines = yaml.split("\n");
+  const start = lines.findIndex((line) => line === `  ${id}:`);
+  assert.ok(start >= 0, `missing job ${id}`);
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^ {2}[A-Za-z0-9_-]+:$/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+async function runCase(row) {
+  const built = await buildFixture(row);
+  try {
+    const result = spawnScript(built, row);
+    const output = combined(result);
+    assert.equal(result.status, row.status, output);
+    for (const line of row.includes ?? []) {
+      assert.ok(output.includes(line), `missing ${line}\n${output}`);
+    }
+    for (const line of row.excludes ?? []) {
+      assert.ok(!output.includes(line), `unexpected ${line}\n${output}`);
+    }
+    if (row.assertOutput) {
+      row.assertOutput(output);
+    }
+    if (row.assertRepo) {
+      row.assertRepo(built.dir, built);
+    }
+  } finally {
+    await rm(built.dir, { recursive: true, force: true });
+  }
+}
+
+function combined(result) {
+  return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+}
+
+async function buildFixture(row) {
+  if (row.kind === "unrelated") {
+    return buildUnrelated();
+  }
+  if (row.kind === "root-head") {
+    return buildRootHead();
+  }
+  const dir = await mkdtemp(join(tmpdir(), "pr-hygiene-"));
+  initRepo(dir);
+  await writeTree(dir, { "README.md": "base\n", ...(row.base ?? {}) });
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", "base"]);
+  const branchPoint = rev(dir);
+  let baseSha = branchPoint;
+  if (row.main) {
+    await writeTree(dir, row.main);
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "main advances"]);
+    baseSha = rev(dir);
+    git(dir, ["checkout", "-b", "pr", branchPoint]);
+  }
+  const commits = row.commits ?? synthesizedCommits(row);
+  for (const commit of commits) {
+    await applyCommit(dir, commit);
+  }
+  return { dir, baseSha, headSha: rev(dir), branchPoint };
+}
+
+function synthesizedCommits(row) {
+  const hasRename = (row.rename ?? []).length > 0;
+  const hasRemove = (row.remove ?? []).length > 0;
+  if (!row.head && !hasRename && !hasRemove) {
+    return [];
+  }
+  return [
+    {
+      message: row.commitMessage ?? "head",
+      files: row.head,
+      remove: row.remove,
+      rename: row.rename,
+    },
+  ];
+}
+
+async function buildUnrelated() {
+  const dir = await mkdtemp(join(tmpdir(), "pr-hygiene-"));
+  initRepo(dir);
+  await writeTree(dir, { "README.md": "base\n", "docs/a.md": "base\n" });
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", "base"]);
+  const baseSha = rev(dir);
+  git(dir, ["checkout", "--orphan", "other"]);
+  git(dir, ["rm", "-rf", "."]);
+  await writeTree(dir, { "README.md": "head\n", "docs/a.md": "head\n" });
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", "other base"]);
+  await writeTree(dir, { "docs/a.md": "head2\n" });
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", "other head"]);
+  return { dir, baseSha, headSha: rev(dir), branchPoint: baseSha };
+}
+
+async function buildRootHead() {
+  const dir = await mkdtemp(join(tmpdir(), "pr-hygiene-"));
+  initRepo(dir);
+  await writeTree(dir, { "README.md": "root\n" });
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", "root"]);
+  const headSha = rev(dir);
+  await writeTree(dir, { "README.md": "child\n" });
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", "child"]);
+  return { dir, baseSha: rev(dir), headSha, branchPoint: headSha };
+}
+
+async function applyCommit(dir, commit) {
+  for (const rel of commit.remove ?? []) {
+    await rm(join(dir, rel), { recursive: true, force: true });
+  }
+  for (const { from, to } of commit.rename ?? []) {
+    await mkdir(dirname(join(dir, to)), { recursive: true });
+    git(dir, ["mv", from, to]);
+  }
+  if (commit.files) {
+    await writeTree(dir, commit.files);
+  }
+  git(dir, ["add", "-A"]);
+  git(dir, ["commit", "-m", commit.message ?? "head"]);
+}
+
+function makeRunnerMerge(built) {
+  git(built.dir, ["checkout", "-B", "runner-work", built.branchPoint]);
+  writeFileSync(join(built.dir, "crates/rules/src/lib.rs"), "runner\n");
+  git(built.dir, ["add", "-A"]);
+  git(built.dir, ["rm", "-r", "openspec/changes/add-foo"]);
+  git(built.dir, ["commit", "-m", "runner work"]);
+  const tree = git(built.dir, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
+  const merge = git(built.dir, [
+    "commit-tree",
+    tree,
+    "-p",
+    built.baseSha,
+    "-p",
+    built.headSha,
+    "-m",
+    "Merge pull request",
+  ]).stdout.trim();
+  git(built.dir, ["checkout", "--detach", merge]);
+  return merge;
+}
+
+function spawnScript(built, row) {
+  const env = {
+    PATH: process.env.PATH ?? "",
+    HOME: process.env.HOME ?? "",
+    LANG: process.env.LANG ?? "C",
+    TMPDIR: process.env.TMPDIR ?? "/tmp",
+    PR_HYGIENE_ROOT: built.dir,
+  };
+  if (row.useGithubEventName) {
+    env.GITHUB_EVENT_NAME = row.event ?? "pull_request";
+  } else {
+    env.PR_HYGIENE_EVENT = row.event ?? "pull_request";
+  }
+  if (row.action !== undefined) {
+    env.PR_HYGIENE_ACTION = row.action;
+  } else {
+    env.PR_HYGIENE_ACTION = "opened";
+  }
+
+  const wantsPayload =
+    row.invalidPayload ||
+    row.usePayloadForShas ||
+    row.usePayloadForBody ||
+    (row.labels ?? []).length > 0;
+  if (wantsPayload) {
+    const payloadPath = join(built.dir, "event.json");
+    if (row.invalidPayload) {
+      writeFileSync(payloadPath, "{");
+    } else {
+      writeFileSync(
+        payloadPath,
+        JSON.stringify({
+          action: row.action ?? "opened",
+          pull_request: {
+            number: 7,
+            body: row.body ?? "",
+            base: { sha: built.baseSha },
+            head: { sha: built.headSha },
+            labels: (row.labels ?? []).map((name) => ({ name })),
+          },
+        }),
+      );
+    }
+    env.GITHUB_EVENT_PATH = payloadPath;
+  }
+
+  if (!row.usePayloadForShas && !row.omitBaseSha) {
+    env.PR_HYGIENE_BASE_SHA = built.baseSha;
+  }
+  if (!row.usePayloadForShas && !row.omitHeadSha) {
+    env.PR_HYGIENE_HEAD_SHA = built.headSha;
+  }
+  if (!row.usePayloadForBody) {
+    env.PR_HYGIENE_BODY = row.body ?? "";
+  }
+
+  if (row.gitStub) {
+    const bin = join(built.dir, ".stub-bin");
+    mkdirSync(bin);
+    const body =
+      row.gitStub === "broken-nul"
+        ? "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf 'M\\0'\n  exit 0\nfi\nexec \"$REAL_GIT\" \"$@\"\n"
+        : "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  echo \"diff failed\" >&2\n  exit 1\nfi\nexec \"$REAL_GIT\" \"$@\"\n";
+    writeFileSync(join(bin, "git"), body);
+    chmodSync(join(bin, "git"), 0o755);
+    env.REAL_GIT = realGit;
+    env.PATH = `${bin}${delimiter}${env.PATH}`;
+  } else if (row.spyLog) {
+    const bin = join(built.dir, ".spy-bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "git"),
+      "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$GIT_SPY_LOG\"\nexec \"$REAL_GIT\" \"$@\"\n",
+    );
+    chmodSync(join(bin, "git"), 0o755);
+    env.GIT_SPY_LOG = row.spyLog;
+    env.REAL_GIT = realGit;
+    env.PATH = `${bin}${delimiter}${env.PATH}`;
+  }
+
+  return spawnSync(process.execPath, [scriptPath], {
+    cwd: built.dir,
+    env,
+    encoding: "utf8",
+  });
+}
+
+function initRepo(dir) {
+  git(dir, ["init", "-b", "main"]);
+  git(dir, ["config", "user.email", "pr-hygiene@example.com"]);
+  git(dir, ["config", "user.name", "PR Hygiene"]);
+  git(dir, ["config", "commit.gpgsign", "false"]);
+  git(dir, ["config", "core.hooksPath", "/dev/null"]);
+}
+
+function rev(dir) {
+  return git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+}
+
+function git(cwd, args) {
+  const result = spawnSync(realGit, args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "PR Hygiene",
+      GIT_AUTHOR_EMAIL: "pr-hygiene@example.com",
+      GIT_COMMITTER_NAME: "PR Hygiene",
+      GIT_COMMITTER_EMAIL: "pr-hygiene@example.com",
+    },
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed\n${result.stderr ?? ""}\n${result.stdout ?? ""}`);
+  }
+  return result;
+}
+
+async function writeTree(root, files) {
+  for (const [rel, contents] of Object.entries(files)) {
+    const full = join(root, rel);
+    await mkdir(dirname(full), { recursive: true });
+    await writeFile(full, contents);
+  }
+}

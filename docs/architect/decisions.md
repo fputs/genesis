@@ -36,11 +36,10 @@ Deferred: attributes, proficiency, saves, skills, spells, classes, and broader c
 
 ## Backlog: end-of-Phase-1 changelog spec amendment
 
-1. CI enforcement of the changelog bullet.
-2. Add a Deprecated section.
-3. The spec-drift-check bullet in CHANGELOG.md lacks a PR link because add-changelog task 2.1 mandated its wording, which contradicts the spec's link rule.
-4. Release cutting (Unreleased to a version) is owned by DevOps.
-5. Define categories for mixed spec+docs PRs and the toolchain/README/.cursor cases formally.
+1. Add a Deprecated section.
+2. The spec-drift-check bullet in CHANGELOG.md lacks a PR link because add-changelog task 2.1 mandated its wording, which contradicts the spec's link rule.
+3. Release cutting (Unreleased to a version) is owned by DevOps.
+4. Define categories for mixed spec+docs PRs and the toolchain/README/.cursor cases formally.
 
 ## 2026-10-21 — Composition: CharacterBuild -> pure derive -> Creature; runtime CombatantState separate.
 
