@@ -43,7 +43,15 @@ A condition-10 circumstance penalty of -2 plus an unconditioned circumstance pen
 
 The test encodes source order itself: caller ids first, by number, then the reserved variants in a fixed order. It does not call `source_ord`.
 
-Random sets use sources 1–2, sequences 1–2, two condition ids (`ConditionId(10)` and frightened), magnitudes 1–3, level absent or 1, and ranks 0–2. Sickened uses the same `-rank` path and is covered by its rejection scenario. Keep the unconditioned untyped exact duplicate and the both-levels-absent set. Add a conditioned exact duplicate. At least 1,000 random sets, seed `0x0D1A_7E5B`, every permutation of a set of at most 4. The test adds no crate and does not read a clock.
+Every generated modifier builds without error. The assertion is what keeps an R-03 rejection from aborting the test. Each draw is:
+
+- a bonus or a penalty, with a legal non-zero value
+- a type from circumstance, item, or status, with untyped allowed for penalties only
+- a statistic, one of two: attack roll or Armor Class
+- frightened, always status, with rank `Some(0..2)`, ranks 0, 1, and 2
+- at least one reserved source
+
+Do not draw a zero value or an untyped bonus. Rank 0 builds and contributes nothing. Sickened stays out of this generator and is covered by its rejection scenarios. Keep the unconditioned untyped exact duplicate, the both-levels-absent set, and a conditioned exact duplicate. At least 1,000 random sets, seed `0x0D1A_7E5B`, every permutation of a set of at most 4. The test adds no crate and does not read a clock.
 
 ### 3. Reserved attack-check sources
 

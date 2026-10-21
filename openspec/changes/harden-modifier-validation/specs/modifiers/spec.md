@@ -113,9 +113,11 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 
 #### Scenario: Permuted sets match the stacking oracle
 
-- **GIVEN** one fixed seed and at least 1,000 random sets drawn from sources 1–2, sequences 1–2, two condition ids, values 1–3, levels some or none, and ranks 0–2, plus one unconditioned untyped exact duplicate, one conditioned exact duplicate, and one set with both levels absent, and each set has at most four modifiers
-- **WHEN** every permutation of each set is totaled, and the same seed is used again
-- **THEN** every ordering of a set keeps the same applied modifiers and the same total
+- **GIVEN** one fixed seed and at least 1,000 random sets of at most four modifiers, plus one unconditioned untyped exact duplicate, one conditioned exact duplicate, and one set with both levels absent. Each draw is a bonus or a penalty; a type of circumstance, item, or status, with untyped allowed for a penalty only; and a statistic of attack roll or Armor Class. Frightened is always status, with rank Some(0..2), ranks 0, 1, and 2. The draws include at least one reserved source
+- **WHEN** every generated modifier is built, every permutation of each set is totaled, and the same seed is used again
+- **THEN** every generated modifier builds without error
+- **AND** the test adds no crate and does not read a clock
+- **AND** every ordering of a set keeps the same applied modifiers and the same total
 - **AND** each statistic total equals the independent oracle's three stages: (a) group by condition, keyed on (condition, statistic, bonus or penalty, type); (b) collapse same-source duplicates (rule R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id; (c) for each statistic, keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack)
 - **AND** ties at the stacking step go to value first, then lowest sequence, then lower condition id (an entry with no condition id loses), then lower source id
 - **AND** that oracle does not call derived_rank, same_duplicate_key, source_ord, or the comparison chains
