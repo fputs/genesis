@@ -63,6 +63,17 @@ The `pr-hygiene` job SHALL run on Node 22. It SHALL run `node --test` on the fix
 - **AND** `node --test` runs before `scripts/pr-hygiene.mjs`
 - **AND** a failing test fails the job
 
+### Requirement: Cancel the previous run
+
+The `pr-hygiene` workflow SHALL set concurrency group `pr-hygiene-<pull request number>` and SHALL cancel an in-progress run in that group.
+
+#### Scenario: An in-progress run is cancelled
+
+- **GIVEN** `.github/workflows/pr-hygiene.yml`
+- **WHEN** its concurrency block is read
+- **THEN** the group is `pr-hygiene-` plus the pull request number
+- **AND** `cancel-in-progress` is true
+
 ### Requirement: NUL-split diff paths
 
 Changed paths SHALL be parsed from `git diff -z` output split on NUL, including additions, modifications, deletions, and both sides of a rename, as the spec-drift check parses them.

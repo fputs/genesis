@@ -60,13 +60,14 @@ Genesis DevOps agent implements this change. The changelog bullet is added in an
 
 ## 2. CI job
 
-- [ ] 2.1 Add `.github/workflows/pr-hygiene.yml` with job `pr-hygiene` on pull_request `opened`, `synchronize`, `reopened`, and `edited` targeting `main`. Permissions are `contents: read` and `pull-requests: read`. Check out with `fetch-depth: 0`, set up Node 22, run `node --test scripts/pr-hygiene.test.mjs`, then run `node scripts/pr-hygiene.mjs`. Do not install an npm package. Do not edit `.github/workflows/ci.yml`. Verify the new file shows those triggers, permissions, Node 22, both commands, and no `npm install`, and that `git diff` for `ci.yml` is empty.
+- [ ] 2.1 Add `.github/workflows/pr-hygiene.yml` with job `pr-hygiene` on pull_request `opened`, `synchronize`, `reopened`, and `edited` targeting `main`. Permissions are `contents: read` and `pull-requests: read`. Concurrency group is `pr-hygiene-<pull request number>` with `cancel-in-progress: true`. Check out with `fetch-depth: 0`, set up Node 22, run `node --test scripts/pr-hygiene.test.mjs`, then run `node scripts/pr-hygiene.mjs`. Do not install an npm package. Do not edit `.github/workflows/ci.yml`. Verify the new file shows those triggers, permissions, concurrency, Node 22, both commands, and no `npm install`, and that `git diff` for `ci.yml` is empty.
 - [ ] 2.2 Scenario "Job runs on the four pull request types": read `.github/workflows/pr-hygiene.yml` and verify the job runs on those four pull_request types targeting `main` and invokes `scripts/pr-hygiene.mjs`.
 - [ ] 2.3 Scenario "The job does not run on push": read the workflow and verify it has no push trigger.
 - [ ] 2.4 Scenario "Permissions are contents and pull requests read": read the workflow and verify permissions are `contents: read` and `pull-requests: read`.
 - [ ] 2.5 Scenario "The job installs no npm package": read the job and verify it installs no npm package, and verify `scripts/pr-hygiene.mjs` imports only Node built-ins.
 - [ ] 2.6 Scenario "The job runs the suite first": read the job and verify Node 22 and that `node --test` runs before `scripts/pr-hygiene.mjs`.
 - [ ] 2.7 Scenario "Cargo and spec-drift stay": read `.github/workflows/ci.yml` and verify the Cargo job and the `spec-drift` job are unchanged and `pr-hygiene` is not a job in that file.
+- [ ] 2.8 Scenario "An in-progress run is cancelled": read `.github/workflows/pr-hygiene.yml` and verify the concurrency group is `pr-hygiene-` plus the pull request number and `cancel-in-progress` is true.
 
 ## 3. Docs and changelog bullet
 
