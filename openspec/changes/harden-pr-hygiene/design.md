@@ -15,24 +15,26 @@
 
 - No general commit-message parser. Do not scan commit bodies, trailers, footers, or conventional-commit prefixes. The archive check compares the subject to `openspec archive <id> --yes`, or to those commands joined by ` && ` in ascending id order.
 - No case-folding of an `OpenSpec-Change` token onto a differently cased directory.
-- No new npm dependency, no new job, and no new archive-last failure line.
+- No new npm dependency, and no new archive-last failure line. The `edited` re-run is a separate spec-drift-only workflow.
 - No opt-out label, and no check that a bullet uses a given subsection or links the pull request. The changelog spec still requires both of authors.
-- No change to Cargo steps, and no push trigger for `pr-hygiene`.
-- Do not treat `scripts/` as a code path.
+- No change to Cargo steps, no change to `.github/workflows/ci.yml` triggers, and no push trigger for `pr-hygiene`.
+- Do not add `scripts/` to the spec-drift code-path list, and do not exempt it from the changelog bullet.
 
 ## Decisions
 
-### 1. spec-drift listens for `edited`; Cargo does not
+### 1. `edited` is a separate spec-drift workflow
 
-`.github/workflows/ci.yml` lists pull_request types `opened`, `synchronize`, `reopened`, and `edited`. The Cargo job gets `if: github.event_name != 'pull_request' || github.event.action != 'edited'`. `spec-drift` has no such `if`. An `edited` payload still carries the pull request body, which is the input the reference check already uses.
+A skipped required check counts as passing. An `if` that skips the Cargo `ci` job on `edited` would turn a red `ci` check green when someone edits the body. That is why the earlier rejection of a second workflow is reversed: one workflow with a job `if` does not keep the failed Cargo result.
 
-Alternative considered: a second workflow that only runs spec-drift on `edited`. That duplicates the job. One workflow with a job `if` keeps a single spec-drift definition.
+`.github/workflows/ci.yml` keeps its current triggers (push and pull_request to `main`, no `edited` type) and no skip `if`. `.github/workflows/spec-drift-edited.yml` runs only `scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`.
 
-### 2. A bad token is a failed reference
+Alternative considered: skip Cargo with `if` inside `ci.yml`. Rejected. GitHub treats a skipped check as success, so a body edit would replace a failed Cargo check.
 
-`OpenSpec-Change:` plus one token is always a reference on a code-path pull request. The id grammar stays `^[a-z0-9]+(?:-[a-z0-9]+)*$`. Anything else logs `spec-drift: invalid change id <token>` and does not also log `spec-drift: code change missing OpenSpec-Change`. Do not lowercase the token and look it up. Extra words stay "not a reference", as they are today.
+### 2. A bad token fails on any pull request
 
-Alternative considered: case-insensitive match against `add-foo` for `Add-Foo`. Rejected. The directory name is the id, and a case-folded hit would accept a line that is not that name.
+`OpenSpec-Change:` plus one token is a reference on every pull request, including docs-only and openspec-only. The id grammar stays `^[a-z0-9]+(?:-[a-z0-9]+)*$`. An empty `OpenSpec-Change:` line and a spaceless `OpenSpec-Change:Add` line are invalid and fail the same way. Anything else logs `spec-drift: invalid change id <token>` and does not also log `spec-drift: code change missing OpenSpec-Change`. Do not lowercase the token and look it up. Extra words stay "not a reference". A missing line, or a valid kebab-case id that names no change, still passes when the diff has no code path. Push still skips the reference check.
+
+Alternative considered: case-insensitive match against `add-foo` for `Add-Foo`, and ignoring a bad token on docs-only diffs. Rejected. Fail closed: the directory name is the id, and an invalid token is a mistake on every pull request.
 
 ### 3. Archive-last is the head commit's move
 
@@ -52,23 +54,27 @@ Bullet text is the trimmed list item with the marker removed. It is new only whe
 
 ### 5. Exempt paths are one set
 
-A path is exempt when it is under `docs/`, `openspec/`, or `.cursor/`, or is exactly `AGENTS.md`, `CHANGELOG.md`, `README.md`, `Cargo.lock`, or `rust-toolchain.toml`. The bullet check passes with no new bullet when every changed path is in that set. `Cargo.lock` plus `docs/` is exempt. `Cargo.lock` plus `crates/` is not.
+A path is exempt when it is under `docs/`, `openspec/`, or `.cursor/`, or is exactly `AGENTS.md`, `CHANGELOG.md`, `README.md`, `Cargo.lock`, or `rust-toolchain.toml`. The bullet check passes with no new bullet when every changed path is in that set. `Cargo.lock` plus `docs/` is exempt. `Cargo.lock` plus `crates/` is not. `scripts/` is not in this set.
 
-### 6. Git children get `LC_ALL=C`
+### 6. `scripts/` needs a bullet and is not a code path
+
+A pull request that only changes paths under `scripts/` is not a spec-drift code path, so a missing `OpenSpec-Change` line does not fail spec-drift. The same pull request changes how checks behave, so pr-hygiene fails it unless a new Unreleased bullet was added. Do not add `scripts/` to the code-path list.
+
+### 7. Git children get `LC_ALL=C`
 
 Pass `LC_ALL=C` on the environment of every `git` spawn in both scripts. Keep matching `does not exist` and `exists on disk, but not in`. The fixture uses a stand-in `git` that prints a non-English missing line unless that variable is `C`.
 
 ## Risks / Trade-offs
 
-- [GitHub fires `edited` for title and base edits too] → spec-drift re-runs; the Cargo job stays skipped, so the extra run is the Node script only.
+- [GitHub fires `edited` for title and base edits too] → the spec-drift-only workflow re-runs. `ci.yml` does not run, so a failed Cargo check is not skipped and stays failed.
+- [Swapping a stale Unreleased bullet for a new one leaves the count unchanged] → the bullet check fails. Fail-closed, accepted.
+- [GitHub "Update branch" after the archive commit puts a merge commit at head] → archive-last fails, because that merge is not the archive move. The remedy is to re-archive so the archive commit is last again.
 - [A cleanup that deletes an active directory whose archive is already on main must use the archive subject] → one subject rule for every removal. The pre-existing-archive scenario passes when the head commit is that deletion.
-- [Two changes cannot be archived by one subject] → the pull request fails closed. Split them.
 - [A wording change that also adds a bullet still passes, because the count went up and the new text is absent] → an edit alone does not.
-- [The scenario "A removal without a reference skips archive-last" keeps its old name] → a modified requirement cannot drop a scenario. Its outcome is now failure, same as "A removal without a reference fails".
 
 ## Migration Plan
 
-Genesis DevOps agent implements the two scripts, their fixtures, and the `ci.yml` trigger. No `AGENTS.md` edit. spec-drift is already the required check; listing `edited` makes that same check run on body edits. Rollback is a revert of the implementation commits before the archive commit.
+Genesis DevOps agent implements the two scripts, their fixtures, and `.github/workflows/spec-drift-edited.yml`. `.github/workflows/ci.yml` triggers stay unchanged. No `AGENTS.md` edit. Rollback is a revert of the implementation commits before the archive commit. If "Update branch" adds a merge after the archive commit, re-archive.
 
 ## Open Questions
 

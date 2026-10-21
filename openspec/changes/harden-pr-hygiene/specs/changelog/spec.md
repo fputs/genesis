@@ -56,6 +56,14 @@ An implementation pull request changes how the software or its checks behave. Be
 - **THEN** that fenced item does not count
 - **AND** the `pr-hygiene` job fails
 
+#### Scenario: A scripts-only pull request needs a bullet
+
+- **GIVEN** a pull request whose only diff is `scripts/note.mjs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
 ### Requirement: Spec, docs, and archive pull requests skip the bullet
 
 A pull request MUST NOT need a changelog bullet when every changed path is under `openspec/`, `docs/`, or `.cursor/`, or is exactly `AGENTS.md`, `CHANGELOG.md`, `README.md`, `Cargo.lock`, or `rust-toolchain.toml`. Those categories combine. Archive-only means only moving a change into `openspec/changes/archive/`. An implementation pull request that archives itself in its last commit still MUST add its bullet.

@@ -4,20 +4,65 @@
 
 ### Requirement: Cargo and spec-drift stay
 
-The `pr-hygiene` job SHALL be the only job in `.github/workflows/pr-hygiene.yml`. `.github/workflows/ci.yml` SHALL keep the Cargo job and the `spec-drift` job and their steps. The Cargo job SHALL NOT run on pull_request `edited`. The `spec-drift` job SHALL. `pr-hygiene` SHALL NOT be a job in that file.
+The `pr-hygiene` job SHALL be the only job in `.github/workflows/pr-hygiene.yml`. `.github/workflows/ci.yml` SHALL keep the Cargo job and the `spec-drift` job, their steps, and their current triggers, with no `edited` type and no skip `if`. A separate workflow SHALL run only spec-drift on pull_request `edited`. `pr-hygiene` SHALL NOT be a job in `ci.yml`.
 
 #### Scenario: Cargo and spec-drift stay
 
 - **GIVEN** `.github/workflows/ci.yml` after this change is applied
 - **WHEN** the Cargo job and the `spec-drift` job are read
-- **THEN** their steps stay as they are
-- **AND** the Cargo job does not run on pull_request `edited`
-- **AND** the `spec-drift` job does run on pull_request `edited`
+- **THEN** their steps and triggers are unchanged
+- **AND** neither job gains an `edited` type or a skip `if`
+- **AND** a separate workflow runs only spec-drift on pull_request `edited`
 - **AND** `pr-hygiene` is not a job in that file
+
+### Requirement: Implementation pull request
+
+An implementation pull request SHALL be a diff that includes a spec-drift code path: exactly `Cargo.toml`, `Cargo.lock`, or `rust-toolchain.toml`, or a path starting with `crates/` or `.github/workflows/`. A path under `scripts/` SHALL NOT be a spec-drift code path and SHALL NOT by itself be an implementation pull request. A scripts-only diff SHALL still fail the bullet check when no new Unreleased bullet was added.
+
+#### Scenario: A crate file is an implementation pull request
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** `CHANGELOG.md` gains no Unreleased bullet
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A workflow file is an implementation pull request
+
+- **GIVEN** a pull_request whose diff changes `.github/workflows/ci.yml`
+- **AND** `CHANGELOG.md` gains no Unreleased bullet
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: Root Cargo.toml is an implementation pull request
+
+- **GIVEN** a pull_request whose diff changes `Cargo.toml`
+- **AND** `CHANGELOG.md` gains no Unreleased bullet
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A scripts-only pull request is not an implementation pull request
+
+- **GIVEN** a pull_request whose only diff is `scripts/note.mjs`
+- **AND** `CHANGELOG.md` gains no Unreleased bullet
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the diff is not an implementation pull request
+- **AND** it is not a spec-drift code path
+- **AND** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A nested Cargo.toml is not a root manifest
+
+- **GIVEN** a pull_request whose only diff is `docs/Cargo.toml`
+- **AND** `CHANGELOG.md` gains no Unreleased bullet
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
 
 ### Requirement: Unreleased changelog bullet
 
-An implementation pull request that is not exempt SHALL add at least one new bullet under `## [Unreleased]` in `CHANGELOG.md`, using the Changelog bullet shape rule. Otherwise the job SHALL fail and the log SHALL include `implementation PR missing CHANGELOG bullet`. A missing `CHANGELOG.md`, or a missing `## [Unreleased]` heading, on the head SHALL fail an implementation pull request the same way.
+An implementation pull request that is not exempt, and a pull request whose diff includes any path under `scripts/`, SHALL add at least one new bullet under `## [Unreleased]` in `CHANGELOG.md`, using the Changelog bullet shape rule. Otherwise the job SHALL fail and the log SHALL include `implementation PR missing CHANGELOG bullet`. A missing `CHANGELOG.md`, or a missing `## [Unreleased]` heading, on the head SHALL fail that pull request the same way.
 
 #### Scenario: An added Unreleased bullet passes
 
@@ -70,6 +115,14 @@ An implementation pull request that is not exempt SHALL add at least one new bul
 
 - **GIVEN** a pull_request `edited` event
 - **AND** the diff changes `crates/rules/src/lib.rs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A scripts-only pull request needs a changelog bullet
+
+- **GIVEN** a pull_request whose only diff is `scripts/note.mjs`
 - **AND** no Unreleased bullet is added
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
@@ -223,7 +276,92 @@ The bullet check SHALL pass with no new bullet when every changed path is exempt
 - **THEN** the job fails
 - **AND** the log includes `implementation PR missing CHANGELOG bullet`
 
-### Requirement: Change reference line
+### Requirement: Each archived change
+
+Each removed id SHALL be checked once. The trimmed subject SHALL be every exact command `openspec archive <id> --yes` joined by ` && ` in ascending id order. A command only on a later line SHALL NOT count. Otherwise the log SHALL include `archive commit is not last`.
+
+#### Scenario: Two archived ids pass
+
+- **GIVEN** the diff removes `openspec/changes/add-foo/` and `openspec/changes/add-bar/`
+- **AND** the head commit deletes both directories and adds `openspec/changes/archive/2026-10-21-add-foo/` and `openspec/changes/archive/2026-10-21-add-bar/`
+- **AND** the subject is `openspec archive add-bar --yes && openspec archive add-foo --yes`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: Two archived ids fail
+
+- **GIVEN** the diff removes `openspec/changes/add-foo/` and `openspec/changes/add-bar/`
+- **AND** the head commit adds `openspec/changes/archive/2026-10-21-add-foo/` and `openspec/changes/archive/2026-10-21-add-bar/`
+- **AND** the subject is `openspec archive add-foo --yes`
+- **AND** a later line is `openspec archive add-bar --yes`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `archive commit is not last`
+
+#### Scenario: One of two archive phrases is missing
+
+- **GIVEN** the diff removes `openspec/changes/add-foo/` and `openspec/changes/add-bar/`
+- **AND** the subject is `openspec archive add-foo --yes`
+- **AND** the message has no `openspec archive add-bar --yes`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `archive commit is not last`
+
+#### Scenario: A duplicate reference counts once
+
+- **GIVEN** the body contains `OpenSpec-Change: add-foo` twice
+- **AND** the head commit deletes `openspec/changes/add-foo/` and adds `openspec/changes/archive/2026-10-21-add-foo/`
+- **AND** the subject is `openspec archive add-foo --yes`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+## ADDED Requirements
+
+### Requirement: Fenced changelog blocks
+
+Fenced lines SHALL be ignored when finding `## [Unreleased]` and when collecting bullets in either changelog. A trimmed line of three or more backticks SHALL toggle the fence. A fenced heading SHALL NOT open or close the section. A fenced list item SHALL NOT be a bullet.
+
+#### Scenario: A fenced bullet is not new
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** the only list item added under `## [Unreleased]` sits inside a fenced code block
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A fenced heading does not open the section
+
+- **GIVEN** an implementation pull request
+- **AND** the only `## [Unreleased]` line sits inside a fenced code block
+- **AND** no unfenced `## [Unreleased]` heading exists
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A fenced heading does not close the section
+
+- **GIVEN** an implementation pull request
+- **AND** a fenced `## [0.1.0]` sits inside the unfenced `## [Unreleased]` section
+- **AND** after that fence the section has a new bullet whose text is absent from the base changelog
+- **AND** the head section has more unfenced bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+### Requirement: Git locale is C
+
+Every `git` subprocess started by `scripts/pr-hygiene.mjs` SHALL have `LC_ALL=C`. Missing-path checks SHALL match the C-locale phrases `does not exist` and `exists on disk, but not in` even when the parent locale is not C.
+
+#### Scenario: A missing path uses C-locale git text
+
+- **GIVEN** the parent process has `LC_ALL=fr_FR.UTF-8`
+- **AND** a stand-in `git` prints a non-English missing-path line unless `LC_ALL=C`
+- **AND** the head of an implementation pull request has no `CHANGELOG.md`
+- **WHEN** `scripts/pr-hygiene.mjs` asks git for that file
+- **THEN** the git child is started with `LC_ALL=C`
+- **AND** the missing file is treated as missing
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+### Requirement: Archive-last ignores the body
 
 Archive-last SHALL NOT read the pull request body. Extra words, a fenced `OpenSpec-Change` line, or a dropped line SHALL NOT exempt a removed change and SHALL NOT be required for the check.
 
@@ -237,7 +375,7 @@ Archive-last SHALL NOT read the pull request body. Extra words, a fenced `OpenSp
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 
-#### Scenario: A fenced line still counts
+#### Scenario: A fenced line does not exempt a removal
 
 - **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
 - **AND** the body contains a fenced `OpenSpec-Change: add-foo` line
@@ -247,7 +385,8 @@ Archive-last SHALL NOT read the pull request body. Extra words, a fenced `OpenSp
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 
-### Requirement: Archive commit is last
+
+### Requirement: Head commit performs the archive
 
 When the merge-base has `openspec/changes/<id>/` and the head does not, the head commit SHALL delete that directory and SHALL add `openspec/changes/archive/<YYYY>-<MM>-<DD>-<id>/` unless that directory is already on the merge-base. The dated remainder SHALL equal `<id>`. The trimmed subject SHALL be the exact command `openspec archive <id> --yes` for each removed id, joined by ` && `. Any other path SHALL be under `openspec/changes/archive/`, `openspec/specs/`, or the removed directory.
 
@@ -333,7 +472,7 @@ When the merge-base has `openspec/changes/<id>/` and the head does not, the head
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 
-#### Scenario: Edited re-reads the body
+#### Scenario: A body edit does not excuse a bad archive
 
 - **GIVEN** a pull_request `edited` event
 - **AND** the diff removes `openspec/changes/add-foo/`
@@ -364,46 +503,8 @@ When the merge-base has `openspec/changes/<id>/` and the head does not, the head
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job passes
 
-### Requirement: Each archived change
 
-Each removed id SHALL be checked once. The trimmed subject SHALL be every exact command `openspec archive <id> --yes` joined by ` && ` in ascending id order. A command only on a later line SHALL NOT count. Otherwise the log SHALL include `archive commit is not last`.
-
-#### Scenario: Two archived ids pass
-
-- **GIVEN** the diff removes `openspec/changes/add-foo/` and `openspec/changes/add-bar/`
-- **AND** the head commit deletes both directories and adds `openspec/changes/archive/2026-10-21-add-foo/` and `openspec/changes/archive/2026-10-21-add-bar/`
-- **AND** the subject is `openspec archive add-bar --yes && openspec archive add-foo --yes`
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-
-#### Scenario: Two archived ids fail
-
-- **GIVEN** the diff removes `openspec/changes/add-foo/` and `openspec/changes/add-bar/`
-- **AND** the head commit adds `openspec/changes/archive/2026-10-21-add-foo/` and `openspec/changes/archive/2026-10-21-add-bar/`
-- **AND** the subject is `openspec archive add-foo --yes`
-- **AND** a later line is `openspec archive add-bar --yes`
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `archive commit is not last`
-
-#### Scenario: One of two archive phrases is missing
-
-- **GIVEN** the diff removes `openspec/changes/add-foo/` and `openspec/changes/add-bar/`
-- **AND** the subject is `openspec archive add-foo --yes`
-- **AND** the message has no `openspec archive add-bar --yes`
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `archive commit is not last`
-
-#### Scenario: A duplicate reference counts once
-
-- **GIVEN** the body contains `OpenSpec-Change: add-foo` twice
-- **AND** the head commit deletes `openspec/changes/add-foo/` and adds `openspec/changes/archive/2026-10-21-add-foo/`
-- **AND** the subject is `openspec archive add-foo --yes`
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-
-### Requirement: Archive does not apply without a removal
+### Requirement: Removal without an archive directory fails
 
 Archive-last SHALL NOT fail while `openspec/changes/<id>/` remains on the head. `<id>` SHALL be a direct child other than `archive`. The check SHALL fail when that directory is removed and the head has no `openspec/changes/archive/<YYYY>-<MM>-<DD>-<id>/`. A missing `OpenSpec-Change` line SHALL NOT exempt the removal. The log SHALL include `archive commit is not last`.
 
@@ -416,7 +517,7 @@ Archive-last SHALL NOT fail while `openspec/changes/<id>/` remains on the head. 
 - **THEN** the job passes
 - **AND** the log does not include `archive commit is not last`
 
-#### Scenario: A removal without a reference skips archive-last
+#### Scenario: A removal without a reference fails
 
 - **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
 - **AND** the body has no `OpenSpec-Change: add-foo` line
@@ -426,57 +527,19 @@ Archive-last SHALL NOT fail while `openspec/changes/<id>/` remains on the head. 
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 
-#### Scenario: A removal without a reference fails
+## REMOVED Requirements
 
-- **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
-- **AND** the body has no `OpenSpec-Change` line
-- **AND** the head has no dated archive directory for `add-foo`
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `archive commit is not last`
+### Requirement: Change reference line
 
-## ADDED Requirements
+**Reason**: "A fenced line still counts" is the old wording.
+**Migration**: Replaced by "Archive-last ignores the body".
 
-### Requirement: Fenced changelog blocks
+### Requirement: Archive commit is last
 
-Fenced lines SHALL be ignored when finding `## [Unreleased]` and when collecting bullets in either changelog. A trimmed line of three or more backticks SHALL toggle the fence. A fenced heading SHALL NOT open or close the section. A fenced list item SHALL NOT be a bullet.
+**Reason**: "Edited re-reads the body" contradicts a check that does not read the body.
+**Migration**: Replaced by "Head commit performs the archive".
 
-#### Scenario: A fenced bullet is not new
+### Requirement: Archive does not apply without a removal
 
-- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
-- **AND** the only list item added under `## [Unreleased]` sits inside a fenced code block
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `implementation PR missing CHANGELOG bullet`
-
-#### Scenario: A fenced heading does not open the section
-
-- **GIVEN** an implementation pull request
-- **AND** the only `## [Unreleased]` line sits inside a fenced code block
-- **AND** no unfenced `## [Unreleased]` heading exists
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `implementation PR missing CHANGELOG bullet`
-
-#### Scenario: A fenced heading does not close the section
-
-- **GIVEN** an implementation pull request
-- **AND** a fenced `## [0.1.0]` sits inside the unfenced `## [Unreleased]` section
-- **AND** after that fence the section has a new bullet whose text is absent from the base changelog
-- **AND** the head section has more unfenced bullets than the base section
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-
-### Requirement: Git locale is C
-
-Every `git` subprocess started by `scripts/pr-hygiene.mjs` SHALL have `LC_ALL=C`. Missing-path checks SHALL match the C-locale phrases `does not exist` and `exists on disk, but not in` even when the parent locale is not C.
-
-#### Scenario: A missing path uses C-locale git text
-
-- **GIVEN** the parent process has `LC_ALL=fr_FR.UTF-8`
-- **AND** a stand-in `git` prints a non-English missing-path line unless `LC_ALL=C`
-- **AND** the head of an implementation pull request has no `CHANGELOG.md`
-- **WHEN** `scripts/pr-hygiene.mjs` asks git for that file
-- **THEN** the git child is started with `LC_ALL=C`
-- **AND** the missing file is treated as missing
-- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+**Reason**: "A removal without a reference skips archive-last" now fails.
+**Migration**: Replaced by "Removal without an archive directory fails".
