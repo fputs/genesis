@@ -21,7 +21,7 @@ pub use combatant::{
     TemplateError, Vital, aid_check, aid_circumstance_bonus, apply_dice_damage, base_contribution,
     contributions, derive, fold_contributions, new_combatant_state, stealth_dc_from_modifier,
 };
-pub use dice::{Dice, FaceCountError, Faces, SeededDice};
+pub use dice::{Dice, Faces, FacesError, SeededDice};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use dice::ScriptedDice;

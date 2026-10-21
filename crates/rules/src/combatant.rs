@@ -1473,4 +1473,21 @@ mod tests {
         assert_eq!(state.vital, Vital::Alive);
         assert_eq!(dice.remaining(), 0);
     }
+
+    /// Player Core, "Getting Knocked Out".
+    ///
+    /// `1 + i32::MIN` is negative. Clamping that total to 0 leaves Hit Points unchanged.
+    #[test]
+    fn healing_past_i32_max_leaves_hit_points_unchanged() {
+        let total = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
+        assert_eq!(total.max(0), 0);
+
+        let creature = derive(&build(fighter_with_hp(1, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
+        apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MIN);
+        assert_eq!(dice.remaining(), 0);
+        assert_eq!(state.hit_points, 1);
+        assert_eq!(state.vital, Vital::Alive);
+    }
 }
