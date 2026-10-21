@@ -4,7 +4,7 @@ Change: `add-grid-movement` (MVP change 4 in `docs/designer/pf2e-mvp-scope.md`).
 Baseline: PF2e **Remaster**, *Player Core* (PC). Every row below was re-fetched live from Archives of Nethys with curl on **2026-10-20 (~21:10 PT)**. The page number is the "Source" line AoN shows. Raw extracts are in `./aon/`.
 Rules are paraphrased, not copied: the rule text is ORC, and AoN prose is not to be pasted into specs or fixtures.
 
-> **Shape note:** `add-modifiers-checklist.md`, `pf2e-citations.md` and `rules-deviations.md` were **not on the box** under `/workspace/genesis-design/`. `rules-deviations.md` is also not in `fputs/genesis`. Prior decisions were taken from `fputs/genesis:docs/designer/pf2e-citations.md` (Change 4 table) and `docs/designer/pf2e-mvp-scope.md`. This file uses the house shape: a citation table, then rulings, scope, scenarios, and dependencies. Re-shape it if the modifiers checklist turns up and differs.
+> **Shape:** this follows `add-modifiers-checklist.md`: a rule table with AoN citations, rulings, scope, an edge-case table (case / expected / cite), and dependencies.
 
 ## 1. Verified rules
 
@@ -77,28 +77,30 @@ Rules are paraphrased, not copied: the rule text is ORC, and AoN prose is not to
 
 ## 4. Edge-case hunt — proposed scenarios
 
-- **E1 Exact Speed.** Given Medium Speed 25 on open ground, When it Strides 5 orthogonal squares, Then it succeeds with 0 ft left. And When it attempts a 6th square, Then the action is rejected. (R5, D5)
-- **E2 Diagonal parity across actions.** Given Speed 25, When it Strides 1 diagonal (5) and then Strides again with 1 diagonal, Then the second diagonal costs 10. (R2 pg 421, D1)
-- **E3 Odd diagonal at turn end.** Given the creature ended its turn after 1 diagonal, When its next turn begins and it moves 1 diagonal, Then it costs 5. (R2 reset)
-- **E4 Orthogonal doesn't flip parity.** Given diagonal(5), orthogonal(5), diagonal, Then the last diagonal costs 10 (total 20). (R2)
-- **E5 Difficult on a diagonal.** Given the 2nd diagonal square of the turn is difficult, Then it costs 10+5 = 15 (not 20). (R7, D3)
-- **E6 Greater difficult on a diagonal.** Given the 1st diagonal enters greater difficult terrain, Then it costs 5+10 = 15. Given the 2nd, it costs 20. (R7)
-- **E7 Leaving difficult terrain.** Given the start square is difficult and the destination is normal, When it moves 1 orthogonal, Then it costs 5. (D4)
-- **E8 Terrain cost exceeds the remainder.** Given 5 ft left and a difficult destination (cost 10), Then the move is rejected. (D5)
-- **E9 Step into difficult terrain.** Given an adjacent difficult square, When the creature Steps there, Then it's rejected. (R6, R7)
-- **E10 Step with Speed 5.** Given Speed 5, When it Steps, Then it's rejected. (R6)
-- **E11 Step advances parity.** Given the creature Stepped diagonally, When it Strides 1 diagonal, Then it costs 10. (D6, ledgered)
-- **E12 Through an ally.** Given a same-faction creature in the path, When the creature Strides through to an empty square, Then it succeeds. (R10, D7)
-- **E13 Through an enemy.** Given an other-faction creature in the path, When the creature Strides through it, Then it's rejected (Tumble Through deferred). (R10, R14)
-- **E14 Ending in an ally's square.** Given an ally in the destination, When the creature ends its Stride there, Then it's rejected (D8, ledgered; RAW PC 422 allows it if immediately followed by another move).
-- **E15 Off-grid.** Given a path that leaves the map, Then the whole Stride is rejected and the position is unchanged. (D15)
-- **E16 Distance 0 / adjacency.** Given creatures at Chebyshev distance 1 diagonal, Then distance is 5 and adjacent is true. A self-distance query returns 0. (D10, D11)
-- **E17 Negative / zero inputs.** Given a fixture with Speed −5 or range increment 0, Then load fails validation. (D14)
-- **E18 Range boundary.** Given increment 60 and a target at exactly 60 ft, Then the penalty is 0. At 65 ft the penalty is −2. At 360 ft it's −10. At 365 ft the attack is illegal. (R17, D13)
-- **E19 Range + MAP stack.** Given a 2nd attack at 130 ft (increment 60 → 3rd increment), Then the total penalty = −5 MAP + −4 range = −9, untyped and summed. (R17, R18)
-- **E20 Reach-10 diagonal exception.** Given reach 10 and a target 2 squares diagonally away (computes as 15 ft by D1), Then it is in reach (special case). Given a (2,1) offset (1 diagonal + 1 orthogonal = 10 ft), Then it is in reach normally. Given a (3,1) offset (1 diagonal + 2 orthogonal = 15 ft), Then it is not in reach. Given reach 20 and a target 3 diagonals away (5+10+5 = 20 ft), Then it is in reach, matching RAW's example. (R16, D12)
-- **E21 Immobilized.** Given an immobilized fixture, When it Strides or Steps, Then both are rejected. (R21)
-- **E22 Speed 0.** Given Speed 0, When it Strides, Then the action is legal with 0 squares moved (recommend rejecting a non-empty path). Step is rejected. (D16)
+| # | Case | Expected (Given/When/Then) | Cite |
+|---|---|---|---|
+| E1 | Exact Speed | Given Medium Speed 25 on open ground, When it Strides 5 orthogonal squares, Then it succeeds with 0 ft left. And When it attempts a 6th square, Then the action is rejected. | R5, D5 |
+| E2 | Diagonal parity across actions | Given Speed 25, When it Strides 1 diagonal (5) and then Strides again with 1 diagonal, Then the second diagonal costs 10. | R2 pg 421, D1 |
+| E3 | Odd diagonal at turn end | Given the creature ended its turn after 1 diagonal, When its next turn begins and it moves 1 diagonal, Then it costs 5. | R2 reset |
+| E4 | Orthogonal doesn't flip parity | Given diagonal(5), orthogonal(5), diagonal, Then the last diagonal costs 10 (total 20). | R2 |
+| E5 | Difficult on a diagonal | Given the 2nd diagonal square of the turn is difficult, Then it costs 10+5 = 15 (not 20). | R7, D3 |
+| E6 | Greater difficult on a diagonal | Given the 1st diagonal enters greater difficult terrain, Then it costs 5+10 = 15. Given the 2nd, it costs 20. | R7 |
+| E7 | Leaving difficult terrain | Given the start square is difficult and the destination is normal, When it moves 1 orthogonal, Then it costs 5. | D4 |
+| E8 | Terrain cost exceeds the remainder | Given 5 ft left and a difficult destination (cost 10), Then the move is rejected. | D5 |
+| E9 | Step into difficult terrain | Given an adjacent difficult square, When the creature Steps there, Then it's rejected. | R6, R7 |
+| E10 | Step with Speed 5 | Given Speed 5, When it Steps, Then it's rejected. | R6 |
+| E11 | Step advances parity | Given the creature Stepped diagonally, When it Strides 1 diagonal, Then it costs 10. | D6, ledgered |
+| E12 | Through an ally | Given a same-faction creature in the path, When the creature Strides through to an empty square, Then it succeeds. | R10, D7 |
+| E13 | Through an enemy | Given an other-faction creature in the path, When the creature Strides through it, Then it's rejected (Tumble Through deferred). | R10, R14 |
+| E14 | Ending in an ally's square | Given an ally in the destination, When the creature ends its Stride there, Then it's rejected (D8, ledgered; RAW PC 422 allows it if immediately followed by another move). |  |
+| E15 | Off-grid | Given a path that leaves the map, Then the whole Stride is rejected and the position is unchanged. | D15 |
+| E16 | Distance 0 / adjacency | Given creatures at Chebyshev distance 1 diagonal, Then distance is 5 and adjacent is true. A self-distance query returns 0. | D10, D11 |
+| E17 | Negative / zero inputs | Given a fixture with Speed −5 or range increment 0, Then load fails validation. | D14 |
+| E18 | Range boundary | Given increment 60 and a target at exactly 60 ft, Then the penalty is 0. At 65 ft the penalty is −2. At 360 ft it's −10. At 365 ft the attack is illegal. | R17, D13 |
+| E19 | Range + MAP stack | Given a 2nd attack at 130 ft (increment 60 → 3rd increment), Then the total penalty = −5 MAP + −4 range = −9, untyped and summed. | R17, R18 |
+| E20 | Reach-10 diagonal exception | Given reach 10 and a target 2 squares diagonally away (computes as 15 ft by D1), Then it is in reach (special case). Given a (2,1) offset (1 diagonal + 1 orthogonal = 10 ft), Then it is in reach normally. Given a (3,1) offset (1 diagonal + 2 orthogonal = 15 ft), Then it is not in reach. Given reach 20 and a target 3 diagonals away (5+10+5 = 20 ft), Then it is in reach, matching RAW's example. | R16, D12 |
+| E21 | Immobilized | Given an immobilized fixture, When it Strides or Steps, Then both are rejected. | R21 |
+| E22 | Speed 0 | Given Speed 0, When it Strides, Then the action is legal with 0 squares moved (recommend rejecting a non-empty path). Step is rejected. | D16 |
 
 **Out of scope (explicit):**
 - Large creature squeezing: there's no encounter-mode Remaster rule. Squeeze is exploration-only (PC 233, Actions ID=2372).
