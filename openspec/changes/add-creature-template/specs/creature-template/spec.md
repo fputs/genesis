@@ -45,7 +45,7 @@ derive SHALL be a pure function of the CharacterBuild. It SHALL NOT roll Dice, p
 
 ### Requirement: Derivation folds ordered contributions
 
-derive SHALL fold an ordered list of contributions taken from the CharacterBuild. Phase 1 SHALL supply only the base contribution, which carries the authored statistics. A later contribution's numbers SHALL be applied after the base, in list order. Callers SHALL still call derive with only the build.
+The CharacterBuild SHALL provide an ordered list of contributions. Phase 1 SHALL supply only the base contribution, which carries the authored statistics. A later contribution's numbers SHALL be applied after the base, in list order. Callers SHALL still call derive with only the build.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points are authored on the creature, then later sources add to them)
 
@@ -60,6 +60,28 @@ derive SHALL fold an ordered list of contributions taken from the CharacterBuild
 - **GIVEN** an ordered list whose base contribution has Armor Class 18 and whose next contribution adds +1 Armor Class
 - **WHEN** those contributions are folded
 - **THEN** Armor Class is 19, the base was applied first, and derive's caller still passes only a CharacterBuild
+
+### Requirement: Folding contributions can fail
+
+Folding a list of contributions SHALL start from zero and SHALL return a Creature or a FoldError. FoldError SHALL cover at least overflow and an out-of-range or zero damage die. An empty list SHALL return a FoldError. derive SHALL stay a function from a CharacterBuild to a Creature. In Phase 1, derive SHALL build directly from the validated base and SHALL NOT call the fallible fold. For any valid build, derive SHALL equal folding a list that holds only that build's base.
+
+#### Scenario: An overflowing fold returns an error
+
+- **GIVEN** two contributions, each with one 8-faced damage die, whose Hit Points are 2147483647, the largest whole number these rules store, and 1
+- **WHEN** they are folded in that order
+- **THEN** the result is an overflow error and not a Creature
+
+#### Scenario: An empty slice returns an error
+
+- **GIVEN** a contribution list with no entries
+- **WHEN** that list is folded
+- **THEN** the result is an error and not a Creature
+
+#### Scenario: derive agrees with folding the base
+
+- **GIVEN** a valid CharacterBuild with 20 Hit Points, Armor Class 18, and one 8-faced damage die
+- **WHEN** derive is called, and a list holding only that build's base is folded
+- **THEN** both results are the same Creature
 
 ### Requirement: Derived statistics and one melee strike
 
