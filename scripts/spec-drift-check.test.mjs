@@ -410,6 +410,31 @@ const cases = [
       excludes: [MISSING],
     },
   ),
+  failing("A tab after the colon is invalid", ["spec-drift: invalid change id add-foo"], {
+    event: "pull_request",
+    body: "OpenSpec-Change:\tadd-foo",
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "docs/architect/decisions.md": "new\n" },
+    excludes: [MISSING],
+  }),
+  failing("Completed changes are listed in byte order", [completed("Zed"), completed("alpha")], {
+    base: {
+      "openspec/changes/Zed/tasks.md": DONE,
+      "openspec/changes/alpha/tasks.md": DONE,
+    },
+    assertOutput(output) {
+      const byte = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+      assert.notEqual(byte("Zed", "alpha"), "Zed".localeCompare("alpha", "en"));
+      assert.notEqual(byte("Zed", "alpha"), "Zed".localeCompare("alpha", "sv"));
+      assert.notEqual(byte("Zed", "alpha"), "Zed".localeCompare("alpha", "fr"));
+      const zed = output.indexOf(completed("Zed"));
+      const alpha = output.indexOf(completed("alpha"));
+      assert.ok(zed >= 0 && alpha > zed, output);
+    },
+  }),
   passing("A scripts-only pull request is not a code path", {
     event: "pull_request",
     body: "",
@@ -625,9 +650,14 @@ test("Job triggers match the Cargo workflow", () => {
   assert.match(editedWorkflow, /pull_request:/);
   assert.match(editedWorkflow, /types:\s*\[edited]/);
   assert.match(editedWorkflow, /branches:\s*\[main]/);
-  assert.match(editedWorkflow, /node scripts\/spec-drift-check\.mjs/);
-  assert.doesNotMatch(editedWorkflow, /node --test/);
   assert.doesNotMatch(editedWorkflow, /cargo /);
+  const ciSteps = stepsBlock(job);
+  const editedSteps = stepsBlock(jobBlock(editedWorkflow, "spec-drift"));
+  assert.equal(editedSteps, ciSteps);
+  const suite = editedSteps.indexOf("node --test scripts/spec-drift-check.test.mjs");
+  const script = editedSteps.indexOf("node scripts/spec-drift-check.mjs");
+  assert.ok(suite >= 0);
+  assert.ok(script > suite);
   const editedJobs = editedWorkflow
     .slice(editedWorkflow.indexOf("jobs:"))
     .match(/^ {2}[a-z0-9-]+:$/gm);
@@ -661,8 +691,11 @@ test("The edited workflow reuses the spec-drift job name", () => {
     .match(/^ {2}[a-z0-9-]+:$/gm);
   assert.deepEqual(jobs, ["  spec-drift:"]);
   const job = jobBlock(editedWorkflow, "spec-drift");
-  assert.match(job, /node scripts\/spec-drift-check\.mjs/);
-  assert.doesNotMatch(job, /node --test/);
+  const suite = job.indexOf("node --test scripts/spec-drift-check.test.mjs");
+  const script = job.indexOf("node scripts/spec-drift-check.mjs");
+  assert.ok(suite >= 0);
+  assert.ok(script > suite);
+  assert.equal(stepsBlock(job), stepsBlock(jobBlock(workflow, "spec-drift")));
   assert.doesNotMatch(editedWorkflow, /pr-hygiene/);
 });
 
@@ -720,6 +753,13 @@ test("Each case is a fixture repository", async () => {
     await runCase(row);
   }
 });
+
+function stepsBlock(job) {
+  const marker = "\n    steps:\n";
+  const start = job.indexOf(marker);
+  assert.ok(start >= 0, "missing steps");
+  return job.slice(start);
+}
 
 function jobBlock(yaml, id) {
   const lines = yaml.split("\n");
@@ -825,6 +865,9 @@ async function runCase(row) {
     }
     if (row.recordGitLocale) {
       assert.equal(readFileSync(localeLog, "utf8").trim(), "C");
+    }
+    if (row.assertOutput) {
+      row.assertOutput(output);
     }
     if (row.assertRepo) {
       row.assertRepo(dir);

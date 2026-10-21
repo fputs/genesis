@@ -128,7 +128,8 @@ function activeChangeIds(root) {
       ids.push(name);
     }
   }
-  ids.sort((left, right) => left.localeCompare(right));
+  // localeCompare follows the process locale, so the failure list would change between runners.
+  ids.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   return ids;
 }
 
@@ -263,8 +264,8 @@ function changeReferences(body) {
     if (parsed === null) {
       continue;
     }
-    // Exactly one space is required. A kebab-case token jammed against the
-    // colon, or padded with extra spaces, is still an invalid id.
+    // Exactly one ASCII space (U+0020) is required. A tab, a kebab-case token
+    // jammed against the colon, or extra spaces are still an invalid id.
     if (!parsed.spaced || !CHANGE_ID.test(parsed.token)) {
       if (!invalidSeen.has(parsed.token)) {
         invalidSeen.add(parsed.token);
@@ -280,10 +281,11 @@ function changeReferences(body) {
   return { ids, invalidTokens };
 }
 
-// A reference is the prefix, exactly one space, and one token. Extra words are
-// not a reference. Any other remainder is an invalid token, not a missing line.
+// A reference is the prefix, exactly one ASCII space (U+0020), and one token.
+// A tab is not that space. Extra words are not a reference. Any other remainder
+// is an invalid token, not a missing line.
 function singleToken(rest) {
-  if (rest.startsWith(" ") && !rest.startsWith("  ")) {
+  if (rest.charCodeAt(0) === 0x20 && rest.charCodeAt(1) !== 0x20) {
     const token = rest.slice(1);
     if (token.length > 0 && !/\s/.test(token)) {
       return { token, spaced: true };

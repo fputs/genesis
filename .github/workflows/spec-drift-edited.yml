@@ -23,4 +23,5 @@ jobs:
         with:
           node-version: 22
       - run: npm install -g @fission-ai/openspec@1.14.3
+      - run: node --test scripts/spec-drift-check.test.mjs
       - run: node scripts/spec-drift-check.mjs
