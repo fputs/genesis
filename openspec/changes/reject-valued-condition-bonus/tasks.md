@@ -15,8 +15,8 @@ The implementation is done when the three rejection tests pass, `a_condition_bon
 
 ## 3. Changelog and proof
 
-- [ ] 3.1 Add one bullet under `## [Unreleased]` of root `CHANGELOG.md`. The bullet says a frightened or sickened bonus is rejected at construction, and it links to the implementation pull request. Verify the new bullet is under `## [Unreleased]` and contains that link
-- [ ] 3.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
+- [x] 3.1 Add one bullet under `## [Unreleased]` of root `CHANGELOG.md`. The bullet says a frightened or sickened bonus is rejected at construction, and it links to the implementation pull request. Verify the new bullet is under `## [Unreleased]` and contains that link
+- [x] 3.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
