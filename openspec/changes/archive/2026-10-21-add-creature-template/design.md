@@ -109,7 +109,15 @@ pub struct Contribution {
 
 pub fn base_contribution(build: &CharacterBuild) -> Contribution;
 pub fn contributions(build: &CharacterBuild) -> Vec<Contribution>;
-pub fn fold_contributions(ordered: &[Contribution]) -> Creature;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoldError {
+    Overflow,
+    DamageDie,
+    Empty,
+}
+
+pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError>;
 pub fn derive(build: &CharacterBuild) -> Creature;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -168,9 +176,9 @@ pub fn aid_check(dice: &mut impl Dice, creature: &Creature) -> Option<(CheckRoll
 
 `try_new` returns `NonPositiveHitPoints` when `hit_points <= 0` and `NegativeSpeed` when `speed_feet < 0`. Speed 0 is stored. `uses_dying_rules: None` becomes false. There is no `CombatantId` on the build and no prepared-to-help field. `CharacterBuild` has private fields and no mutating methods. `derive` takes `&CharacterBuild`.
 
-`contributions` returns `vec![base_contribution(build)]` in Phase 1. `base_contribution` copies the authored numbers as the first layer: Hit Points, Armor Class, Perception, Speed, strike numbers, `Some(agile)`, and the optional shield, stealth DC, Aid modifier, and `uses_dying_rules`. `derive` is `fold_contributions(&contributions(build))`.
+`contributions` returns `vec![base_contribution(build)]` in Phase 1. `base_contribution` copies the authored numbers as the first layer: Hit Points, Armor Class, Perception, Speed, strike numbers, `Some(agile)`, and the optional shield, stealth DC, Aid modifier, and `uses_dying_rules`. In Phase 1, `derive` builds the Creature from that validated base and does not call `fold_contributions`. For any valid build, that Creature equals folding a list that holds only the base.
 
-`fold_contributions` starts from zeros and `None`, then walks the slice in order. It adds every numeric field. `Some` on agile, shield, stealth DC, Aid modifier, or `uses_dying_rules` replaces the current value. A later source is a `Contribution` appended inside `contributions`. Callers of `derive` do not gain a parameter. A test may call `fold_contributions` with a base layer plus `{ armor_class: 1, ..zero }` and get Armor Class 19. That is the extension point, not a Phase 1 character option.
+`fold_contributions` starts from zeros and `None`, then walks the slice in order. It adds every numeric field. `Some` on agile, shield, stealth DC, Aid modifier, or `uses_dying_rules` replaces the current value. An empty list, a sum past the `i32` range, or a damage die with zero faces or a face count the strike cannot store returns `FoldError` instead of panicking. A later source is a `Contribution` appended inside `contributions`. Callers of `derive` do not gain a parameter. A test may call `fold_contributions` with a base layer plus `{ armor_class: 1, ..zero }` and get Armor Class 19. That is the extension point, not a Phase 1 character option.
 
 `Creature` is the read-only result. Its Hit Points are the maximum. Its shield Hit Points are the maximum. It has no current Hit Points, temporary Hit Points, conditions, dying, wounded, raised flag, actions, or reaction.
 
@@ -227,7 +235,7 @@ Do not port these v1 tests:
 
 ## Risks / Trade-offs
 
-- [Fold starts at zero and adds] → the base contribution must carry the full authored numbers, not a delta on top of a hidden default. A test with one contribution locks that.
+- [Fold starts at zero and adds] → the base contribution must carry the full authored numbers, not a delta on top of a hidden default. A test with one contribution locks that. An empty list, a zero-faced or impossible damage die, or a sum past the `i32` range cannot form a legal Creature, so the fold returns `FoldError` instead of panicking.
 - [`EnterDying` has no dying number] → encounter-core must not treat `dying_entered` as dying 1.
 - [No serde] → equal builds are `PartialEq`, which is what "serialized-equal" can mean in this crate. A format can wait.
 - [Aid and damage call Dice] → `derive` must not. The purity test leaves a scripted die unused.

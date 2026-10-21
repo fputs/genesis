@@ -2,7 +2,7 @@
 
 ## 1. Build and derive
 
-- [x] 1.1 Add `crates/rules/src/combatant.rs` with private `CharacterBuild`, `try_new`, `Contribution`, `base_contribution`, `contributions`, `fold_contributions`, and `derive(&CharacterBuild) -> Creature`. Port `CombatantId(pub u32)` from `v1-reference` `crates/rules/src/encounter.rs` (`Display`, `Hash`, `PartialOrd`, `Ord`) but do not put it on the build. Verify `derive` takes only `&CharacterBuild` and `cargo test -p rules --lib` compiles
+- [x] 1.1 Add `crates/rules/src/combatant.rs` with private `CharacterBuild`, `try_new`, `Contribution`, `base_contribution`, `contributions`, `FoldError`, `fold_contributions` (a Creature or a FoldError, never a panic), and `derive(&CharacterBuild) -> Creature`. Port `CombatantId(pub u32)` from `v1-reference` `crates/rules/src/encounter.rs` (`Display`, `Hash`, `PartialOrd`, `Ord`) but do not put it on the build. Verify `derive` takes only `&CharacterBuild` and `cargo test -p rules --lib` compiles
 - [x] 1.2 Add `derive_is_deterministic`: two `derive` calls match, a clone matches, a rebuilt equal build matches, and a scripted d20 of 8 is unused. Cite Player Core Hit Points as the fixed statistic. Verify `cargo test -p rules derive_is_deterministic` passes
 - [x] 1.3 Add `later_contribution_folds_after_the_base`: a base Armor Class of 18 plus a following contribution of +1 folds to 19, in that order, and Phase 1 `contributions` returns only the base. Verify `cargo test -p rules later_contribution_folds_after_the_base` passes
 - [x] 1.4 Port `preparation_copies_fixture_numbers` from `v1-reference` `crates/rules/tests/procedures.rs` as `baked_statistics_stay_as_authored`. Drop `prepare_combatant`. Assert the derived Creature has HP 20, AC 18, Perception +5, Speed 25, attack bonus +7, damage 1d8+4, reach 5, and agile false, and that the build is unchanged. Cite Player Core Hit Points, Strike, and Speed. Verify `cargo test -p rules baked_statistics_stay_as_authored` passes
@@ -20,7 +20,7 @@
 
 ## 3. Crate surface
 
-- [x] 3.1 Re-export `CharacterBuild`, `Creature`, `CombatantState`, `CombatantId`, `Contribution`, `MeleeStrike`, `ShieldTemplate`, and the public functions from `crates/rules/src/lib.rs`. Leave `#![forbid(unsafe_code)]` in place. Give every new public item a `///` comment, citing the Player Core section when the item states a rule. Verify `cargo test -p rules` passes and `baked_statistics_stay_as_authored` still cites the Player Core section
+- [x] 3.1 Re-export `CharacterBuild`, `Creature`, `CombatantState`, `CombatantId`, `Contribution`, `FoldError`, `MeleeStrike`, `ShieldTemplate`, and the public functions from `crates/rules/src/lib.rs`. Leave `#![forbid(unsafe_code)]` in place. Give every new public item a `///` comment, citing the Player Core section when the item states a rule. Verify `cargo test -p rules` passes and `baked_statistics_stay_as_authored` still cites the Player Core section
 
 ## 4. One test per scenario
 
@@ -31,6 +31,9 @@
   - `a_clone_and_an_equal_build_match`
   - `phase_1_folds_only_the_base`
   - `a_later_contribution_is_folded_after_the_base`
+  - `an_overflowing_fold_returns_an_error`
+  - `an_empty_slice_returns_an_error`
+  - `derive_agrees_with_folding_the_base`
   - `authored_numbers_are_kept`
   - `strike_fields_are_kept`
   - `the_agile_flag_is_kept`
