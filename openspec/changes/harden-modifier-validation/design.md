@@ -31,13 +31,19 @@ Alternative considered: reject only while totaling. Rejected. R-03 says construc
 
 ### 2. Independent oracle
 
-The test builds its own grouping, duplicate-key collapse, and tie sort. It does not call `derived_rank`, `same_duplicate_key`, `source_ord`, `condition_prefers`, `key_prefers`, `bonus_prefers`, `penalty_prefers`, `stack_tie`, or `group_kind`.
+The test builds its own three stages. It does not call `derived_rank`, `same_duplicate_key`, `source_ord`, `condition_prefers`, `key_prefers`, `bonus_prefers`, `penalty_prefers`, `stack_tie`, or `group_kind`.
 
-The sort follows the orders the other requirements already state. Inside a condition group: grouped value (frightened and sickened penalties use `-rank`; otherwise the written value), then highest rank, a rank over none, newest sequence, lowest source, higher level, a level over none, then the duplicate-key order. Duplicate key: higher level, a level over none, higher rank, a rank over none, greater sequence, then the higher bonus or the more negative penalty, then the lower condition id (a missing id loses), then the lower source id. Type is not a component. Rank 0 on frightened or sickened is omitted before grouping.
+(a) Group by condition, keyed on (condition, statistic, bonus or penalty, type).
+(b) Collapse same-source duplicates (rule R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id. Stage (b) uses the duplicate-key comparison already required by "Duplicate key comparison is a total order". It does not use the stacking-step order.
+(c) For each statistic, keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack).
 
-The test encodes source order itself: caller ids first, by number, then the reserved variants in a fixed order that includes the new attack-check variants. It does not call `source_ord`.
+Ties at the stacking step go to value first, then lowest sequence, then lower condition id (an entry with no condition id loses), then lower source id. Type is not a tiebreak. This is the stacking step only. It is not the condition-group ladder (highest rank, newest sequence, lowest source, then level).
 
-Random sets use sources 1–2, sequences 1–2, two condition ids (`ConditionId(10)` and frightened), magnitudes 1–3, level absent or 1, and ranks 0–2. Sickened uses the same `-rank` path and is covered by its rejection scenario. Keep the unconditioned untyped exact duplicate and the both-levels-absent set. Add a conditioned exact duplicate. At least 1,000 random sets, seed `0x0D1A_7E5B`, every permutation of a set of at most 4.
+A condition-10 circumstance penalty of -2 plus an unconditioned circumstance penalty of -3 totals -3, not -5 (Player Core p.400, Rules 2282). Same-type stacking keeps the worst penalty. The two penalties are different condition groups, so they are not summed.
+
+The test encodes source order itself: caller ids first, by number, then the reserved variants in a fixed order. It does not call `source_ord`.
+
+Random sets use sources 1–2, sequences 1–2, two condition ids (`ConditionId(10)` and frightened), magnitudes 1–3, level absent or 1, and ranks 0–2. Sickened uses the same `-rank` path and is covered by its rejection scenario. Keep the unconditioned untyped exact duplicate and the both-levels-absent set. Add a conditioned exact duplicate. At least 1,000 random sets, seed `0x0D1A_7E5B`, every permutation of a set of at most 4. The test adds no crate and does not read a clock.
 
 ### 3. Reserved attack-check sources
 

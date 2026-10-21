@@ -105,7 +105,7 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 
 ### Requirement: A property test checks every ordering
 
-It SHALL add no crate and SHALL NOT read a clock. Its oracle SHALL NOT call derived_rank, same_duplicate_key, source_ord, or the comparison chains. It SHALL brute-force RAW stacking: one applied entry per (condition, statistic, bonus or penalty, type) group and per duplicate key, ties broken by a canonical full-key sort with no type step. A fixed seed SHALL draw at least 1,000 narrow-range sets, and sets of up to 4 SHALL be exhaustively permuted, including a conditioned exact duplicate.
+(a) Group by condition, keyed on (condition, statistic, bonus or penalty, type). (b) Collapse same-source duplicates (R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id. (c) Per statistic keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack). Stacking ties SHALL go to value first, then lowest sequence, then lower condition id (an entry with no condition id loses), then lower source id.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -116,9 +116,18 @@ It SHALL add no crate and SHALL NOT read a clock. Its oracle SHALL NOT call deri
 - **GIVEN** one fixed seed and at least 1,000 random sets drawn from sources 1–2, sequences 1–2, two condition ids, values 1–3, levels some or none, and ranks 0–2, plus one unconditioned untyped exact duplicate, one conditioned exact duplicate, and one set with both levels absent, and each set has at most four modifiers
 - **WHEN** every permutation of each set is totaled, and the same seed is used again
 - **THEN** every ordering of a set keeps the same applied modifiers and the same total
-- **AND** each statistic total equals the independent oracle: one applied entry per (condition, statistic, bonus or penalty, type) group and per duplicate key, ties broken by a canonical full-key sort with no type step
+- **AND** each statistic total equals the independent oracle's three stages: (a) group by condition, keyed on (condition, statistic, bonus or penalty, type); (b) collapse same-source duplicates (rule R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id; (c) for each statistic, keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack)
+- **AND** ties at the stacking step go to value first, then lowest sequence, then lower condition id (an entry with no condition id loses), then lower source id
 - **AND** that oracle does not call derived_rank, same_duplicate_key, source_ord, or the comparison chains
 - **AND** the second run generates the same sets
+
+#### Scenario: A condition-10 circumstance penalty does not add to an unconditioned one
+
+- **GIVEN** a circumstance penalty of -2 with condition 10 and an unconditioned circumstance penalty of -3, both on the attack roll
+- **WHEN** they are totaled
+- **THEN** the total is -3
+- **AND** the total is not -5
+- **AND** one circumstance penalty is applied
 
 ## ADDED Requirements
 
