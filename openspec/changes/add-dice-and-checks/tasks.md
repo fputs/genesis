@@ -56,6 +56,7 @@
   - `dc_0_succeeds_without_rolling`
   - `dc_21_fails_without_rolling`
   - `dc_20_still_rolls`
+  - `dc_20_natural_1_is_a_critical_failure`
   - `the_same_thing_rolls_once_at_the_highest_dc`
   - `different_things_roll_separately`
   - `the_first_check_on_your_turn_has_no_penalty`
