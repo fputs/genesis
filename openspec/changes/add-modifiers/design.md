@@ -9,7 +9,7 @@
 **Goals:**
 
 - One modifier fold: highest bonus of a type, worst penalty of a type, every untyped penalty added, bonus and penalty of one type both kept.
-- Construction fails with a typed error for an untyped bonus and for zero.
+- Construction fails with a typed error unless the value is a bonus greater than 0 or a penalty less than 0.
 - Same source id contributes one modifier before the sum. Same condition keeps its highest rank before the sum.
 - Separate totals for the attack roll, Armor Class, Perception, and damage.
 - The public fold cannot return a Creature that `try_new` would reject.
@@ -23,7 +23,7 @@
 - Shield bonuses. The shields change owns Raise a Shield. This change's Armor Class total does not read `shield_ac_bonus`.
 - Resistance, weakness, and immunity. Resistance can reduce damage to 0 (Player Core pg. 408, https://2e.aonprd.com/Rules.aspx?ID=2312). This change does not apply it.
 - The Speed floor of 5 feet. That applies when penalties reduce Speed, and Phase 1 has no Speed-penalty producer. Speed 0 remains a legal baked value.
-- Reflex saves, Aid's preparation, and a condition tracker with durations. Frightened and sickened enter as ranks. Durations stay with encounter-core.
+- Reflex saves, the Aid action, and a condition tracker with durations. Aid supplies only a circumstance modifier. This change does not prepare, roll, or resolve Aid. Frightened and sickened enter as ranks. Durations stay with encounter-core.
 - A new crate or a new dependency.
 
 ## Decisions
@@ -84,7 +84,7 @@ Alternative considered: take the worse of a bonus and a penalty of one type. Rej
 
 ### 4. Phase 1 producers call the existing multiple attack penalty
 
-`attack_modifiers` calls `multiple_attack_penalty` and, when the result is not 0, inserts that value as one untyped penalty. It does not copy the -5/-10 or -4/-8 table. Prone inserts circumstance -2. An Aid result of +1, +2, or -1 inserts a circumstance modifier. An Aid result of 0 inserts nothing, because zero is rejected at construction.
+`attack_modifiers` calls `multiple_attack_penalty` and, when the result is not 0, inserts that value as one untyped penalty. It does not copy the -5/-10 or -4/-8 table. Prone inserts circumstance -2. An Aid result of +1, +2, or -1 inserts a circumstance modifier. An Aid result of 0 inserts nothing, because zero is rejected at construction. The Aid action is out of scope: these functions accept that circumstance modifier and do not prepare, roll, or resolve Aid.
 
 `ac_modifiers` inserts cover +1, +2, or +4 circumstance, off-guard -2 circumstance, and unconscious -4 status. It has no shield argument. `perception_modifiers` inserts unconscious -4 status only. Damage has no Phase 1 producer; callers pass modifiers into `damage_dealt`.
 
@@ -153,3 +153,15 @@ This pull request adds only `openspec/changes/add-modifiers/`. The implementatio
 ## Open Questions
 
 None. The floor-before-doubling order and the algebraic higher-value comparison are decisions recorded above, with Designer sign-off still pending.
+
+## QA questions
+
+| Q | Answer |
+| --- | --- |
+| Q1 Untyped bonuses | Scenario: An untyped bonus is rejected |
+| Q2 Negative or zero bonus | Scenarios: A negative bonus is rejected; A zero modifier is rejected; A positive penalty is rejected |
+| Q3 Double counting | Scenario: A duplicate same-source untyped penalty counts once |
+| Q4 Overflow | Scenario: An overflowing modifier sum returns an error |
+| Q5 Tie reporting | Scenarios: A tied highest bonus reports the lowest sequence; A tied worst penalty reports the lowest sequence |
+| Q6 Item bonuses | Scenarios: An item bonus is accepted; Phase 1 produces no item modifier |
+| Q7 Scope | Scenarios under Same-type stacking and Phase 1 application points, including MAP -5 plus range -2 equals -7 and Agile MAP stays the existing untyped penalty. Aid circumstance only: An Aid success adds +1 circumstance; An Aid failure adds no modifier. Out of scope: The Aid action is out of scope |

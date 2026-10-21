@@ -240,7 +240,7 @@ Attack rolls, Armor Class, Perception, and damage SHALL each keep their own modi
 
 ### Requirement: Phase 1 application points
 
-An attack roll SHALL take the existing multiple attack penalty, including agile, as one untyped penalty, plus prone at -2 circumstance and Aid as a circumstance modifier. A zero result SHALL NOT be added. Armor Class SHALL take cover at +1, +2, or +4 circumstance, off-guard at -2 circumstance, and unconscious at -4 status. Perception SHALL take unconscious at -4 status. This change SHALL NOT add a shield bonus and SHALL NOT define a second multiple attack penalty.
+An attack roll SHALL take the existing multiple attack penalty, including agile, as one untyped penalty, plus prone at -2 circumstance and an Aid circumstance modifier. The Aid action is out of scope. A zero result SHALL NOT be added. Armor Class SHALL take cover at +1, +2, or +4 circumstance, off-guard at -2 circumstance, and unconscious at -4 status. Perception SHALL take unconscious at -4 status. This change SHALL NOT add a shield bonus and SHALL NOT define a second multiple attack penalty.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
