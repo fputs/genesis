@@ -23,6 +23,7 @@ v1 history lives on the `v1-reference` branch.
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
 
 ### Fixed
+- Condition grouping is by (condition, statistic), the source key leaves different conditions apart, and a tie keeps the lower source id. ([#30](https://github.com/fputs/genesis/pull/30))
 - Duplicate effects collapse on (source id, statistic, type, bonus or penalty), and an equal sequence keeps the worse penalty. ([#30](https://github.com/fputs/genesis/pull/30))
 - pr-hygiene and spec-drift fail closed on an invalid OpenSpec change id, an archive that is not the head commit, and a moved, edited, or fenced changelog bullet. Editing a pull request re-runs spec-drift without skipping Cargo. ([#28](https://github.com/fputs/genesis/pull/28))
 
