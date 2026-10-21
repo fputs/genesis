@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, and creature templates.
+//! Pathfinder Remaster dice, checks, modifiers, and creature templates.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -8,6 +8,7 @@
 mod check;
 mod combatant;
 mod dice;
+mod modifiers;
 
 pub use check::{
     ArithmeticOverflow, AttackTotalTerm, CheckModifier, CheckRoll, DcModifier, DegreeOfSuccess,
@@ -17,11 +18,16 @@ pub use check::{
 };
 pub use combatant::{
     BuildParts, CharacterBuild, CombatantId, CombatantState, ConditionSlot, Contribution, Creature,
-    DieCount, DieCountError, FoldError, MeleeStrike, ReachError, ReachFeet, ShieldTemplate,
-    TemplateError, Vital, aid_check, aid_circumstance_bonus, apply_dice_damage, base_contribution,
-    contributions, derive, fold_contributions, new_combatant_state, stealth_dc_from_modifier,
+    DieCount, DieCountError, FoldError, HpError, MeleeStrike, ReachError, ReachFeet,
+    ShieldTemplate, TemplateError, Vital, aid_check, aid_circumstance_bonus, apply_dice_damage,
+    apply_healing, base_contribution, contributions, damage_dealt, derive, fold_contributions,
+    new_combatant_state, stealth_dc_from_modifier,
 };
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
+pub use modifiers::{
+    BonusType, ConditionId, Cover, Modifier, ModifierError, ModifierTotal, PenaltyType, SourceId,
+    ac_modifiers, attack_modifiers, dc_from_total, perception_modifiers, total,
+};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use dice::ScriptedDice;
