@@ -32,4 +32,4 @@ Rules 2302, PC 406: "If the combined penalties on an attack would reduce the dam
 ## R-04 Frightened and sickened never give a bonus (QA #37, 2026-10-21)
 - Frightened (Player Core p.444) and sickened (Player Core p.446) only give a status penalty equal to their value. Neither one ever gives a bonus.
 - Ruling: reject at construction any bonus tagged frightened or sickened, at any rank including 0 (InvalidValuedCondition). This extends R-03 and is not a deviation.
-- This replaces the sentence "a frightened status bonus keeps its declared value" from the #36 review. Scenarios that tested bonus-versus-penalty with a made-up frightened bonus should use a condition without a value instead (for example condition 10).
+- This replaces the sentence "a frightened status bonus keeps its declared value" from the #36 review. Scenarios that tested bonus-versus-penalty with a made-up frightened bonus should use a condition whose modifiers are not derived from its value instead (for example condition 10). A bonus and a penalty of the same type from that condition both apply (Player Core p.400, Rules 2282).
