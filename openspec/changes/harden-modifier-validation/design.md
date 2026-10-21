@@ -10,7 +10,7 @@ See proposal.md for why. `with_condition` returns `Self` and cannot fail. A frig
 
 - Reject invalid frightened and sickened input at construction.
 - Make the property oracle a separate RAW reference.
-- Apply the multiple attack penalty once, through `MultipleAttackPenalty`, and do not add a second MAP source.
+- Apply the multiple attack penalty once, through `MultipleAttackPenalty`. Name the other untyped internal penalty the range penalty. A reserved source does not skip same-type stacking.
 
 **Non-Goals:**
 
@@ -57,7 +57,9 @@ Do not draw a zero value or an untyped bonus. Rank 0 builds and contributes noth
 
 The multiple attack penalty applies once per check (Player Core p.402, Rules 2289). Reuse `ModifierSource::MultipleAttackPenalty` for that internal term. Do not add a separate internal MAP source. A second attack with no caller multiple attack penalty gets -5, once.
 
-The circumstance penalty and the other untyped penalty use reserved sources that no caller can construct. They are distinct from `MultipleAttackPenalty`. `attack_check_total` does not pass `SourceId`. A positive untyped term stays a raw addend.
+The other untyped internal penalty is the range penalty (Player Core p.403, Rules 2290). The range penalty and the circumstance penalty use reserved sources that no caller can construct. They are distinct from `MultipleAttackPenalty`. `attack_check_total` does not pass `SourceId`. A positive untyped term stays a raw addend.
+
+A reserved source does not exempt a term from same-type stacking. An internal circumstance penalty of -2 plus a caller circumstance penalty of -3 from source 1 totals -3, not -5. Untyped penalties still all stack, so a caller untyped penalty is added to the multiple attack penalty and to the range penalty.
 
 Alternative considered: add a new MAP variant beside `MultipleAttackPenalty`. Rejected. Two untyped -5 terms would stack. Alternative considered: reuse `SourceId(1..3)` and tell callers to avoid them. Rejected. Caller source 1 is legal.
 
@@ -68,7 +70,7 @@ A grep of `openspec/specs`, `docs`, and unarchived design notes found no selecti
 ## Risks / Trade-offs
 
 - [Existing tests chain `with_condition`] → They handle `Result`. `a_frightened_circumstance_penalty_becomes_status_minus_rank` expects the error and is not deleted.
-- [The oracle's source table drifts from production] → The table is the order in decision 2. A new reserved variant is added to that table in the same change.
+- [The oracle's source table drifts from production] → The table is the order in decision 2. It includes `MultipleAttackPenalty` and the range-penalty and circumstance variants. It does not add a second MAP source.
 - [The rulings log still says frightened and sickened are rewritten to status] → This change copies the designer's file exactly, including that earlier amendment and R-03. The implementation does not edit it. The spec replaces the rewrite.
 
 ## Migration Plan

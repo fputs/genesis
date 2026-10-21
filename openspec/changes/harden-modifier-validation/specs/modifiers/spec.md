@@ -135,18 +135,19 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 
 ### Requirement: Attack check internal terms use reserved sources
 
-The multiple attack penalty SHALL apply once per check and SHALL reuse MultipleAttackPenalty. The attack check SHALL NOT add a separate internal multiple attack penalty source. The other internal terms SHALL use reserved sources that no caller can construct.
+The multiple attack penalty SHALL apply once per check and SHALL reuse MultipleAttackPenalty. The attack check SHALL NOT add a separate internal multiple attack penalty source. The other untyped internal penalty SHALL be the range penalty (Player Core pg. 403, Rules 2290). A reserved source SHALL NOT exempt a term from same-type stacking. A caller SHALL NOT construct a reserved source.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2290 (Player Core pg. 403, Range Penalty)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects; context only)
 
 #### Scenario: A caller source 1 does not collapse an internal term
 
-- **GIVEN** the attack check total's internal terms for an untyped multiple attack penalty of -5, a circumstance penalty of -2, and another untyped penalty of -2, plus a caller untyped penalty of -3 from source 1
+- **GIVEN** the attack check total's internal terms for an untyped multiple attack penalty of -5, a circumstance penalty of -2, and a range penalty of -2, plus a caller untyped penalty of -3 from source 1
 - **WHEN** they are totaled on the attack roll
 - **THEN** the caller penalty of -3 is applied
-- **AND** the internal untyped penalties of -5 and -2 are applied
+- **AND** the multiple attack penalty of -5 and the range penalty of -2 are applied
 - **AND** the circumstance penalty of -2 is applied
 - **AND** the attack-roll total is -12
 - **AND** no internal term is caller source 1
@@ -159,3 +160,11 @@ The multiple attack penalty SHALL apply once per check and SHALL reuse MultipleA
 - **THEN** one untyped penalty of -5 is applied
 - **AND** that penalty is applied once
 - **AND** the multiple attack penalty is not -10
+
+#### Scenario: An internal circumstance penalty and a caller circumstance penalty total -3
+
+- **GIVEN** an internal circumstance penalty of -2 and a caller circumstance penalty of -3 from source 1
+- **WHEN** they are totaled on the attack roll
+- **THEN** the total is -3
+- **AND** the circumstance penalty is -3
+- **AND** the total is not -5
