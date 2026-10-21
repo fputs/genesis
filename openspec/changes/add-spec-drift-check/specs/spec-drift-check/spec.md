@@ -8,13 +8,14 @@ The spec-drift-check capability fails CI when OpenSpec validation fails, when an
 
 ### Requirement: Spec-drift job
 
-The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on push and pull_request events targeting `main`. The job SHALL invoke one local script that performs the checks in this spec.
+The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on push and pull_request events targeting `main`. The job SHALL invoke `scripts/spec-drift-check.mjs`. That script SHALL have no npm dependencies: it only needs Node, which the pinned OpenSpec CLI already requires, so the three checks stay testable with `node --test` and no new package.
 
 #### Scenario: Job triggers match the Cargo workflow
 
 - **GIVEN** `.github/workflows/ci.yml`
 - **WHEN** the workflow triggers are read
 - **THEN** the `spec-drift` job runs on push and pull_request to `main`
+- **AND** it invokes `scripts/spec-drift-check.mjs`
 
 ### Requirement: Cargo job remains
 
@@ -28,7 +29,7 @@ The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo c
 
 ### Requirement: Pinned OpenSpec CLI
 
-The `spec-drift` job SHALL run `@fission-ai/openspec` version `1.14.3` exactly. It SHALL NOT use a floating tag or a version range for that package.
+The `spec-drift` job SHALL run `@fission-ai/openspec` version `1.14.3` exactly, the same pin as the AGENTS.md proof command, so validation cannot float. It SHALL NOT use a floating tag or a version range for that package. This named CLI is the only added tool.
 
 #### Scenario: Workflow pins the CLI
 
@@ -217,7 +218,7 @@ A pull_request to `main` SHALL fail when its checked-out result still has a full
 
 ### Requirement: Implementation pull request archives in its last commit
 
-The pull request that completes a change SHALL pass the completed-change check only when its checked-out result has no fully checked active change. That result SHALL be produced by a final commit that runs `openspec archive <id> --yes` for each change the pull request completed. There SHALL be no separate archive pull request. The push of that result to `main` SHALL pass the same check, so `main` SHALL stay green.
+The pull request that completes a change SHALL pass the completed-change check only when its checked-out result has no fully checked active change. That result SHALL be produced by a final commit that runs `openspec archive <id> --yes` for each change the pull request completed, the same final commit AGENTS.md requires. There SHALL be no separate archive pull request. The push of that result to `main` SHALL pass the same check, so `main` SHALL stay green.
 
 #### Scenario: Checked tasks still active fails the pull request
 
@@ -360,7 +361,7 @@ A changed path is a code path when it is exactly `Cargo.toml`, `Cargo.lock`, or 
 
 ### Requirement: Change reference line
 
-A change reference SHALL be one body line that, after removing one trailing carriage return and trimming leading and trailing whitespace, is `OpenSpec-Change: ` plus a change id. A change id SHALL match one or more groups of `a-z` and `0-9` separated by single hyphens, and SHALL NOT start or end with a hyphen. Any other line SHALL NOT be a change reference. Lines inside fences count the same as other lines.
+A change reference SHALL be one body line that, after removing one trailing carriage return and trimming leading and trailing whitespace, is `OpenSpec-Change: ` plus a change id. A change id SHALL match one or more groups of `a-z` and `0-9` separated by single hyphens, and SHALL NOT start or end with a hyphen. Any other line SHALL NOT be a change reference. Lines inside fences count the same as other lines. This SHALL be the AGENTS.md `OpenSpec-Change: <id>` line.
 
 #### Scenario: A trimmed line is a reference
 
@@ -469,7 +470,7 @@ When a code-path pull request has one or more change references, the reference c
 
 ### Requirement: Docs-only and openspec-only pull requests
 
-When the diff has no code path, the reference check SHALL pass and SHALL ignore the body. A docs-only diff and an openspec-only diff are this case.
+When the diff has no code path, the reference check SHALL pass and SHALL ignore the body. A docs-only diff and an openspec-only diff are this case. The job SHALL NOT fail those pull requests for a missing line. AGENTS.md still requires the line on the pull request body; this check only withholds the CI failure.
 
 #### Scenario: Docs-only pull request passes without a reference
 

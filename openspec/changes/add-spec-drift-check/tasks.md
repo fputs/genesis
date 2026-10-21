@@ -19,13 +19,75 @@ Genesis DevOps agent implements this change. The implementation pull request's l
 - [ ] 3.1 Append a dated decision to `docs/architect/decisions.md` stating that `spec-drift-check` slots immediately after `add-dice-and-checks`, and do not rewrite the 2026-10-20 order lists. Verify the new sentence is present and the existing modifiers-after-dice-and-checks sentence is still present.
 - [ ] 3.2 Append a dated decision that an implementation pull request's last commit is `openspec archive <id> --yes`, that there is no separate archive pull request, and that this gate leaves `main` green. Verify those sentences are present.
 
-## 4. Integration
+## 4. Scenario coverage
 
-- [ ] 4.1 From the repo root, run `node --test scripts/spec-drift-check.test.mjs` and `npx --yes @fission-ai/openspec@1.14.3 validate --all --strict`. Verify both exit 0.
-- [ ] 4.2 In the fixture table, run the script on a pull_request result and on a push whose tree still has active `add-spec-drift-check` fully checked, and verify both exit 1 with `spec-drift: completed unarchived change add-spec-drift-check`. Run it again on the tree after `openspec archive add-spec-drift-check --yes`, with a diff that includes `.github/workflows/ci.yml` and `SPEC_DRIFT_BODY` of `OpenSpec-Change: add-spec-drift-check`, for both `pull_request` and `push`. Verify both exit 0.
+- [ ] 4.1 Scenario "Job triggers match the Cargo workflow": read `.github/workflows/ci.yml` and verify the `spec-drift` job runs on push and pull_request to `main` and invokes `scripts/spec-drift-check.mjs`.
+- [ ] 4.2 Scenario "Cargo steps stay": read the Cargo job and verify it still runs fmt check, clippy with warnings denied, workspace build, and workspace test.
+- [ ] 4.3 Scenario "Workflow pins the CLI": read the `spec-drift` job and verify it installs `@fission-ai/openspec@1.14.3` and does not use `@latest` or a version range.
+- [ ] 4.4 Scenario "A missing reference needs no network lookup": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.5 Scenario "Invalid tree fails validation": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.6 Scenario "Valid tree passes validation": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.7 Scenario "Archive children are not active": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.8 Scenario "A sibling of archive is active": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.9 Scenario "A titled box counts": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.10 Scenario "Space around the x still counts as checked": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.11 Scenario "An open box is not fully checked": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.12 Scenario "No checkboxes is not fully checked": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.13 Scenario "A missing tasks file is not fully checked": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.14 Scenario "Other list markers are not checkboxes": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.15 Scenario "A checkbox needs whitespace before the title": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.16 Scenario "A non-x marker is unchecked": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.17 Scenario "An empty box is unchecked": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.18 Scenario "A pull request that leaves every box checked fails": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.19 Scenario "Push backstop fails that same tree": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.20 Scenario "An open task passes the push": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.21 Scenario "An archived completed change passes the push": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.22 Scenario "One of two active changes is complete": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.23 Scenario "Uppercase checked boxes fail the push": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.24 Scenario "Indented boxes fail the push": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.25 Scenario "A later pull request still has the completed change": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.26 Scenario "Copying to archive without removing the active change fails": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.27 Scenario "Checked tasks still active fails the pull request": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.28 Scenario "A new fully checked active change fails": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.29 Scenario "The last commit is the archive": verify this implementation pull request's final commit is `openspec archive add-spec-drift-check --yes`.
+- [ ] 4.30 Scenario "The archived result passes the pull request": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.31 Scenario "The following push stays green": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.32 Scenario "A crate file is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.33 Scenario "Root Cargo.toml is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.34 Scenario "Cargo.lock is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.35 Scenario "rust-toolchain.toml is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.36 Scenario "A workflow file is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.37 Scenario "Deleting a crate file is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.38 Scenario "Renaming into crates is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.39 Scenario "Renaming out of crates is a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.40 Scenario "A nested Cargo.toml is not a root manifest": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.41 Scenario "A crates prefix without a slash is not a code path": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.42 Scenario "Files outside the diff do not count": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.43 Scenario "A trimmed line is a reference": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.44 Scenario "Extra words are not a reference": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.45 Scenario "An active id exists": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.46 Scenario "A dated archive id exists": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.47 Scenario "An undated archive directory exists": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.48 Scenario "An unknown id fails": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.49 Scenario "A partial archive suffix does not match": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.50 Scenario "Two existing ids pass": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.51 Scenario "One of two ids is unknown": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.52 Scenario "A duplicate id counts once": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.53 Scenario "Docs-only pull request passes without a reference": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.54 Scenario "Openspec-only pull request passes without a reference": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.55 Scenario "An exempt pull request ignores an unknown id": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.56 Scenario "Docs plus a code path still requires a reference": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.57 Scenario "Openspec plus a workflow file still requires a reference": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.58 Scenario "Docs plus a code path passes with an existing id": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.59 Scenario "A code push has no pull request body": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.60 Scenario "Archived implementation pull request passes": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.61 Scenario "Push of that merge stays green": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.62 Scenario "Validation and a completed change both fail": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.63 Scenario "A clean tree passes": add a test named after this scenario and verify `node --test scripts/spec-drift-check.test.mjs` runs it.
+- [ ] 4.64 Scenario "The job runs the suite first": read the `spec-drift` job and verify `node --test` runs before `node scripts/spec-drift-check.mjs`.
+- [ ] 4.65 Scenario "Each case is a fixture repository": verify the suite builds one temporary git repository per case and asserts exit status and failure lines.
 
-## Workflow follow-up
+## 5. Proof and archive
 
-- Genesis DevOps agent implements this change after `add-dice-and-checks`.
-- The implementation pull request's last commit is `openspec archive add-spec-drift-check --yes`. There is no separate archive pull request.
-- That pull request passes only with the change archived. The push of the merge runs the same completed-change check and passes, so `main` stays green.
+- [ ] 5.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`
+- [ ] 5.2 As the final commit of this implementation pull request, run `openspec archive add-spec-drift-check --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
