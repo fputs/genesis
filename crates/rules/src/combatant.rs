@@ -460,9 +460,9 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
 
 /// Rolls `faces` once, adds `bonus`, and subtracts that from current Hit Points, floored at 0.
 ///
-/// The addition and the subtraction are checked, so an overflowing `i32` does not panic.
-/// A result the floor would have stored as 0 is stored as 0. A difference above `i32::MAX`
-/// does not fit, so the stored Hit Points stay.
+/// A negative total is clamped to 0, so this never raises Hit Points. The addition and the
+/// subtraction are checked, so an overflowing `i32` does not panic. A sum above `i32::MAX` drops
+/// Hit Points to 0.
 ///
 /// At 0 Hit Points, `uses_dying_rules` false marks the state dead. True records that dying applies
 /// and does not choose a dying value. The creature and the build are not written.
@@ -477,7 +477,9 @@ pub fn apply_dice_damage(
 ) {
     let rolled = i32::from(dice.roll(faces));
     let amount = match rolled.checked_add(bonus) {
-        Some(amount) => amount,
+        Some(total) if total > 0 => total,
+        // Zero and negative totals deal no damage, so Hit Points are not raised.
+        Some(_) => 0,
         // The sum is above `i32::MAX`, so Hit Points fall to 0.
         None => {
             state.hit_points = 0;
@@ -487,10 +489,8 @@ pub fn apply_dice_damage(
     };
     state.hit_points = match state.hit_points.checked_sub(amount) {
         Some(next) => next.max(0),
-        // Below `i32::MIN` is below 0, so the floor applies.
-        None if amount >= 0 => 0,
-        // Above `i32::MAX` does not fit. Leave the stored total.
-        None => state.hit_points,
+        // `amount` is non-negative, so a missing difference is below 0.
+        None => 0,
     };
     note_hit_points(state, creature);
 }
@@ -1455,17 +1455,22 @@ mod tests {
 
     /// Player Core, "Getting Knocked Out".
     #[test]
-    fn healing_past_i32_max_leaves_hit_points_unchanged() {
-        let creature = derive(&build(fighter_with_hp(1, None)));
+    fn a_negative_total_does_not_raise_hit_points() {
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        assert_eq!(creature.hit_points, 9);
         let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
         apply_dice_damage(
             &mut state,
             &creature,
-            &mut ScriptedDice::new([1]),
-            d8(),
-            i32::MIN,
+            &mut dice,
+            Faces::new(4).expect("d4"),
+            -5,
         );
-        assert_eq!(state.hit_points, 1);
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(creature.hit_points, 9);
+        assert_eq!(state.temp_hit_points, 0);
         assert_eq!(state.vital, Vital::Alive);
+        assert_eq!(dice.remaining(), 0);
     }
 }
