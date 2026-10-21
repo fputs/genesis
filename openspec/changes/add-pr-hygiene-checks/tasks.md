@@ -76,7 +76,7 @@ Genesis DevOps agent implements this change. The changelog bullet is added in an
 ## 3. Docs and changelog bullet
 
 - [ ] 3.1 Remove backlog item "CI enforcement of the changelog bullet." from `docs/architect/decisions.md` and renumber the remaining backlog items. Leave the text of those remaining items as it is. Verify that sentence is gone and the Deprecated, missing-link, release-cutting, and mixed-category items are still present.
-- [ ] 3.2 Update `AGENTS.md` and `docs/producer/process.md` so they do not require a head commit SHA in the pull request body, and so they note that the `pr-hygiene` job enforces the Unreleased bullet and archive-last. Keep the section 2 proof-command paste. Verify neither file requires a head SHA, and both name `pr-hygiene` for the bullet and for archive-last.
+- [ ] 3.2 Verify no doc requires a head SHA in the pull request body; remove any that does. Update `AGENTS.md` and `docs/producer/process.md` so they note that the `pr-hygiene` job enforces the Unreleased bullet and archive-last. Keep the section 2 proof-command paste. Verify no document requires a head SHA, and both files name `pr-hygiene` for the bullet and for archive-last.
 - [ ] 3.3 Add a `### Added` bullet under `## [Unreleased]` in `CHANGELOG.md` for this job, with a link to the implementation pull request. Put that edit in a commit before the archive commit. Verify the bullet is under `## [Unreleased]` and that the archive commit does not modify `CHANGELOG.md`.
 
 ## 4. Proof

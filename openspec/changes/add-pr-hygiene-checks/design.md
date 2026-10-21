@@ -6,7 +6,7 @@
 
 Spec-drift already parses changed paths with `git diff -z --name-status --find-renames`, split on NUL, and counts both sides of a rename. A code path is exactly `Cargo.toml`, `Cargo.lock`, or `rust-toolchain.toml`, or a path under `crates/` or `.github/workflows/`. An `OpenSpec-Change: <id>` line is one trimmed body line. This job reuses those definitions and does not change that script.
 
-The 2026-10-20 changelog interim ruling treats a pull request that touches only `.cursor/**`, `README.md`, `Cargo.lock`, or `rust-toolchain.toml` as needing no bullet. `docs/architect/decisions.md` still lists "CI enforcement of the changelog bullet" as backlog item 1. `AGENTS.md` section 2 tells an author to paste proof-command output into the pull request. Neither file asks for the head commit SHA. Genesis DevOps agent implements this change.
+The 2026-10-20 changelog interim ruling treats a pull request that touches only `.cursor/**`, `README.md`, `Cargo.lock`, or `rust-toolchain.toml` as needing no bullet. `docs/architect/decisions.md` still lists "CI enforcement of the changelog bullet" as backlog item 1. `AGENTS.md` section 2 tells an author to paste proof-command output into the pull request. Neither `AGENTS.md` nor `docs/producer/process.md` asks for the head commit SHA. The apply task verifies that no document requires one and removes any sentence that does. Genesis DevOps agent implements this change.
 
 ## Goals / Non-Goals
 
