@@ -279,7 +279,8 @@ fn collapse_conditions(modifiers: &[Modifier]) -> Result<Vec<Modifier>, Modifier
 ///
 /// Rank is the condition's number, so frightened 2 beats frightened 1 even though -1 is
 /// algebraically greater than -2. Frightened and sickened then contribute one status penalty
-/// equal to the negation of that rank. Value does not break a same-rank tie.
+/// equal to the negation of that rank. Any other ranked condition keeps its declared type
+/// and value. Value does not break a same-rank tie.
 fn keep_condition(group: &[Modifier]) -> Result<Option<Modifier>, ModifierError> {
     let Some(mut best) = group.first().copied() else {
         return Ok(None);
@@ -308,15 +309,21 @@ fn apply_ranked_penalty(mut modifier: Modifier) -> Result<Option<Modifier>, Modi
     let Some(rank) = modifier.rank() else {
         return Ok(Some(modifier));
     };
-    // A condition whose value is 0 has ended, so it contributes nothing.
+    // Only frightened and sickened become a status penalty of -rank. Other ranked
+    // conditions keep the type and value the caller declared.
+    let valued = modifier
+        .condition
+        .is_some_and(|condition| condition.id == FRIGHTENED || condition.id == SICKENED);
+    if !valued {
+        return Ok(Some(modifier));
+    }
+    // Rank 0 has ended, so frightened or sickened contributes nothing.
     if rank == 0 {
         return Ok(None);
     }
-    if matches!(modifier.kind, ModifierKind::Penalty(_)) {
-        let rank = i32::try_from(rank).map_err(|_| ModifierError::Overflow)?;
-        modifier.value = rank.checked_neg().ok_or(ModifierError::Overflow)?;
-        modifier.kind = ModifierKind::Penalty(PenaltyType::Status);
-    }
+    let rank = i32::try_from(rank).map_err(|_| ModifierError::Overflow)?;
+    modifier.value = rank.checked_neg().ok_or(ModifierError::Overflow)?;
+    modifier.kind = ModifierKind::Penalty(PenaltyType::Status);
     Ok(Some(modifier))
 }
 
@@ -454,14 +461,18 @@ fn penalty_prefers(candidate: Modifier, current: Modifier) -> bool {
 }
 
 fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
-    // Canonical order so insertion order cannot change the total or the reported list.
+    // Canonical order so insertion order cannot change the reported list.
+    // The sum is i64 because bonuses sort before penalties: an i32 add of
+    // circumstance i32::MAX and item +1 overflows before a later status -5
+    // brings the true total back into range.
     applied.sort_by_key(sort_key);
-    let mut value = 0i32;
+    let mut wide = 0i64;
     for modifier in &applied {
-        value = value
-            .checked_add(modifier.value)
+        wide = wide
+            .checked_add(i64::from(modifier.value))
             .ok_or(ModifierError::Overflow)?;
     }
+    let value = i32::try_from(wide).map_err(|_| ModifierError::Overflow)?;
     Ok(ModifierTotal { value, applied })
 }
 
@@ -495,6 +506,10 @@ const UNCONSCIOUS_AC_SOURCE: SourceId = SourceId(6);
 const UNCONSCIOUS_PERCEPTION_SOURCE: SourceId = SourceId(7);
 
 const OFF_GUARD: ConditionId = ConditionId(1);
+/// Frightened's rank becomes one status penalty of `-rank`. Player Core, Frightened.
+const FRIGHTENED: ConditionId = ConditionId(2);
+/// Sickened's rank becomes one status penalty of `-rank`. Player Core, Sickened.
+const SICKENED: ConditionId = ConditionId(3);
 
 /// Cover granted to Armor Class.
 ///
@@ -660,9 +675,6 @@ mod tests {
         DegreeOfSuccess, MapInput, degree_of_success, flat_check, multiple_attack_penalty,
     };
     use crate::dice::ScriptedDice;
-
-    const FRIGHTENED: ConditionId = ConditionId(2);
-    const SICKENED: ConditionId = ConditionId(3);
 
     fn script() -> ScriptedDice {
         ScriptedDice::new([8])
@@ -898,6 +910,25 @@ mod tests {
 
     /// Player Core, Bonuses.
     /// Player Core, Penalties.
+    ///
+    /// Circumstance `i32::MAX`, item +1, and status -5. The true total fits.
+    #[test]
+    fn circumstance_max_item_1_and_status_minus_5_fits() {
+        let dice = script();
+        let modifiers = [
+            bonus(BonusType::Circumstance, i32::MAX, 1, 1, None),
+            bonus(BonusType::Item, 1, 2, 2, None),
+            penalty(PenaltyType::Status, -5, 3, 3, None),
+        ];
+        let mut reversed = modifiers;
+        reversed.reverse();
+        assert_eq!(summed(&modifiers).get(), i32::MAX - 4);
+        assert_eq!(summed(&reversed).get(), i32::MAX - 4);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Bonuses.
+    /// Player Core, Penalties.
     #[test]
     fn the_same_modifiers_total_twice() {
         let dice = script();
@@ -1048,6 +1079,27 @@ mod tests {
             assert_eq!(status[0].value(), -2);
             assert_eq!(stacked.get(), -2);
         }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Redundant Conditions With Values".
+    ///
+    /// Frightened and sickened are the conditions that become `-rank`. Another ranked
+    /// penalty keeps its declared type and value.
+    #[test]
+    fn a_ranked_penalty_keeps_its_declared_type() {
+        let dice = script();
+        let lower = penalty(PenaltyType::Circumstance, -4, 1, 1, None)
+            .with_condition(ConditionId(9), Some(1));
+        let higher = penalty(PenaltyType::Circumstance, -1, 2, 2, None)
+            .with_condition(ConditionId(9), Some(2));
+        let stacked = summed(&[lower, higher]);
+        assert_eq!(stacked.applied().len(), 1);
+        let kept = stacked.applied()[0];
+        assert_eq!(kept.penalty_type(), Some(PenaltyType::Circumstance));
+        assert_eq!(kept.value(), -1);
+        assert_eq!(kept.rank(), Some(2));
+        assert_eq!(stacked.get(), -1);
         assert_eq!(dice.remaining(), 1);
     }
 
