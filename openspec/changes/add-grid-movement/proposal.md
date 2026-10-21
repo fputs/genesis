@@ -8,9 +8,9 @@ A fight on a 5-foot grid cannot resolve Stride, Step, reach, or range until diag
 
 - Add the `grid-movement` capability: pure 5-foot grid measurement for Stride, Step, distance, reach, and range increments, using Designer rulings D1–D17 and the Phase 1 scope cut in `docs/designer/add-grid-movement-checklist.md`.
 - Stride and Step validate a caller-supplied ordered path. They return the total cost and an ordered list of per-square leave and enter events. They do not search for a path.
-- Keep one diagonal counter per creature per turn, off the immutable Creature. It resets at end of turn. Movement off-turn uses a fresh counter.
-- Accept only Small and Medium creatures (one square). Reject a path over Speed, an occupied end square, an enemy square, a Step into difficult terrain, a square outside the map, and arithmetic overflow. A failed move does not partially apply.
-- Own DEV-21 from `docs/designer/rules-deviations.md`: validation rejects a Speed that is not a multiple of 5 feet. Speed 0 stays valid. `add-modifiers` keeps only Speed >= 0.
+- Keep one diagonal counter per creature per turn, off the immutable Creature. It resets at end of turn. Later movement actions, including Crawl and Leap, share that counter. For off-turn movement, encounter-core passes `DiagonalCounter::fresh()` and discards the result (DEV-15).
+- Accept only Small and Medium creatures (one square). Reject a path over Speed, an occupied end square, an enemy square, a Step into difficult terrain, a square outside the map, and arithmetic overflow. A failed move does not partially apply. Player Core forbids ending your turn in an occupied square.
+- Dependency: Creature Speed is validated as a multiple of 5 by add-modifiers (#19), at load and at fold. This change adds no creature-template delta. Movement keeps `SpeedNotMultipleOfFive` as a defensive guard. Player Core has no multiple-of-5 rule. That rejection is validation (DEV-21), citing Rules 2347 (Player Core pg. 420, https://2e.aonprd.com/Rules.aspx?ID=2347) and Rules 2356 for 5-ft squares (https://2e.aonprd.com/Rules.aspx?ID=2356).
 - Return a range increment count and its untyped penalty as plain numbers. Do not add that penalty to an attack roll.
 - Ledger every RAW deviation in `design.md`. Answer Designer QA Q1–Q9 with a scenario or an explicit out-of-scope line, and map each question from `design.md`. No change to modifiers, and no new dependency.
 

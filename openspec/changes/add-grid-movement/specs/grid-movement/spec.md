@@ -49,7 +49,7 @@ Movement, distance, and reach SHALL accept only Small and Medium, each one squar
 
 ### Requirement: The diagonal counter is turn state
 
-Each creature SHALL have one diagonal counter in turn state, not on Creature and not on CombatantState. It SHALL start so the next diagonal costs 5 feet. Stride and Step on that turn SHALL share it. An orthogonal square SHALL NOT change it. Ending the turn SHALL reset it so the next diagonal costs 5 feet again. Movement off that turn SHALL use a fresh counter and SHALL leave the stored counter unchanged.
+Each creature SHALL have one diagonal counter in turn state, not on Creature and not on CombatantState. It SHALL start so the next diagonal costs 5 feet. Stride and Step on that turn SHALL share it. An orthogonal square SHALL NOT change it. Ending the turn SHALL reset it so the next diagonal costs 5 feet again. For movement off that turn, encounter-core SHALL pass DiagonalCounter::fresh() and SHALL discard the result, leaving the stored counter unchanged (DEV-15).
 
 **Rule**: Player Core pg. 421 tracks the diagonal count across movement during your turn and resets it at end of turn. https://2e.aonprd.com/Rules.aspx?ID=2357
 **Why**: The book does not say how a reaction or a readied Stride counts diagonals on someone else's turn.
@@ -86,7 +86,7 @@ Each creature SHALL have one diagonal counter in turn state, not on Creature and
 
 - **GIVEN** a stored turn counter that already counts one diagonal, and Speed 25
 - **WHEN** the creature Strides one diagonal square off-turn, and separately Strides two diagonal squares off-turn
-- **THEN** the one-square Stride costs 5 feet, the two-square Stride costs 15 feet, and the stored counter still counts one diagonal
+- **THEN** the one-square Stride costs 5 feet, the two-square Stride costs 15 feet, the stored counter still counts one diagonal, and the returned counter is discarded
 
 #### Scenario: Shared diagonal counter includes Step
 
@@ -96,18 +96,18 @@ Each creature SHALL have one diagonal counter in turn state, not on Creature and
 
 ### Requirement: Step and Crawl share one counter
 
-Step and Crawl SHALL share the one diagonal counter for that creature's turn. A diagonal Step SHALL advance that counter. This capability SHALL NOT implement Crawl. Positioning owns Crawl.
+Step, Crawl, and Leap SHALL share the one diagonal counter for that creature's turn. A diagonal Step SHALL advance that counter. This capability SHALL NOT implement Crawl or Leap. Later movement actions use that same counter.
 
-**Rule**: Player Core pg. 421 counts all movement in the turn, and Crawl on pg. 416 is movement. https://2e.aonprd.com/Rules.aspx?ID=2357 https://2e.aonprd.com/Actions.aspx?ID=2293
-**Why**: Crawl needs prone, which positioning owns.
-**Substitute**: Step advances the shared turn counter. Crawl is not a function of this change.
-**Intent**: Positioning's Crawl will take the counter Step already updates.
+**Rule**: Player Core pg. 421 counts all movement in the turn. Crawl and Leap are movement. https://2e.aonprd.com/Rules.aspx?ID=2357 https://2e.aonprd.com/Actions.aspx?ID=2293 https://2e.aonprd.com/Actions.aspx?ID=2298
+**Why**: Crawl and Leap belong to positioning.
+**Substitute**: Step advances the shared turn counter. Crawl and Leap are not functions of this change.
+**Intent**: Later movement actions take the counter Step already updates.
 
 #### Scenario: Step and Crawl share the diagonal counter
 
 - **GIVEN** Speed 25 and one fresh turn counter
 - **WHEN** the creature Steps one diagonal square
-- **THEN** the counter counts one diagonal, a diagonal Stride on that same counter costs 10 feet, and no Crawl action is resolved
+- **THEN** the counter counts one diagonal, a diagonal Stride on that same counter costs 10 feet, and no Crawl or Leap action is resolved
 
 ### Requirement: Entering a square has one cost
 
@@ -166,12 +166,12 @@ Stride SHALL succeed only when every entered square is adjacent to the previous 
 
 Once Speed validation has passed, Stride and Step SHALL accept Speed 0 and any positive multiple of 5 feet. Speed 0 SHALL allow a Stride that enters no square. A path above Speed SHALL return an exceeds-Speed error, including a non-empty path at Speed 0. A 5-foot Speed floor under penalties SHALL NOT be applied. That floor is out of scope.
 
-**Rule**: Player Core pg. 420 says penalties cannot reduce Speed below 5 feet. https://2e.aonprd.com/Rules.aspx?ID=2346
+**Rule**: Rules 2346 (Player Core pg. 420) says penalties cannot reduce Speed below 5 feet. https://2e.aonprd.com/Rules.aspx?ID=2346
 **Why**: No Speed penalty exists yet.
 **Substitute**: The floor is not applied. Speed 0 remains a legal empty Stride.
 **Intent**: Movement uses the validated Speed it is given.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2346 (Player Core pg. 420, Speed penalties)
+**Source**: Rules 2346, https://2e.aonprd.com/Rules.aspx?ID=2346 (Player Core pg. 420, the Speed floor)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2304 (Player Core pg. 418, Step requires Speed 10)
 
 #### Scenario: Speed 0
@@ -182,18 +182,17 @@ Once Speed validation has passed, Stride and Step SHALL accept Speed 0 and any p
 - **AND** a Stride into the adjacent square is an exceeds-Speed error and the position stays
 - **AND** a Step into that square is rejected because Speed is under 10 feet, and the position stays
 
-### Requirement: DEV-21 validates Speed in 5-foot steps
+### Requirement: Movement guards a non-multiple Speed
 
-This capability SHALL validate that a Speed is a multiple of 5 feet. That check is DEV-21 in docs/designer/rules-deviations.md. It SHALL accept 0 and every positive multiple of 5, and SHALL reject any other non-negative Speed with a typed error. Stride and Step SHALL use it before measuring a path. A negative Speed SHALL remain a negative-Speed error, checked first. This capability SHALL NOT take the rule that Speed is at least 0. add-modifiers keeps that rule.
+Creature Speed is validated as a multiple of 5 by add-modifiers (#19), at load and at fold. This change SHALL NOT add a creature-template delta. Stride and Step SHALL reject a non-negative Speed that is not a multiple of 5 with SpeedNotMultipleOfFive, as a defensive guard, before measuring a path. Speed 0 and every positive multiple of 5 SHALL pass that guard. A negative Speed SHALL remain a negative-Speed error, checked first.
 
-**Rule**: Player Core Speeds come in 5-foot steps. The book states no rejection for another number. https://2e.aonprd.com/Rules.aspx?ID=2347
-**Why**: A square is 5 feet, and docs/designer/rules-deviations.md DEV-21 makes the rejection a validation choice.
-**Substitute**: Grid validation rejects a non-negative Speed that is not a multiple of 5. Speed 0 stays valid.
-**Intent**: Stride does not invent a square cost. add-modifiers keeps only Speed greater than or equal to 0.
+**Rule**: Player Core has no multiple-of-5 rule. validation (DEV-21). https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420). https://2e.aonprd.com/Rules.aspx?ID=2356 (5-ft squares).
+**Why**: add-modifiers (#19) already rejects that Speed at load and at fold. A caller can still pass Speed 7 into a move.
+**Substitute**: Movement returns SpeedNotMultipleOfFive and does not change creature validation.
+**Intent**: The defensive guard matches validation (DEV-21). Stride does not invent a square cost.
 
-**Source**: docs/designer/rules-deviations.md DEV-21
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420, Speed)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2356 (Player Core pg. 421, a square is 5 feet)
+**Source**: validation (DEV-21). Rules 2347, https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420, Speed).
+**Source**: Rules 2356, https://2e.aonprd.com/Rules.aspx?ID=2356 (Player Core pg. 421, 5-ft squares).
 
 #### Scenario: Speed not a multiple of five
 
@@ -260,8 +259,8 @@ Step SHALL follow a path of exactly one adjacent square and SHALL require Speed 
 
 Same faction SHALL count as willing. A path SHALL be allowed to enter a same-faction square and SHALL NOT end on a square occupied by another creature. Entering another faction's square SHALL return an enemy-square error. Ending on a same-faction creature SHALL return an occupied-end error. Passing through an unwilling creature SHALL NOT be resolved here. The book's allowance that the next action may move out of a willing creature's square SHALL NOT be implemented. Encounter-core owns it.
 
-**Rule**: Player Core pg. 422 lets you move through a willing creature. An unwilling creature needs Tumble Through. A move may end in a willing creature's square only when another move immediately leaves. https://2e.aonprd.com/Rules.aspx?ID=2360
-**Why**: Phase 1 has no willingness flag and no action sequencing. Tumble Through needs a skill check that is deferred.
+**Rule**: Player Core pg. 422 lets you move through a willing creature. An unwilling creature needs Tumble Through. You can't end your turn in an occupied square. A move may end there only when another move immediately leaves. https://2e.aonprd.com/Rules.aspx?ID=2360
+**Why**: RAW forbids ending your turn in an occupied square. Phase 1 cannot see the end of the turn, and Tumble Through needs a skill check that is deferred.
 **Substitute**: Same faction may be passed through and may not be the end square. Another faction blocks the square.
 **Intent**: Allies do not stop a Stride, enemies do, and a move does not finish while sharing a square.
 
@@ -426,7 +425,7 @@ A negative Speed, a range increment of 0 or less, and a negative distance SHALL 
 
 An immobilized flag SHALL make Stride and Step illegal. That check SHALL also be usable with no path, so a later move-trait action can call the same check. This capability SHALL NOT implement Crawl, Stand, or Drop Prone.
 
-**Rule**: Player Core pg. 444 says an immobilized creature cannot use a move action. Player Core pg. 420 says penalties cannot reduce Speed below 5 feet. https://2e.aonprd.com/Conditions.aspx?ID=81 https://2e.aonprd.com/Rules.aspx?ID=2346
+**Rule**: Player Core pg. 444 says an immobilized creature cannot use a move action. Rules 2346 (Player Core pg. 420) says penalties cannot reduce Speed below 5 feet. https://2e.aonprd.com/Conditions.aspx?ID=81 https://2e.aonprd.com/Rules.aspx?ID=2346
 **Why**: Phase 1 has no Speed penalties, and immobilized is not yet a condition.
 **Substitute**: The 5-foot floor is not applied. Immobilized is a caller flag. Speed 0 allows an empty Stride and rejects Step.
 **Intent**: The move-trait check is ready for later actions, and Speed is used as given.
@@ -472,7 +471,7 @@ This capability SHALL NOT represent walls and SHALL NOT reject a diagonal move b
 
 ### Requirement: Movement reports leave and enter
 
-A successful move SHALL return leave and enter events in path order. Each entered square SHALL be preceded by leaving the square the creature occupied before it. A Stride result SHALL be marked triggering. A Step result SHALL be marked non-triggering. No reaction SHALL be resolved.
+A successful move SHALL return leave and enter events in path order. Each entered square SHALL be preceded by leaving the square the creature occupied before it. A Stride result SHALL be marked triggering. A Step result SHALL be marked non-triggering. No reaction SHALL be resolved. The triggers mark SHALL cover only this function's result. Stand, Drop Prone, and Crawl also trigger Reactive Strike elsewhere (FIX-06).
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2305 (Player Core pg. 418, Stride)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2304 (Player Core pg. 418, Step triggers no reactions)
