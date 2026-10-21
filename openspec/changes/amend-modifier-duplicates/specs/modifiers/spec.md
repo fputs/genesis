@@ -215,7 +215,7 @@ Frightened and sickened grouping SHALL key on (condition, statistic), not the co
 
 #### Scenario: A frightened bonus does not hide a frightened penalty
 
-- **GIVEN** source 7 on the attack roll at sequence 4, with a frightened status bonus of +2 at rank 3 and a frightened status penalty of -1 at rank 1
+- **GIVEN** a synthetic robustness check, because frightened never grants a bonus: source 7 on the attack roll at sequence 4, with a frightened status bonus of +2 at rank 3 and a frightened status penalty of -1 at rank 1
 - **WHEN** they are totaled with either modifier first
 - **THEN** the status bonus of +2 is applied
 - **AND** the status penalty of -1 is applied

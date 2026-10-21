@@ -79,7 +79,7 @@ Alternative considered: leave an unset statistic as `Attack`. Rejected. A damage
 ## Risks / Trade-offs
 
 - [Equal-sequence penalty totals change from the milder value to the worse value] → Update `an_equal_sequence_keeps_the_higher_value` so its penalty half expects -8. Do not delete that test. The bonus half still expects +4.
-- [Condition grouping after the split changes who frightened rank 3 can hide] → The new frightened scenario is the guard. The single-modifier frightened bonus test stays.
+- [Condition grouping after the split changes who frightened rank 3 can hide] → The frightened-bonus scenario is a synthetic robustness check: frightened never grants a bonus. The single-modifier frightened bonus test stays.
 - [Call sites that built a modifier without a statistic] → Pass `Attack`, `ArmorClass`, `Perception`, or `Damage` at the construction site. Do not invent an `Attack` default.
 
 ## Migration Plan
