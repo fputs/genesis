@@ -33,7 +33,7 @@ Alternative considered: break a cross-type group with a type order. Rejected. Di
 
 ### 2. Property test
 
-The test is in `modifiers.rs` and adds no crate. A test-local generator uses a fixed seed. Each set has at most four modifiers, and the sets include a same-source, same-value collision across type and one across level. Every ordering is totaled. The totals and the applied modifiers match, and the same seed produces the same sets. The test does not read a clock or a global generator. One `ScriptedDice` is built and left unused.
+The test is in `modifiers.rs` and adds no crate. A test-local generator uses a fixed seed. Each set has at most four modifiers. The generator emits one exact duplicate and one set with both levels absent, so the comparison falls through to the canonical key. Two identical condition-10 status penalties of -2 apply once and total -2 in both orders. Every ordering is totaled. The totals and the applied modifiers match, and the same seed produces the same sets. The test does not read a clock or a global generator. One `ScriptedDice` is built and left unused.
 
 ## Risks / Trade-offs
 

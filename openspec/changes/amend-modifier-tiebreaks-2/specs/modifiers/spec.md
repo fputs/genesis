@@ -95,6 +95,13 @@ After the worst penalty or the highest bonus, the order SHALL be the highest ran
 - **AND** the level 1 penalty is not applied
 - **AND** the attack-roll total is -2 in both orders
 
+#### Scenario: Two identical condition penalties apply once
+
+- **GIVEN** condition 10 on the attack roll, two status penalties of -2 from source 1 at sequence 5 and rank 1, both at level 1
+- **WHEN** they are totaled with either modifier first
+- **THEN** exactly one status penalty is applied in both orders
+- **AND** the attack-roll total is -2 in both orders
+
 ### Requirement: Comparisons end on the lower source id
 
 Stacking SHALL keep the highest bonus or worst penalty, then the lowest sequence, then the lower condition id, a missing id losing, then the lower source id. A duplicate-key comparison SHALL end on that source id. A condition-group comparison SHALL continue after that source id, in the order its tie requirement states, and SHALL be a total order over distinct modifiers. For any input set, every ordering SHALL keep the same applied modifier and the same total.
@@ -125,13 +132,13 @@ Stacking SHALL keep the highest bonus or worst penalty, then the lowest sequence
 
 ### Requirement: A property test checks every ordering
 
-The implementation SHALL include a property test that uses a fixed seed and SHALL add no crate. Its generated sets SHALL include a same-source, same-value collision across type and one across level, and each set SHALL hold at most four modifiers. The test SHALL shuffle each set through every ordering and SHALL assert that the totals and the kept modifiers are identical for every ordering. The same seed SHALL produce the same sets. The test SHALL NOT read a clock or a global generator.
+A property test SHALL use a fixed seed and SHALL add no crate. Its generated sets SHALL include one exact duplicate and one set with both levels absent, so the canonical key decides, and each set SHALL hold at most four modifiers. The test SHALL shuffle each set through every ordering and SHALL assert that the totals and the kept modifiers are identical for every ordering. The same seed SHALL produce the same sets. The test SHALL NOT read a clock or a global generator.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 
 #### Scenario: Shuffled collisions match in every order
 
-- **GIVEN** one fixed seed whose generated sets include a same-source, same-value collision across type and one across level, and each set has at most four modifiers
+- **GIVEN** one fixed seed whose generated sets include one exact duplicate and one set with both levels absent, and each set has at most four modifiers
 - **WHEN** every ordering of each set is totaled, and the same seed is used again
 - **THEN** every ordering of a set has the same total
 - **AND** every ordering of a set keeps the same modifiers
