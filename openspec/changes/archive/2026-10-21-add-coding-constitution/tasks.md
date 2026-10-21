@@ -13,4 +13,4 @@
 ## 3. Proof and archive
 
 - [x] 3.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 3.2 After Evan merges, archive the change with `openspec archive add-coding-constitution --yes` and verify it moves under `openspec/changes/archive/`
+- [x] 3.2 After Evan merges, archive the change with `openspec archive add-coding-constitution --yes` and verify it moves under `openspec/changes/archive/`

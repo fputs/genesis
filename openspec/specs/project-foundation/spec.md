@@ -74,13 +74,13 @@ The repository SHALL contain a root `CHANGELOG.md` in Keep a Changelog format wi
 
 ### Requirement: Agent guide
 
-The repository SHALL contain a short root `AGENTS.md` that points agents at the OpenSpec workflow and the rules in `openspec/config.yaml`.
+The repository SHALL contain a root `AGENTS.md` that is the coding constitution.
 
-#### Scenario: Guide points at OpenSpec
+#### Scenario: Guide is the coding constitution
 
 - **GIVEN** `AGENTS.md` at the repo root
 - **WHEN** an agent reads it
-- **THEN** it directs the agent to the OpenSpec workflow and to the rules in `openspec/config.yaml`
+- **THEN** it is the coding constitution
 
 ### Requirement: Role documentation tree
 
