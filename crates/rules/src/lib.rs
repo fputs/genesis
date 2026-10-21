@@ -27,7 +27,7 @@ pub use combatant::{
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
 pub use modifiers::{
     BonusType, ConditionId, Cover, Modifier, ModifierError, ModifierTotal, PenaltyType, SourceId,
-    ac_modifiers, attack_modifiers, dc_from_total, perception_modifiers, total,
+    Statistic, ac_modifiers, attack_modifiers, dc_from_total, perception_modifiers, total,
 };
 
 #[cfg(any(test, feature = "test-support"))]

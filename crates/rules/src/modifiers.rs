@@ -79,6 +79,21 @@ impl ConditionId {
     pub const SICKENED: Self = Self(3);
 }
 
+/// The statistic a modifier applies to. Two statistics do not share a stack.
+///
+/// Player Core, Duplicate Effects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Statistic {
+    /// An attack roll. Player Core, Attack Rolls.
+    Attack,
+    /// Armor Class. Player Core, Armor Class.
+    ArmorClass,
+    /// Perception. Player Core, Perception.
+    Perception,
+    /// A damage roll. Player Core, "Damage Rolls".
+    Damage,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Condition {
     id: ConditionId,
@@ -91,15 +106,47 @@ enum ModifierKind {
     Penalty(PenaltyType),
 }
 
+/// Where a modifier came from. Caller ids and reserved rules do not compare equal.
+///
+/// A caller builds a [`SourceId`]. The multiple attack penalty and the other producers in
+/// this module use a reserved variant, so no `SourceId` a caller can construct names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum ModifierSource {
+    Caller(SourceId),
+    MultipleAttackPenalty,
+    Prone,
+    Aid,
+    Cover,
+    OffGuard,
+    UnconsciousArmorClass,
+    UnconsciousPerception,
+}
+
+impl ModifierSource {
+    fn caller_id(self) -> Option<SourceId> {
+        match self {
+            Self::Caller(id) => Some(id),
+            Self::MultipleAttackPenalty
+            | Self::Prone
+            | Self::Aid
+            | Self::Cover
+            | Self::OffGuard
+            | Self::UnconsciousArmorClass
+            | Self::UnconsciousPerception => None,
+        }
+    }
+}
+
 /// One bonus or penalty. The value is greater than 0 for a bonus and less than 0 for a penalty.
 ///
 /// Player Core, Bonuses and Penalties.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Modifier {
-    source: SourceId,
+    source: ModifierSource,
     sequence: u32,
     level: Option<u32>,
     condition: Option<Condition>,
+    statistic: Statistic,
     kind: ModifierKind,
     value: i32,
 }
@@ -108,15 +155,34 @@ impl Modifier {
     /// Builds a bonus. The value must be greater than 0.
     ///
     /// `level` is the effect's level, when it has one. `sequence` is caller-supplied;
-    /// a greater number is newer.
+    /// a greater number is newer. `statistic` is required. Attack is not implied.
     ///
-    /// Player Core, Bonuses.
+    /// Player Core, Bonuses. Player Core, Duplicate Effects.
     pub fn bonus(
         ty: BonusType,
         value: i32,
         source: SourceId,
         sequence: u32,
         level: Option<u32>,
+        statistic: Statistic,
+    ) -> Result<Self, ModifierError> {
+        Self::bonus_from(
+            ty,
+            value,
+            ModifierSource::Caller(source),
+            sequence,
+            level,
+            statistic,
+        )
+    }
+
+    fn bonus_from(
+        ty: BonusType,
+        value: i32,
+        source: ModifierSource,
+        sequence: u32,
+        level: Option<u32>,
+        statistic: Statistic,
     ) -> Result<Self, ModifierError> {
         if value == 0 {
             return Err(ModifierError::Zero);
@@ -129,6 +195,7 @@ impl Modifier {
             sequence,
             level,
             condition: None,
+            statistic,
             kind: ModifierKind::Bonus(ty),
             value,
         })
@@ -137,15 +204,34 @@ impl Modifier {
     /// Builds a penalty. The value must be less than 0.
     ///
     /// A positive untyped value is [`ModifierError::UntypedBonus`]. Any other positive
-    /// value is [`ModifierError::Sign`].
+    /// value is [`ModifierError::Sign`]. `statistic` is required. Attack is not implied.
     ///
-    /// Player Core, Penalties.
+    /// Player Core, Penalties. Player Core, Duplicate Effects.
     pub fn penalty(
         ty: PenaltyType,
         value: i32,
         source: SourceId,
         sequence: u32,
         level: Option<u32>,
+        statistic: Statistic,
+    ) -> Result<Self, ModifierError> {
+        Self::penalty_from(
+            ty,
+            value,
+            ModifierSource::Caller(source),
+            sequence,
+            level,
+            statistic,
+        )
+    }
+
+    fn penalty_from(
+        ty: PenaltyType,
+        value: i32,
+        source: ModifierSource,
+        sequence: u32,
+        level: Option<u32>,
+        statistic: Statistic,
     ) -> Result<Self, ModifierError> {
         if value == 0 {
             return Err(ModifierError::Zero);
@@ -162,6 +248,7 @@ impl Modifier {
             sequence,
             level,
             condition: None,
+            statistic,
             kind: ModifierKind::Penalty(ty),
             value,
         })
@@ -197,9 +284,27 @@ impl Modifier {
         self.level
     }
 
-    /// The effect this modifier came from.
-    pub fn source(self) -> SourceId {
-        self.source
+    /// The caller-supplied effect id, when this modifier has one.
+    ///
+    /// Reserved producers, including the multiple attack penalty, have no caller id.
+    ///
+    /// Player Core, Duplicate Effects. Player Core, "Multiple Attack Penalty".
+    pub fn source(self) -> Option<SourceId> {
+        self.source.caller_id()
+    }
+
+    /// The statistic this modifier applies to.
+    ///
+    /// Player Core, Duplicate Effects.
+    pub fn statistic(self) -> Statistic {
+        self.statistic
+    }
+
+    /// The condition this modifier came from, when it has one.
+    ///
+    /// Player Core, "Redundant Conditions".
+    pub fn condition_id(self) -> Option<ConditionId> {
+        self.condition.map(|condition| condition.id)
     }
 
     /// The bonus type, or `None` when this is a penalty.
@@ -226,39 +331,57 @@ impl Modifier {
     }
 }
 
-/// The modifiers that apply after duplicate effects, conditions, and same-type stacking, plus their sum.
+/// The modifiers that apply after duplicate effects, conditions, and same-type stacking.
 ///
-/// Player Core, Bonuses and Penalties.
+/// Each statistic has its own total. Player Core, Bonuses, Penalties, and Duplicate Effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModifierTotal {
-    value: i32,
+    totals: StatisticTotals,
     applied: Vec<Modifier>,
 }
 
 impl ModifierTotal {
-    /// The summed total. It is not clamped.
-    pub fn get(&self) -> i32 {
-        self.value
+    /// The total for `statistic`. Modifiers on another statistic are not included, and the
+    /// result is not clamped.
+    ///
+    /// Player Core, Duplicate Effects. Player Core, "Damage Rolls".
+    pub fn get(&self, statistic: Statistic) -> i32 {
+        self.totals.get(statistic)
     }
 
-    /// The modifiers that were applied. A tied bonus or penalty is the one with the lowest sequence.
+    /// The modifiers that were applied. A tie keeps the lowest sequence, then the lower
+    /// condition id, and a missing condition id loses, then the lower source id.
     pub fn applied(&self) -> &[Modifier] {
         &self.applied
     }
 }
 
-/// Reduces repeated conditions, then same-source effects, then stacks what remains.
+/// Splits bonuses from penalties, reduces repeated conditions per statistic, collapses
+/// the duplicate key, then stacks what remains on each statistic.
 ///
-/// For each of circumstance, item, and status, the highest bonus and the worst penalty both
-/// apply. When different sources tie, the lowest sequence is the one reported. Every untyped
-/// penalty is added with checked addition. Overflow is [`ModifierError::Overflow`] and is not
-/// a saturated `i32`.
+/// The key is (source id, statistic, type, bonus or penalty) and equal condition ids.
+/// A missing condition id matches only another missing id, so different conditions stay
+/// apart. The type is the type after frightened and sickened penalties become status.
+/// For each statistic, and for each of circumstance, item, and status, the highest bonus
+/// and the worst penalty both apply. When those tie, the lowest sequence is reported,
+/// then the lower condition id, and a missing condition id loses, then the lower source
+/// id. Two statistics do not share that choice. Every untyped penalty is added with
+/// checked addition. Overflow is [`ModifierError::Overflow`] and is not a saturated `i32`.
 ///
 /// Player Core, Bonuses, Penalties, and Duplicate Effects.
 pub fn total(modifiers: &[Modifier]) -> Result<ModifierTotal, ModifierError> {
-    let conditioned = collapse_conditions(modifiers)?;
-    let sourced = collapse_sources(&conditioned);
-    finish(stack_types(&sourced))
+    let mut bonuses = Vec::new();
+    let mut penalties = Vec::new();
+    for modifier in modifiers.iter().copied() {
+        match modifier.kind {
+            ModifierKind::Bonus(_) => bonuses.push(modifier),
+            ModifierKind::Penalty(_) => penalties.push(modifier),
+        }
+    }
+    let mut reduced = collapse_conditions(&bonuses)?;
+    reduced.extend(collapse_conditions(&penalties)?);
+    let keyed = collapse_keys(&reduced);
+    finish(stack_types(&keyed))
 }
 
 /// DC equal to 10 plus `total`. The result is not clamped. The add is checked.
@@ -270,17 +393,27 @@ pub fn dc_from_total(total: i32) -> Result<i32, ModifierError> {
 
 fn collapse_conditions(modifiers: &[Modifier]) -> Result<Vec<Modifier>, ModifierError> {
     let mut plain = Vec::new();
-    let mut grouped: Vec<(ConditionId, Vec<Modifier>)> = Vec::new();
+    // The key uses the type after frightened and sickened penalties become status, so a
+    // circumstance penalty and a status penalty from one condition do not share a group.
+    let mut grouped: Vec<(ConditionId, Statistic, ModifierKind, Vec<Modifier>)> = Vec::new();
     for modifier in modifiers.iter().copied() {
+        if valued_rank_is_zero(modifier) {
+            continue;
+        }
         match modifier.condition {
             None => plain.push(modifier),
-            Some(condition) => match grouped.iter_mut().find(|(id, _)| *id == condition.id) {
-                Some((_, group)) => group.push(modifier),
-                None => grouped.push((condition.id, vec![modifier])),
-            },
+            Some(condition) => {
+                let kind = group_kind(modifier);
+                match grouped.iter_mut().find(|(id, statistic, group_kind, _)| {
+                    *id == condition.id && *statistic == modifier.statistic && *group_kind == kind
+                }) {
+                    Some((_, _, _, group)) => group.push(modifier),
+                    None => grouped.push((condition.id, modifier.statistic, kind, vec![modifier])),
+                }
+            }
         }
     }
-    for (_, group) in grouped {
+    for (_, _, _, group) in grouped {
         if let Some(modifier) = keep_condition(&group)? {
             plain.push(modifier);
         }
@@ -288,34 +421,94 @@ fn collapse_conditions(modifiers: &[Modifier]) -> Result<Vec<Modifier>, Modifier
     Ok(plain)
 }
 
-/// Highest rank wins. The same rank keeps the newer sequence, which is the greater one.
-/// A condition with no rank is kept once, and that tie uses the same newer sequence.
+/// The worst penalty or the highest bonus wins. Frightened and sickened penalties compare
+/// `-rank`, the condition value, before the rewrite. Any other condition compares the
+/// modifier the caller wrote. A tie then keeps the highest rank, a rank over none, the
+/// newest sequence, and the lowest source id. Equal source ids then keep the higher level,
+/// a level over none, and the duplicate-key comparison decides what remains.
 ///
-/// Rank is the condition's number, so frightened 2 beats frightened 1 even though -1 is
-/// algebraically greater than -2. A frightened or sickened penalty then contributes one
-/// status penalty equal to the negation of that rank. A bonus with those ids, and any other
-/// ranked condition, keeps its declared type and value. Value does not break a same-rank tie.
+/// A frightened or sickened penalty then contributes one status penalty equal to the
+/// negation of the kept rank. A bonus with those ids, and any other ranked condition,
+/// keeps its declared type and value.
 fn keep_condition(group: &[Modifier]) -> Result<Option<Modifier>, ModifierError> {
     let Some(mut best) = group.first().copied() else {
         return Ok(None);
     };
     for candidate in group.iter().copied().skip(1) {
-        if condition_prefers(candidate, best) {
+        if condition_prefers(candidate, best)? {
             best = candidate;
         }
     }
     apply_ranked_penalty(best)
 }
 
-fn condition_prefers(candidate: Modifier, current: Modifier) -> bool {
+fn condition_prefers(candidate: Modifier, current: Modifier) -> Result<bool, ModifierError> {
+    let candidate_value = grouped_value(candidate)?;
+    let current_value = grouped_value(current)?;
+    if candidate_value != current_value {
+        return Ok(match candidate.kind {
+            ModifierKind::Bonus(_) => candidate_value > current_value,
+            ModifierKind::Penalty(_) => candidate_value < current_value,
+        });
+    }
     match (candidate.rank(), current.rank()) {
         (Some(candidate_rank), Some(current_rank)) if candidate_rank != current_rank => {
-            candidate_rank > current_rank
+            return Ok(candidate_rank > current_rank);
         }
-        (Some(_), None) => true,
-        (None, Some(_)) => false,
-        // Same rank, or neither has one: the newer effect wins. Newer is the greater sequence.
-        _ => candidate.sequence > current.sequence,
+        (Some(_), None) => return Ok(true),
+        (None, Some(_)) => return Ok(false),
+        _ => {}
+    }
+    if candidate.sequence != current.sequence {
+        return Ok(candidate.sequence > current.sequence);
+    }
+    let candidate_source = source_ord(candidate.source);
+    let current_source = source_ord(current.source);
+    if candidate_source != current_source {
+        return Ok(candidate_source < current_source);
+    }
+    // Equal source ids. The higher level is an engineering tiebreak. What remains is the
+    // duplicate-key comparison, which still sees the caller's value.
+    match (candidate.level, current.level) {
+        (Some(candidate_level), Some(current_level)) if candidate_level != current_level => {
+            return Ok(candidate_level > current_level);
+        }
+        (Some(_), None) => return Ok(true),
+        (None, Some(_)) => return Ok(false),
+        _ => {}
+    }
+    Ok(key_prefers(candidate, current))
+}
+
+fn valued_rank_is_zero(modifier: Modifier) -> bool {
+    derived_rank(modifier) == Some(0)
+}
+
+fn group_kind(modifier: Modifier) -> ModifierKind {
+    if derived_rank(modifier).is_some() {
+        ModifierKind::Penalty(PenaltyType::Status)
+    } else {
+        modifier.kind
+    }
+}
+
+/// Frightened and sickened penalties are derived from the condition value, so the
+/// comparison uses `-rank` even when the caller wrote a different penalty.
+fn grouped_value(modifier: Modifier) -> Result<i32, ModifierError> {
+    let Some(rank) = derived_rank(modifier) else {
+        return Ok(modifier.value);
+    };
+    let rank = i32::try_from(rank).map_err(|_| ModifierError::Overflow)?;
+    rank.checked_neg().ok_or(ModifierError::Overflow)
+}
+
+fn derived_rank(modifier: Modifier) -> Option<u32> {
+    modifier.penalty_type()?;
+    let condition = modifier.condition?;
+    if condition.id == ConditionId::FRIGHTENED || condition.id == ConditionId::SICKENED {
+        condition.rank
+    } else {
+        None
     }
 }
 
@@ -342,19 +535,21 @@ fn apply_ranked_penalty(mut modifier: Modifier) -> Result<Option<Modifier>, Modi
     Ok(Some(modifier))
 }
 
-/// One source contributes once: higher level or rank, otherwise the greater sequence.
+/// One duplicate key contributes once.
 ///
-/// A greater sequence still wins when its value is lower. Rules 2266. An equal sequence has
-/// no newer effect, so the higher value wins and the two input orders total the same.
-fn collapse_sources(modifiers: &[Modifier]) -> Vec<Modifier> {
+/// The key is (source id, statistic, type, bonus or penalty) plus the condition id,
+/// using the type after frightened and sickened penalties are rewritten. Unequal
+/// condition ids do not share a key. A greater sequence still wins when its value is
+/// lower. Rules 2266.
+fn collapse_keys(modifiers: &[Modifier]) -> Vec<Modifier> {
     let mut kept: Vec<Modifier> = Vec::new();
     for modifier in modifiers.iter().copied() {
         match kept
             .iter_mut()
-            .find(|existing| existing.source == modifier.source)
+            .find(|existing| same_duplicate_key(**existing, modifier))
         {
             Some(existing) => {
-                if source_prefers(modifier, *existing) {
+                if key_prefers(modifier, *existing) {
                     *existing = modifier;
                 }
             }
@@ -364,7 +559,19 @@ fn collapse_sources(modifiers: &[Modifier]) -> Vec<Modifier> {
     kept
 }
 
-fn source_prefers(candidate: Modifier, current: Modifier) -> bool {
+fn same_duplicate_key(left: Modifier, right: Modifier) -> bool {
+    left.source == right.source
+        && left.statistic == right.statistic
+        && left.kind == right.kind
+        && left.condition_id() == right.condition_id()
+}
+
+/// Higher level, then a level over none, then higher rank, then a rank over none, then the
+/// greater sequence. Ruling R-01 then keeps the higher bonus or the more negative penalty.
+/// Duplicate Effects has no value step; Rules 2282 does, and this matches it. A lower
+/// condition id breaks a remaining tie, and a missing condition id loses. The lower source
+/// id is last. Both of those steps are engineering tiebreaks.
+fn key_prefers(candidate: Modifier, current: Modifier) -> bool {
     match (candidate.level, current.level) {
         (Some(candidate_level), Some(current_level)) if candidate_level != current_level => {
             return candidate_level > current_level;
@@ -384,8 +591,32 @@ fn source_prefers(candidate: Modifier, current: Modifier) -> bool {
     if candidate.sequence != current.sequence {
         return candidate.sequence > current.sequence;
     }
-    // Equal sequence: keep the higher value so input order cannot change the total.
-    candidate.value > current.value
+    if candidate.value != current.value {
+        return match candidate.kind {
+            ModifierKind::Bonus(_) => candidate.value > current.value,
+            ModifierKind::Penalty(_) => candidate.value < current.value,
+        };
+    }
+    if let Some(preferred) = lower_condition_id(candidate, current) {
+        return preferred;
+    }
+    lower_source(candidate, current)
+}
+
+/// `Some` when the condition ids differ. The lower id wins, and a missing id loses.
+fn lower_condition_id(candidate: Modifier, current: Modifier) -> Option<bool> {
+    match (candidate.condition_id(), current.condition_id()) {
+        (Some(candidate_id), Some(current_id)) if candidate_id != current_id => {
+            Some(candidate_id < current_id)
+        }
+        (Some(_), None) => Some(true),
+        (None, Some(_)) => Some(false),
+        _ => None,
+    }
+}
+
+fn lower_source(candidate: Modifier, current: Modifier) -> bool {
+    source_ord(candidate.source) < source_ord(current.source)
 }
 
 struct Buckets {
@@ -398,37 +629,79 @@ struct Buckets {
     untyped: Vec<Modifier>,
 }
 
-fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
-    let mut buckets = Buckets {
-        circumstance_bonus: None,
-        item_bonus: None,
-        status_bonus: None,
-        circumstance_penalty: None,
-        item_penalty: None,
-        status_penalty: None,
-        untyped: Vec::new(),
-    };
-    for modifier in modifiers.iter().copied() {
-        match modifier.kind {
-            ModifierKind::Bonus(BonusType::Circumstance) => {
-                prefer_bonus(&mut buckets.circumstance_bonus, modifier);
-            }
-            ModifierKind::Bonus(BonusType::Item) => prefer_bonus(&mut buckets.item_bonus, modifier),
-            ModifierKind::Bonus(BonusType::Status) => {
-                prefer_bonus(&mut buckets.status_bonus, modifier);
-            }
-            ModifierKind::Penalty(PenaltyType::Circumstance) => {
-                prefer_penalty(&mut buckets.circumstance_penalty, modifier);
-            }
-            ModifierKind::Penalty(PenaltyType::Item) => {
-                prefer_penalty(&mut buckets.item_penalty, modifier);
-            }
-            ModifierKind::Penalty(PenaltyType::Status) => {
-                prefer_penalty(&mut buckets.status_penalty, modifier);
-            }
-            ModifierKind::Penalty(PenaltyType::Untyped) => buckets.untyped.push(modifier),
+impl Buckets {
+    fn new() -> Self {
+        Self {
+            circumstance_bonus: None,
+            item_bonus: None,
+            status_bonus: None,
+            circumstance_penalty: None,
+            item_penalty: None,
+            status_penalty: None,
+            untyped: Vec::new(),
         }
     }
+}
+
+struct ByStatistic {
+    attack: Buckets,
+    armor_class: Buckets,
+    perception: Buckets,
+    damage: Buckets,
+}
+
+fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
+    let mut grouped = ByStatistic {
+        attack: Buckets::new(),
+        armor_class: Buckets::new(),
+        perception: Buckets::new(),
+        damage: Buckets::new(),
+    };
+    for modifier in modifiers.iter().copied() {
+        push_bucket(buckets_for(&mut grouped, modifier.statistic), modifier);
+    }
+    let mut applied = Vec::new();
+    for buckets in [
+        grouped.attack,
+        grouped.armor_class,
+        grouped.perception,
+        grouped.damage,
+    ] {
+        applied.extend(applied_from(buckets));
+    }
+    applied
+}
+
+fn buckets_for(grouped: &mut ByStatistic, statistic: Statistic) -> &mut Buckets {
+    match statistic {
+        Statistic::Attack => &mut grouped.attack,
+        Statistic::ArmorClass => &mut grouped.armor_class,
+        Statistic::Perception => &mut grouped.perception,
+        Statistic::Damage => &mut grouped.damage,
+    }
+}
+
+fn push_bucket(buckets: &mut Buckets, modifier: Modifier) {
+    match modifier.kind {
+        ModifierKind::Bonus(BonusType::Circumstance) => {
+            prefer_bonus(&mut buckets.circumstance_bonus, modifier);
+        }
+        ModifierKind::Bonus(BonusType::Item) => prefer_bonus(&mut buckets.item_bonus, modifier),
+        ModifierKind::Bonus(BonusType::Status) => prefer_bonus(&mut buckets.status_bonus, modifier),
+        ModifierKind::Penalty(PenaltyType::Circumstance) => {
+            prefer_penalty(&mut buckets.circumstance_penalty, modifier);
+        }
+        ModifierKind::Penalty(PenaltyType::Item) => {
+            prefer_penalty(&mut buckets.item_penalty, modifier);
+        }
+        ModifierKind::Penalty(PenaltyType::Status) => {
+            prefer_penalty(&mut buckets.status_penalty, modifier);
+        }
+        ModifierKind::Penalty(PenaltyType::Untyped) => buckets.untyped.push(modifier),
+    }
+}
+
+fn applied_from(buckets: Buckets) -> Vec<Modifier> {
     let mut applied = Vec::new();
     for modifier in [
         buckets.circumstance_bonus,
@@ -461,47 +734,167 @@ fn prefer_penalty(slot: &mut Option<Modifier>, candidate: Modifier) {
     }
 }
 
-/// Highest value wins. A tie reports the lowest sequence, not the newer effect.
+/// Highest value wins. A tie reports the lowest sequence, then the lower condition id,
+/// and a missing condition id loses, then the lower source id.
 fn bonus_prefers(candidate: Modifier, current: Modifier) -> bool {
     if candidate.value != current.value {
         candidate.value > current.value
     } else {
-        candidate.sequence < current.sequence
+        stack_tie(candidate, current)
     }
 }
 
-/// Lowest value wins. A tie reports the lowest sequence.
+/// Lowest value wins. A tie reports the lowest sequence, then the lower condition id,
+/// and a missing condition id loses, then the lower source id.
 fn penalty_prefers(candidate: Modifier, current: Modifier) -> bool {
     if candidate.value != current.value {
         candidate.value < current.value
     } else {
-        candidate.sequence < current.sequence
+        stack_tie(candidate, current)
     }
+}
+
+fn stack_tie(candidate: Modifier, current: Modifier) -> bool {
+    if candidate.sequence != current.sequence {
+        return candidate.sequence < current.sequence;
+    }
+    if let Some(preferred) = lower_condition_id(candidate, current) {
+        return preferred;
+    }
+    lower_source(candidate, current)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StatisticTotals {
+    attack: i32,
+    armor_class: i32,
+    perception: i32,
+    damage: i32,
+}
+
+impl StatisticTotals {
+    fn get(self, statistic: Statistic) -> i32 {
+        match statistic {
+            Statistic::Attack => self.attack,
+            Statistic::ArmorClass => self.armor_class,
+            Statistic::Perception => self.perception,
+            Statistic::Damage => self.damage,
+        }
+    }
+}
+
+struct StatisticWide {
+    attack: i64,
+    armor_class: i64,
+    perception: i64,
+    damage: i64,
 }
 
 fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
     // Canonical order so insertion order cannot change the reported list.
-    // The sum is i64 because bonuses sort before penalties: an i32 add of
+    // Each statistic is summed in i64 because bonuses sort before penalties: an i32 add of
     // circumstance i32::MAX and item +1 overflows before a later status -5
-    // brings the true total back into range.
+    // brings that statistic's total back into range. Another statistic is not in the sum.
     applied.sort_by_key(sort_key);
-    let mut wide = 0i64;
+    let mut wide = StatisticWide {
+        attack: 0,
+        armor_class: 0,
+        perception: 0,
+        damage: 0,
+    };
     for modifier in &applied {
-        wide = wide
-            .checked_add(i64::from(modifier.value))
-            .ok_or(ModifierError::Overflow)?;
+        add_statistic(&mut wide, modifier.statistic, modifier.value)?;
     }
-    let value = i32::try_from(wide).map_err(|_| ModifierError::Overflow)?;
-    Ok(ModifierTotal { value, applied })
+    let totals = StatisticTotals {
+        attack: i32::try_from(wide.attack).map_err(|_| ModifierError::Overflow)?,
+        armor_class: i32::try_from(wide.armor_class).map_err(|_| ModifierError::Overflow)?,
+        perception: i32::try_from(wide.perception).map_err(|_| ModifierError::Overflow)?,
+        damage: i32::try_from(wide.damage).map_err(|_| ModifierError::Overflow)?,
+    };
+    Ok(ModifierTotal { totals, applied })
 }
 
-fn sort_key(modifier: &Modifier) -> (u8, i32, u32, u32) {
-    (
-        kind_ord(modifier.kind),
-        modifier.value,
-        modifier.sequence,
-        modifier.source.0,
-    )
+fn add_statistic(
+    wide: &mut StatisticWide,
+    statistic: Statistic,
+    value: i32,
+) -> Result<(), ModifierError> {
+    let slot = match statistic {
+        Statistic::Attack => &mut wide.attack,
+        Statistic::ArmorClass => &mut wide.armor_class,
+        Statistic::Perception => &mut wide.perception,
+        Statistic::Damage => &mut wide.damage,
+    };
+    *slot = slot
+        .checked_add(i64::from(value))
+        .ok_or(ModifierError::Overflow)?;
+    Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct ReportOrder {
+    kind: u8,
+    value: i32,
+    sequence: u32,
+    // A missing level or condition id sorts after a present one. Level stays after
+    // the value so the reported order does not put level ahead of the bonus or penalty.
+    level: (u8, u32),
+    rank: (u8, u32),
+    condition: (u8, u32),
+    source_kind: u8,
+    source_id: u32,
+    statistic: u8,
+}
+
+fn sort_key(modifier: &Modifier) -> ReportOrder {
+    let (source_kind, source_id) = source_ord(modifier.source);
+    ReportOrder {
+        kind: kind_ord(modifier.kind),
+        value: modifier.value,
+        sequence: modifier.sequence,
+        level: presence_ord(modifier.level),
+        rank: presence_ord(modifier.rank()),
+        condition: condition_sort(modifier.condition_id()),
+        source_kind,
+        source_id,
+        statistic: statistic_ord(modifier.statistic),
+    }
+}
+
+fn presence_ord(value: Option<u32>) -> (u8, u32) {
+    match value {
+        Some(value) => (0, value),
+        None => (1, 0),
+    }
+}
+
+fn condition_sort(id: Option<ConditionId>) -> (u8, u32) {
+    match id {
+        Some(id) => (0, id.0),
+        None => (1, 0),
+    }
+}
+
+fn source_ord(source: ModifierSource) -> (u8, u32) {
+    match source {
+        ModifierSource::Caller(id) => (0, id.0),
+        ModifierSource::MultipleAttackPenalty => (1, 0),
+        ModifierSource::Prone => (2, 0),
+        ModifierSource::Aid => (3, 0),
+        ModifierSource::Cover => (4, 0),
+        ModifierSource::OffGuard => (5, 0),
+        ModifierSource::UnconsciousArmorClass => (6, 0),
+        ModifierSource::UnconsciousPerception => (7, 0),
+    }
+}
+
+fn statistic_ord(statistic: Statistic) -> u8 {
+    match statistic {
+        Statistic::Attack => 0,
+        Statistic::ArmorClass => 1,
+        Statistic::Perception => 2,
+        Statistic::Damage => 3,
+    }
 }
 
 fn kind_ord(kind: ModifierKind) -> u8 {
@@ -515,14 +908,6 @@ fn kind_ord(kind: ModifierKind) -> u8 {
         ModifierKind::Penalty(PenaltyType::Untyped) => 6,
     }
 }
-
-const MAP_SOURCE: SourceId = SourceId(1);
-const PRONE_SOURCE: SourceId = SourceId(2);
-const AID_SOURCE: SourceId = SourceId(3);
-const COVER_SOURCE: SourceId = SourceId(4);
-const OFF_GUARD_SOURCE: SourceId = SourceId(5);
-const UNCONSCIOUS_AC_SOURCE: SourceId = SourceId(6);
-const UNCONSCIOUS_PERCEPTION_SOURCE: SourceId = SourceId(7);
 
 const OFF_GUARD: ConditionId = ConditionId(1);
 
@@ -565,17 +950,23 @@ pub fn attack_modifiers(
     aid_circumstance: i32,
 ) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
-    push_untyped(&mut modifiers, multiple_attack_penalty, MAP_SOURCE, 1)?;
+    push_untyped(
+        &mut modifiers,
+        multiple_attack_penalty,
+        ModifierSource::MultipleAttackPenalty,
+        1,
+    )?;
     if prone {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Circumstance,
             -2,
-            PRONE_SOURCE,
+            ModifierSource::Prone,
             2,
             None,
+            Statistic::Attack,
         )?);
     }
-    push_circumstance(&mut modifiers, aid_circumstance, AID_SOURCE, 3)?;
+    push_circumstance(&mut modifiers, aid_circumstance, ModifierSource::Aid, 3)?;
     Ok(modifiers)
 }
 
@@ -589,27 +980,36 @@ pub fn ac_modifiers(
 ) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if let Some(cover) = cover {
-        modifiers.push(Modifier::bonus(
+        modifiers.push(Modifier::bonus_from(
             BonusType::Circumstance,
             cover.bonus(),
-            COVER_SOURCE,
+            ModifierSource::Cover,
             4,
             None,
+            Statistic::ArmorClass,
         )?);
     }
     if off_guard {
         modifiers.push(
-            Modifier::penalty(PenaltyType::Circumstance, -2, OFF_GUARD_SOURCE, 5, None)?
-                .with_condition(OFF_GUARD, None),
+            Modifier::penalty_from(
+                PenaltyType::Circumstance,
+                -2,
+                ModifierSource::OffGuard,
+                5,
+                None,
+                Statistic::ArmorClass,
+            )?
+            .with_condition(OFF_GUARD, None),
         );
     }
     if unconscious {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Status,
             -4,
-            UNCONSCIOUS_AC_SOURCE,
+            ModifierSource::UnconsciousArmorClass,
             6,
             None,
+            Statistic::ArmorClass,
         )?);
     }
     Ok(modifiers)
@@ -621,12 +1021,13 @@ pub fn ac_modifiers(
 pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if unconscious {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Status,
             -4,
-            UNCONSCIOUS_PERCEPTION_SOURCE,
+            ModifierSource::UnconsciousPerception,
             7,
             None,
+            Statistic::Perception,
         )?);
     }
     Ok(modifiers)
@@ -635,7 +1036,7 @@ pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, Modifier
 fn push_untyped(
     modifiers: &mut Vec<Modifier>,
     value: i32,
-    source: SourceId,
+    source: ModifierSource,
     sequence: u32,
 ) -> Result<(), ModifierError> {
     if value == 0 {
@@ -644,12 +1045,13 @@ fn push_untyped(
     if value > 0 {
         return Err(ModifierError::UntypedBonus);
     }
-    modifiers.push(Modifier::penalty(
+    modifiers.push(Modifier::penalty_from(
         PenaltyType::Untyped,
         value,
         source,
         sequence,
         None,
+        Statistic::Attack,
     )?);
     Ok(())
 }
@@ -657,27 +1059,29 @@ fn push_untyped(
 fn push_circumstance(
     modifiers: &mut Vec<Modifier>,
     value: i32,
-    source: SourceId,
+    source: ModifierSource,
     sequence: u32,
 ) -> Result<(), ModifierError> {
     if value == 0 {
         return Ok(());
     }
     if value > 0 {
-        modifiers.push(Modifier::bonus(
+        modifiers.push(Modifier::bonus_from(
             BonusType::Circumstance,
             value,
             source,
             sequence,
             None,
+            Statistic::Attack,
         )?);
     } else {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Circumstance,
             value,
             source,
             sequence,
             None,
+            Statistic::Attack,
         )?);
     }
     Ok(())
@@ -701,8 +1105,9 @@ mod tests {
         source: u32,
         sequence: u32,
         level: Option<u32>,
+        statistic: Statistic,
     ) -> Modifier {
-        Modifier::bonus(ty, value, SourceId(source), sequence, level).expect("bonus")
+        Modifier::bonus(ty, value, SourceId(source), sequence, level, statistic).expect("bonus")
     }
 
     fn penalty(
@@ -711,12 +1116,47 @@ mod tests {
         source: u32,
         sequence: u32,
         level: Option<u32>,
+        statistic: Statistic,
     ) -> Modifier {
-        Modifier::penalty(ty, value, SourceId(source), sequence, level).expect("penalty")
+        Modifier::penalty(ty, value, SourceId(source), sequence, level, statistic).expect("penalty")
     }
 
     fn summed(modifiers: &[Modifier]) -> ModifierTotal {
         total(modifiers).expect("total fits")
+    }
+
+    fn total_on(stacked: &ModifierTotal, statistic: Statistic) -> i32 {
+        stacked.get(statistic)
+    }
+
+    fn orders_of_two(first: Modifier, second: Modifier) -> [[Modifier; 2]; 2] {
+        [[first, second], [second, first]]
+    }
+
+    fn orders_of_three(first: Modifier, second: Modifier, third: Modifier) -> [[Modifier; 3]; 6] {
+        [
+            [first, second, third],
+            [first, third, second],
+            [second, first, third],
+            [second, third, first],
+            [third, first, second],
+            [third, second, first],
+        ]
+    }
+
+    fn for_each_order(modifiers: &mut [Modifier], visit: &mut dyn FnMut(&[Modifier])) {
+        fn walk(modifiers: &mut [Modifier], start: usize, visit: &mut dyn FnMut(&[Modifier])) {
+            if start >= modifiers.len() {
+                visit(modifiers);
+                return;
+            }
+            for index in start..modifiers.len() {
+                modifiers.swap(start, index);
+                walk(modifiers, start + 1, visit);
+                modifiers.swap(start, index);
+            }
+        }
+        walk(modifiers, 0, visit);
     }
 
     fn second_non_agile_map() -> i32 {
@@ -738,7 +1178,14 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn an_untyped_bonus_is_rejected() {
-        let error = Modifier::penalty(PenaltyType::Untyped, 2, SourceId(1), 1, None);
+        let error = Modifier::penalty(
+            PenaltyType::Untyped,
+            2,
+            SourceId(1),
+            1,
+            None,
+            Statistic::Attack,
+        );
         assert_eq!(error, Err(ModifierError::UntypedBonus));
     }
 
@@ -747,11 +1194,25 @@ mod tests {
     #[test]
     fn a_zero_modifier_is_rejected() {
         assert_eq!(
-            Modifier::bonus(BonusType::Circumstance, 0, SourceId(1), 1, None),
+            Modifier::bonus(
+                BonusType::Circumstance,
+                0,
+                SourceId(1),
+                1,
+                None,
+                Statistic::Attack
+            ),
             Err(ModifierError::Zero)
         );
         assert_eq!(
-            Modifier::penalty(PenaltyType::Circumstance, 0, SourceId(1), 1, None),
+            Modifier::penalty(
+                PenaltyType::Circumstance,
+                0,
+                SourceId(1),
+                1,
+                None,
+                Statistic::Attack
+            ),
             Err(ModifierError::Zero)
         );
     }
@@ -760,7 +1221,14 @@ mod tests {
     #[test]
     fn a_negative_bonus_is_rejected() {
         assert_eq!(
-            Modifier::bonus(BonusType::Circumstance, -1, SourceId(1), 1, None),
+            Modifier::bonus(
+                BonusType::Circumstance,
+                -1,
+                SourceId(1),
+                1,
+                None,
+                Statistic::Attack
+            ),
             Err(ModifierError::Sign)
         );
     }
@@ -769,7 +1237,14 @@ mod tests {
     #[test]
     fn a_positive_penalty_is_rejected() {
         assert_eq!(
-            Modifier::penalty(PenaltyType::Circumstance, 1, SourceId(1), 1, None),
+            Modifier::penalty(
+                PenaltyType::Circumstance,
+                1,
+                SourceId(1),
+                1,
+                None,
+                Statistic::Attack
+            ),
             Err(ModifierError::Sign)
         );
     }
@@ -779,10 +1254,10 @@ mod tests {
     fn an_item_bonus_is_accepted() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Item, 2, 1, 1, None),
-            bonus(BonusType::Item, 1, 2, 2, None),
+            bonus(BonusType::Item, 2, 1, 1, None, Statistic::Attack),
+            bonus(BonusType::Item, 1, 2, 2, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Item) && modifier.value() == 2
         }));
@@ -832,10 +1307,10 @@ mod tests {
     fn two_circumstance_bonuses_keep_the_highest() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 2, 1, 1, None),
-            bonus(BonusType::Circumstance, 1, 2, 2, None),
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack),
+            bonus(BonusType::Circumstance, 1, 2, 2, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 2
         }));
@@ -847,11 +1322,11 @@ mod tests {
     fn plus_2_circumstance_with_minus_2_circumstance_equals_0() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 2, 1, 1, None),
-            penalty(PenaltyType::Circumstance, -2, 2, 2, None),
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Circumstance, -2, 2, 2, None, Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 2);
-        assert_eq!(stacked.get(), 0);
+        assert_eq!(stacked.get(Statistic::Attack), 0);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -860,11 +1335,11 @@ mod tests {
     fn status_plus_1_and_status_minus_2_total_minus_1() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Status, 1, 1, 1, None),
-            penalty(PenaltyType::Status, -2, 2, 2, None),
+            bonus(BonusType::Status, 1, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Status, -2, 2, 2, None, Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 2);
-        assert_eq!(stacked.get(), -1);
+        assert_eq!(stacked.get(Statistic::Attack), -1);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -874,12 +1349,12 @@ mod tests {
     #[test]
     fn frightened_2_and_sickened_1_equal_minus_2() {
         let dice = script();
-        let frightened = penalty(PenaltyType::Status, -2, 1, 1, None)
+        let frightened = penalty(PenaltyType::Status, -2, 1, 1, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(2));
-        let sickened = penalty(PenaltyType::Status, -1, 2, 2, None)
+        let sickened = penalty(PenaltyType::Status, -1, 2, 2, None, Statistic::Attack)
             .with_condition(ConditionId::SICKENED, Some(1));
         let stacked = summed(&[frightened, sickened]);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -2
         }));
@@ -891,10 +1366,10 @@ mod tests {
     fn untyped_penalties_stack() {
         let dice = script();
         let stacked = summed(&[
-            penalty(PenaltyType::Untyped, -2, 1, 1, None),
-            penalty(PenaltyType::Untyped, -3, 2, 2, None),
+            penalty(PenaltyType::Untyped, -2, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Untyped, -3, 2, 2, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), -5);
+        assert_eq!(stacked.get(Statistic::Attack), -5);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -906,8 +1381,45 @@ mod tests {
         let map = second_non_agile_map();
         assert_eq!(map, -5);
         let mut modifiers = attack_modifiers(map, false, 0).expect("attack");
-        modifiers.push(penalty(PenaltyType::Untyped, -2, 20, 9, None));
-        assert_eq!(summed(&modifiers).get(), -7);
+        modifiers.push(penalty(
+            PenaltyType::Untyped,
+            -2,
+            20,
+            9,
+            None,
+            Statistic::Attack,
+        ));
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), -7);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, Penalties.
+    ///
+    /// Source 1 is a caller id. It cannot name the multiple attack penalty, so the newer
+    /// untyped penalty stacks with it instead of replacing it.
+    #[test]
+    fn an_untyped_penalty_from_source_1_stacks_with_map() {
+        let dice = script();
+        let map = second_non_agile_map();
+        assert_eq!(map, -5);
+        let mut modifiers = attack_modifiers(map, false, 0).expect("attack");
+        let caller = penalty(PenaltyType::Untyped, -2, 1, 9, None, Statistic::Attack);
+        assert_eq!(caller.source(), Some(SourceId(1)));
+        assert!(
+            modifiers
+                .iter()
+                .all(|modifier| modifier.source() != Some(SourceId(1)))
+        );
+        modifiers.push(caller);
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Attack), -7);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped) && modifier.value() == -5
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped) && modifier.value() == -2
+        }));
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -916,8 +1428,15 @@ mod tests {
     fn an_overflowing_modifier_sum_returns_an_error() {
         let dice = script();
         let result = total(&[
-            penalty(PenaltyType::Untyped, i32::MIN, 1, 1, None),
-            penalty(PenaltyType::Untyped, -1, 2, 2, None),
+            penalty(
+                PenaltyType::Untyped,
+                i32::MIN,
+                1,
+                1,
+                None,
+                Statistic::Attack,
+            ),
+            penalty(PenaltyType::Untyped, -1, 2, 2, None, Statistic::Attack),
         ]);
         assert_eq!(result, Err(ModifierError::Overflow));
         assert_eq!(dice.remaining(), 1);
@@ -931,14 +1450,21 @@ mod tests {
     fn circumstance_max_item_1_and_status_minus_5_fits() {
         let dice = script();
         let modifiers = [
-            bonus(BonusType::Circumstance, i32::MAX, 1, 1, None),
-            bonus(BonusType::Item, 1, 2, 2, None),
-            penalty(PenaltyType::Status, -5, 3, 3, None),
+            bonus(
+                BonusType::Circumstance,
+                i32::MAX,
+                1,
+                1,
+                None,
+                Statistic::Attack,
+            ),
+            bonus(BonusType::Item, 1, 2, 2, None, Statistic::Attack),
+            penalty(PenaltyType::Status, -5, 3, 3, None, Statistic::Attack),
         ];
         let mut reversed = modifiers;
         reversed.reverse();
-        assert_eq!(summed(&modifiers).get(), i32::MAX - 4);
-        assert_eq!(summed(&reversed).get(), i32::MAX - 4);
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), i32::MAX - 4);
+        assert_eq!(summed(&reversed).get(Statistic::Attack), i32::MAX - 4);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -948,8 +1474,8 @@ mod tests {
     fn the_same_modifiers_total_twice() {
         let dice = script();
         let modifiers = [
-            bonus(BonusType::Circumstance, 2, 1, 1, None),
-            penalty(PenaltyType::Untyped, -3, 2, 2, None),
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Untyped, -3, 2, 2, None, Statistic::Attack),
         ];
         assert_eq!(summed(&modifiers), summed(&modifiers));
         assert_eq!(dice.remaining(), 1);
@@ -960,8 +1486,8 @@ mod tests {
     fn a_tied_highest_bonus_reports_the_lowest_sequence() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 2, 1, 4, None),
-            bonus(BonusType::Circumstance, 2, 2, 1, None),
+            bonus(BonusType::Circumstance, 2, 1, 4, None, Statistic::Attack),
+            bonus(BonusType::Circumstance, 2, 2, 1, None, Statistic::Attack),
         ]);
         let applied = stacked
             .applied()
@@ -969,7 +1495,7 @@ mod tests {
             .find(|modifier| modifier.bonus_type() == Some(BonusType::Circumstance))
             .expect("circumstance bonus");
         assert_eq!(applied.sequence(), 1);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -978,8 +1504,8 @@ mod tests {
     fn a_tied_worst_penalty_reports_the_lowest_sequence() {
         let dice = script();
         let stacked = summed(&[
-            penalty(PenaltyType::Circumstance, -2, 1, 7, None),
-            penalty(PenaltyType::Circumstance, -2, 2, 3, None),
+            penalty(PenaltyType::Circumstance, -2, 1, 7, None, Statistic::Attack),
+            penalty(PenaltyType::Circumstance, -2, 2, 3, None, Statistic::Attack),
         ]);
         let applied = stacked
             .applied()
@@ -987,7 +1513,7 @@ mod tests {
             .find(|modifier| modifier.penalty_type() == Some(PenaltyType::Circumstance))
             .expect("circumstance penalty");
         assert_eq!(applied.sequence(), 3);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -996,12 +1522,12 @@ mod tests {
     fn a_duplicate_same_source_untyped_penalty_counts_once() {
         let dice = script();
         let stacked = summed(&[
-            penalty(PenaltyType::Untyped, -2, 1, 1, None),
-            penalty(PenaltyType::Untyped, -2, 1, 2, None),
+            penalty(PenaltyType::Untyped, -2, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Untyped, -2, 1, 2, None, Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].value(), -2);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1010,12 +1536,12 @@ mod tests {
     fn a_tied_source_keeps_the_newer_modifier() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 2, 1, 1, Some(3)),
-            bonus(BonusType::Circumstance, 2, 1, 4, Some(3)),
+            bonus(BonusType::Circumstance, 2, 1, 1, Some(3), Statistic::Attack),
+            bonus(BonusType::Circumstance, 2, 1, 4, Some(3), Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].sequence(), 4);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1024,13 +1550,13 @@ mod tests {
     fn a_higher_level_beats_a_higher_value() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 1, 1, 1, Some(2)),
-            bonus(BonusType::Circumstance, 4, 1, 2, Some(1)),
+            bonus(BonusType::Circumstance, 1, 1, 1, Some(2), Statistic::Attack),
+            bonus(BonusType::Circumstance, 4, 1, 2, Some(1), Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].level(), Some(2));
         assert_eq!(stacked.applied()[0].value(), 1);
-        assert_eq!(stacked.get(), 1);
+        assert_eq!(stacked.get(Statistic::Attack), 1);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1040,39 +1566,41 @@ mod tests {
     fn a_newer_lower_value_wins() {
         let dice = script();
         let stacked = summed(&[
-            penalty(PenaltyType::Untyped, -2, 1, 1, None),
-            penalty(PenaltyType::Untyped, -5, 1, 9, None),
+            penalty(PenaltyType::Untyped, -2, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Untyped, -5, 1, 9, None, Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].sequence(), 9);
-        assert_eq!(stacked.get(), -5);
+        assert_eq!(stacked.get(Statistic::Attack), -5);
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core, "Duplicate Effects".
+    /// Player Core pg. 398, "Duplicate Effects".
+    /// Player Core pg. 400, Penalties.
     ///
-    /// An equal sequence has no newer effect, so the higher value wins in either order.
+    /// Ruling R-01, an extension consistent with RAW via Rules 2282, not a deviation:
+    /// an equal sequence keeps the higher bonus and the worse penalty.
     #[test]
     fn an_equal_sequence_keeps_the_higher_value() {
         let dice = script();
-        let low_bonus = bonus(BonusType::Circumstance, 1, 1, 4, None);
-        let high_bonus = bonus(BonusType::Circumstance, 4, 1, 4, None);
+        let low_bonus = bonus(BonusType::Circumstance, 1, 1, 4, None, Statistic::Attack);
+        let high_bonus = bonus(BonusType::Circumstance, 4, 1, 4, None, Statistic::Attack);
         for modifiers in [[low_bonus, high_bonus], [high_bonus, low_bonus]] {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].value(), 4);
-            assert_eq!(stacked.get(), 4);
+            assert_eq!(stacked.get(Statistic::Attack), 4);
         }
-        let higher_penalty = penalty(PenaltyType::Untyped, -1, 2, 7, None);
-        let lower_penalty = penalty(PenaltyType::Untyped, -8, 2, 7, None);
+        let higher_penalty = penalty(PenaltyType::Untyped, -1, 2, 7, None, Statistic::Attack);
+        let lower_penalty = penalty(PenaltyType::Untyped, -8, 2, 7, None, Statistic::Attack);
         for modifiers in [
             [higher_penalty, lower_penalty],
             [lower_penalty, higher_penalty],
         ] {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
-            assert_eq!(stacked.applied()[0].value(), -1);
-            assert_eq!(stacked.get(), -1);
+            assert_eq!(stacked.applied()[0].value(), -8);
+            assert_eq!(stacked.get(Statistic::Attack), -8);
         }
         assert_eq!(dice.remaining(), 1);
     }
@@ -1082,9 +1610,9 @@ mod tests {
     #[test]
     fn a_repeated_condition_keeps_its_highest_rank() {
         let dice = script();
-        let frightened_1 = penalty(PenaltyType::Status, -1, 1, 1, None)
+        let frightened_1 = penalty(PenaltyType::Status, -1, 1, 1, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(1));
-        let frightened_2 = penalty(PenaltyType::Status, -2, 2, 2, None)
+        let frightened_2 = penalty(PenaltyType::Status, -2, 2, 2, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(2));
         let stacked = summed(&[frightened_1, frightened_2]);
         let status: Vec<_> = stacked
@@ -1096,7 +1624,7 @@ mod tests {
         assert_eq!(status[0].rank(), Some(2));
         assert_eq!(status[0].value(), -2);
         assert!(status[0].rank() != Some(1));
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1105,9 +1633,9 @@ mod tests {
     #[test]
     fn a_same_rank_condition_keeps_the_newer_sequence() {
         let dice = script();
-        let older = penalty(PenaltyType::Status, -9, 1, 1, None)
+        let older = penalty(PenaltyType::Status, -9, 1, 1, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(2));
-        let newer = penalty(PenaltyType::Status, -1, 2, 9, None)
+        let newer = penalty(PenaltyType::Status, -1, 2, 9, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(2));
         for modifiers in [[older, newer], [newer, older]] {
             let stacked = summed(&modifiers);
@@ -1120,7 +1648,7 @@ mod tests {
             assert_eq!(status[0].sequence(), 9);
             assert_eq!(status[0].rank(), Some(2));
             assert_eq!(status[0].value(), -2);
-            assert_eq!(stacked.get(), -2);
+            assert_eq!(stacked.get(Statistic::Attack), -2);
         }
         assert_eq!(dice.remaining(), 1);
     }
@@ -1132,17 +1660,17 @@ mod tests {
     #[test]
     fn a_ranked_penalty_keeps_its_declared_type() {
         let dice = script();
-        let lower = penalty(PenaltyType::Circumstance, -4, 1, 1, None)
+        let lower = penalty(PenaltyType::Circumstance, -4, 1, 1, None, Statistic::Attack)
             .with_condition(ConditionId(9), Some(1));
-        let higher = penalty(PenaltyType::Circumstance, -1, 2, 2, None)
+        let higher = penalty(PenaltyType::Circumstance, -1, 2, 2, None, Statistic::Attack)
             .with_condition(ConditionId(9), Some(2));
         let stacked = summed(&[lower, higher]);
         assert_eq!(stacked.applied().len(), 1);
         let kept = stacked.applied()[0];
         assert_eq!(kept.penalty_type(), Some(PenaltyType::Circumstance));
-        assert_eq!(kept.value(), -1);
-        assert_eq!(kept.rank(), Some(2));
-        assert_eq!(stacked.get(), -1);
+        assert_eq!(kept.value(), -4);
+        assert_eq!(kept.rank(), Some(1));
+        assert_eq!(stacked.get(Statistic::Attack), -4);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1152,7 +1680,7 @@ mod tests {
     #[test]
     fn a_frightened_bonus_keeps_its_declared_value() {
         let dice = script();
-        let modifier = bonus(BonusType::Status, 2, 1, 1, None)
+        let modifier = bonus(BonusType::Status, 2, 1, 1, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(3));
         let stacked = summed(&[modifier]);
         assert_eq!(stacked.applied().len(), 1);
@@ -1161,7 +1689,7 @@ mod tests {
         assert_eq!(kept.penalty_type(), None);
         assert_eq!(kept.value(), 2);
         assert_eq!(kept.rank(), Some(3));
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1171,7 +1699,7 @@ mod tests {
     #[test]
     fn a_frightened_circumstance_penalty_becomes_status_minus_rank() {
         let dice = script();
-        let modifier = penalty(PenaltyType::Circumstance, -7, 1, 1, None)
+        let modifier = penalty(PenaltyType::Circumstance, -7, 1, 1, None, Statistic::Attack)
             .with_condition(ConditionId::FRIGHTENED, Some(3));
         let stacked = summed(&[modifier]);
         assert_eq!(stacked.applied().len(), 1);
@@ -1180,7 +1708,7 @@ mod tests {
         assert_eq!(kept.bonus_type(), None);
         assert_eq!(kept.value(), -3);
         assert_eq!(kept.rank(), Some(3));
-        assert_eq!(stacked.get(), -3);
+        assert_eq!(stacked.get(Statistic::Attack), -3);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1189,10 +1717,10 @@ mod tests {
     #[test]
     fn off_guard_from_two_causes_applies_once() {
         let dice = script();
-        let prone =
-            penalty(PenaltyType::Circumstance, -2, 1, 1, None).with_condition(OFF_GUARD, None);
-        let flanking =
-            penalty(PenaltyType::Circumstance, -2, 2, 2, None).with_condition(OFF_GUARD, None);
+        let prone = penalty(PenaltyType::Circumstance, -2, 1, 1, None, Statistic::Attack)
+            .with_condition(OFF_GUARD, None);
+        let flanking = penalty(PenaltyType::Circumstance, -2, 2, 2, None, Statistic::Attack)
+            .with_condition(OFF_GUARD, None);
         let stacked = summed(&[prone, flanking]);
         let penalties: Vec<_> = stacked
             .applied()
@@ -1201,7 +1729,7 @@ mod tests {
             .collect();
         assert_eq!(penalties.len(), 1);
         assert_eq!(penalties[0].value(), -2);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1210,12 +1738,12 @@ mod tests {
     fn a_negative_total() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 1, 1, 1, None),
-            penalty(PenaltyType::Untyped, -3, 2, 2, None),
-            penalty(PenaltyType::Untyped, -4, 3, 3, None),
+            bonus(BonusType::Circumstance, 1, 1, 1, None, Statistic::Attack),
+            penalty(PenaltyType::Untyped, -3, 2, 2, None, Statistic::Attack),
+            penalty(PenaltyType::Untyped, -4, 3, 3, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), -6);
-        assert!(stacked.get() < 0);
+        assert_eq!(stacked.get(Statistic::Attack), -6);
+        assert!(stacked.get(Statistic::Attack) < 0);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1248,9 +1776,9 @@ mod tests {
     #[test]
     fn insertion_order_does_not_change_the_total() {
         let dice = script();
-        let status = bonus(BonusType::Status, 1, 1, 1, None);
-        let circumstance = penalty(PenaltyType::Circumstance, -2, 2, 2, None);
-        assert_eq!(summed(&[status, circumstance]).get(), -1);
+        let status = bonus(BonusType::Status, 1, 1, 1, None, Statistic::Attack);
+        let circumstance = penalty(PenaltyType::Circumstance, -2, 2, 2, None, Statistic::Attack);
+        assert_eq!(summed(&[status, circumstance]).get(Statistic::Attack), -1);
         assert_eq!(
             summed(&[circumstance, status]),
             summed(&[status, circumstance])
@@ -1267,8 +1795,8 @@ mod tests {
         let armor_class = ac_modifiers(None, true, false).expect("armor class");
         let attack_total = summed(&attack);
         let armor_total = summed(&armor_class);
-        assert_eq!(attack_total.get(), -2);
-        assert_eq!(armor_total.get(), -2);
+        assert_eq!(attack_total.get(Statistic::Attack), -2);
+        assert_eq!(armor_total.get(Statistic::ArmorClass), -2);
         assert!(attack_total.applied().iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -2
         }));
@@ -1286,9 +1814,23 @@ mod tests {
         let map = second_non_agile_map();
         assert_eq!(map, -5);
         let mut modifiers = attack_modifiers(map, false, 0).expect("attack");
-        modifiers.push(penalty(PenaltyType::Circumstance, -2, 21, 8, None));
-        modifiers.push(penalty(PenaltyType::Status, -4, 22, 9, None));
-        assert_eq!(summed(&modifiers).get(), -11);
+        modifiers.push(penalty(
+            PenaltyType::Circumstance,
+            -2,
+            21,
+            8,
+            None,
+            Statistic::Attack,
+        ));
+        modifiers.push(penalty(
+            PenaltyType::Status,
+            -4,
+            22,
+            9,
+            None,
+            Statistic::Attack,
+        ));
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), -11);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1299,8 +1841,15 @@ mod tests {
         let map = second_agile_map();
         assert_eq!(map, -4);
         let mut modifiers = attack_modifiers(map, false, 0).expect("attack");
-        modifiers.push(penalty(PenaltyType::Circumstance, -2, 21, 8, None));
-        assert_eq!(summed(&modifiers).get(), -6);
+        modifiers.push(penalty(
+            PenaltyType::Circumstance,
+            -2,
+            21,
+            8,
+            None,
+            Statistic::Attack,
+        ));
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), -6);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1310,7 +1859,7 @@ mod tests {
         let dice = script();
         let modifiers = attack_modifiers(0, false, 1).expect("attack");
         let stacked = summed(&modifiers);
-        assert_eq!(stacked.get(), 1);
+        assert_eq!(stacked.get(Statistic::Attack), 1);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 1
         }));
@@ -1340,7 +1889,7 @@ mod tests {
             (Cover::Greater, 4),
         ] {
             let stacked = summed(&ac_modifiers(Some(cover), false, false).expect("armor class"));
-            assert_eq!(stacked.get(), expected);
+            assert_eq!(stacked.get(Statistic::ArmorClass), expected);
             assert!(stacked.applied().iter().any(|modifier| {
                 modifier.bonus_type() == Some(BonusType::Circumstance)
                     && modifier.value() == expected
@@ -1354,9 +1903,11 @@ mod tests {
     fn off_guard_is_minus_2_circumstance_to_armor_class() {
         let dice = script();
         let stacked = summed(&ac_modifiers(None, true, false).expect("armor class"));
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::ArmorClass), -2);
         assert!(stacked.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -2
+            modifier.penalty_type() == Some(PenaltyType::Circumstance)
+                && modifier.value() == -2
+                && modifier.statistic() == Statistic::ArmorClass
         }));
         assert_eq!(dice.remaining(), 1);
     }
@@ -1369,13 +1920,17 @@ mod tests {
         let perception = perception_modifiers(true).expect("perception");
         let armor_total = summed(&armor_class);
         let perception_total = summed(&perception);
-        assert_eq!(armor_total.get(), -4);
-        assert_eq!(perception_total.get(), -4);
+        assert_eq!(armor_total.get(Statistic::ArmorClass), -4);
+        assert_eq!(perception_total.get(Statistic::Perception), -4);
         assert!(armor_total.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -4
+            modifier.penalty_type() == Some(PenaltyType::Status)
+                && modifier.value() == -4
+                && modifier.statistic() == Statistic::ArmorClass
         }));
         assert!(perception_total.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -4
+            modifier.penalty_type() == Some(PenaltyType::Status)
+                && modifier.value() == -4
+                && modifier.statistic() == Statistic::Perception
         }));
         assert_ne!(armor_class, perception);
         assert_eq!(dice.remaining(), 1);
@@ -1390,7 +1945,7 @@ mod tests {
         let shield_ac_bonus = 2;
         let modifiers = ac_modifiers(None, false, false).expect("armor class");
         let stacked = summed(&modifiers);
-        assert_eq!(stacked.get(), 0);
+        assert_eq!(stacked.get(Statistic::ArmorClass), 0);
         assert!(
             stacked
                 .applied()
@@ -1405,10 +1960,10 @@ mod tests {
     fn damage_keeps_the_highest_circumstance_bonus() {
         let dice = script();
         let stacked = summed(&[
-            bonus(BonusType::Circumstance, 4, 1, 1, None),
-            bonus(BonusType::Circumstance, 1, 2, 2, None),
+            bonus(BonusType::Circumstance, 4, 1, 1, None, Statistic::Damage),
+            bonus(BonusType::Circumstance, 1, 2, 2, None, Statistic::Damage),
         ]);
-        assert_eq!(stacked.get(), 4);
+        assert_eq!(stacked.get(Statistic::Damage), 4);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 4
         }));
@@ -1435,5 +1990,1135 @@ mod tests {
             assert_ne!(modifier.penalty_type(), Some(PenaltyType::Item));
         }
         assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn a_bonus_and_a_penalty_from_one_source_both_apply() {
+        let dice = script();
+        let bonus = bonus(BonusType::Status, 2, 7, 5, None, Statistic::Attack);
+        let penalty = penalty(PenaltyType::Status, -1, 7, 5, None, Statistic::Attack);
+        for modifiers in orders_of_two(bonus, penalty) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 2);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.bonus_type() == Some(BonusType::Status) && modifier.value() == 2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -1
+            }));
+            assert_eq!(stacked.get(Statistic::Attack), 1);
+            assert_eq!(total_on(&stacked, Statistic::Attack), 1);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn one_source_on_two_statistics_both_apply() {
+        let dice = script();
+        let attack = bonus(BonusType::Status, 2, 7, 5, None, Statistic::Attack);
+        let armor_class = penalty(
+            PenaltyType::Circumstance,
+            -1,
+            7,
+            5,
+            None,
+            Statistic::ArmorClass,
+        );
+        for modifiers in orders_of_two(attack, armor_class) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 2);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.statistic() == Statistic::Attack
+                    && modifier.bonus_type() == Some(BonusType::Status)
+                    && modifier.value() == 2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.statistic() == Statistic::ArmorClass
+                    && modifier.penalty_type() == Some(PenaltyType::Circumstance)
+                    && modifier.value() == -1
+            }));
+            assert_eq!(total_on(&stacked, Statistic::Attack), 2);
+            assert_eq!(total_on(&stacked, Statistic::ArmorClass), -1);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    ///
+    /// The case is synthetic: frightened never grants a bonus, and this is a robustness check.
+    #[test]
+    fn a_frightened_bonus_does_not_hide_a_frightened_penalty() {
+        let dice = script();
+        let bonus = bonus(BonusType::Status, 2, 7, 4, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let penalty = penalty(PenaltyType::Status, -1, 7, 4, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(1));
+        for modifiers in orders_of_two(bonus, penalty) {
+            let stacked = summed(&modifiers);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.bonus_type() == Some(BonusType::Status) && modifier.value() == 2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -1
+            }));
+            assert_eq!(total_on(&stacked, Statistic::Attack), 1);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    /// Player Core pg. 444, Frightened.
+    #[test]
+    fn frightened_2_on_attack_and_armor_class_both_survive() {
+        let dice = script();
+        let attack = penalty(PenaltyType::Status, -2, 7, 4, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let armor_class = penalty(PenaltyType::Status, -2, 7, 4, None, Statistic::ArmorClass)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        for modifiers in orders_of_two(attack, armor_class) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 2);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.statistic() == Statistic::Attack
+                    && modifier.penalty_type() == Some(PenaltyType::Status)
+                    && modifier.value() == -2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.statistic() == Statistic::ArmorClass
+                    && modifier.penalty_type() == Some(PenaltyType::Status)
+                    && modifier.value() == -2
+            }));
+            assert_eq!(total_on(&stacked, Statistic::Attack), -2);
+            assert_eq!(total_on(&stacked, Statistic::ArmorClass), -2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    ///
+    /// Ruling R-01, an extension consistent with RAW via Rules 2282, not a deviation:
+    /// an equal sequence keeps the higher bonus.
+    #[test]
+    fn an_equal_sequence_keeps_the_higher_bonus() {
+        let dice = script();
+        let low = bonus(BonusType::Circumstance, 1, 1, 4, None, Statistic::Attack);
+        let high = bonus(BonusType::Circumstance, 4, 1, 4, None, Statistic::Attack);
+        for modifiers in orders_of_two(low, high) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].value(), 4);
+            assert_eq!(stacked.get(Statistic::Attack), 4);
+            assert_eq!(total_on(&stacked, Statistic::Attack), 4);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Penalties.
+    ///
+    /// Ruling R-01, an extension consistent with RAW via Rules 2282, not a deviation:
+    /// an equal sequence keeps the worse penalty.
+    #[test]
+    fn an_equal_sequence_keeps_the_worse_penalty() {
+        let dice = script();
+        let mild = penalty(PenaltyType::Untyped, -1, 2, 7, None, Statistic::Attack);
+        let worse = penalty(PenaltyType::Untyped, -8, 2, 7, None, Statistic::Attack);
+        for modifiers in orders_of_two(mild, worse) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].value(), -8);
+            assert_eq!(stacked.get(Statistic::Attack), -8);
+            assert_eq!(total_on(&stacked, Statistic::Attack), -8);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    ///
+    /// Substitute: rule, Duplicate Effects stops at level or rank then the newer effect;
+    /// why not, it names no further identity when those and the value match; substitute,
+    /// the lower condition id wins and a missing id loses; intent, every input order
+    /// reports the same modifier.
+    #[test]
+    fn the_lower_condition_id_wins_an_equal_value() {
+        let dice = script();
+        let higher_id = bonus(BonusType::Circumstance, 2, 9, 5, Some(2), Statistic::Attack)
+            .with_condition(ConditionId(8), Some(1));
+        let lower_id = bonus(BonusType::Circumstance, 2, 9, 5, Some(2), Statistic::Attack)
+            .with_condition(ConditionId(3), Some(1));
+        for modifiers in orders_of_two(higher_id, lower_id) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(3)));
+            assert_eq!(stacked.get(Statistic::Attack), 2);
+            assert_eq!(total_on(&stacked, Statistic::Attack), 2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn equal_values_of_different_types_total_plus_5_in_every_order() {
+        let dice = script();
+        let status = bonus(BonusType::Status, 2, 7, 5, None, Statistic::Attack);
+        let circumstance = bonus(BonusType::Circumstance, 2, 7, 5, None, Statistic::Attack);
+        let higher = bonus(BonusType::Circumstance, 3, 8, 5, None, Statistic::Attack);
+        let orders = orders_of_three(status, circumstance, higher);
+        let first = summed(&orders[0]);
+        for modifiers in orders {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked, first);
+            assert!(
+                stacked
+                    .applied()
+                    .iter()
+                    .all(|modifier| modifier.statistic() == Statistic::Attack)
+            );
+            assert_eq!(stacked.get(Statistic::Attack), 5);
+            assert_eq!(total_on(&stacked, Statistic::Attack), 5);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.bonus_type() == Some(BonusType::Status) && modifier.value() == 2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 3
+            }));
+            assert!(stacked.applied().iter().all(|modifier| {
+                !(modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 2)
+            }));
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 406, "Damage Rolls".
+    /// Player Core pg. 398, "Duplicate Effects".
+    #[test]
+    fn a_same_source_damage_modifier_and_attack_modifier_do_not_merge() {
+        let dice = script();
+        let damage = bonus(BonusType::Circumstance, 2, 4, 2, None, Statistic::Damage);
+        let attack = bonus(BonusType::Circumstance, 3, 4, 2, None, Statistic::Attack);
+        for modifiers in orders_of_two(damage, attack) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 2);
+            assert_eq!(total_on(&stacked, Statistic::Damage), 2);
+            assert_eq!(total_on(&stacked, Statistic::Attack), 3);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    #[test]
+    fn a_three_way_tie_is_the_same_in_all_six_orders() {
+        let dice = script();
+        let id_6 = bonus(
+            BonusType::Circumstance,
+            2,
+            11,
+            8,
+            Some(1),
+            Statistic::Attack,
+        )
+        .with_condition(ConditionId(6), Some(1));
+        let id_1 = bonus(
+            BonusType::Circumstance,
+            2,
+            11,
+            8,
+            Some(1),
+            Statistic::Attack,
+        )
+        .with_condition(ConditionId(1), Some(1));
+        let id_4 = bonus(
+            BonusType::Circumstance,
+            2,
+            11,
+            8,
+            Some(1),
+            Statistic::Attack,
+        )
+        .with_condition(ConditionId(4), Some(1));
+        let orders = orders_of_three(id_6, id_1, id_4);
+        let first = summed(&orders[0]);
+        for modifiers in orders {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked, first);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(1)));
+            assert_eq!(stacked.get(Statistic::Attack), 2);
+            assert_eq!(total_on(&stacked, Statistic::Attack), 2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Duplicate Effects.
+    /// Player Core, "Damage Rolls".
+    ///
+    /// One source's circumstance +2 on each statistic stays on that statistic.
+    #[test]
+    fn one_source_on_four_statistics_does_not_total_8() {
+        let dice = script();
+        let modifiers = [
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack),
+            bonus(
+                BonusType::Circumstance,
+                2,
+                1,
+                1,
+                None,
+                Statistic::ArmorClass,
+            ),
+            bonus(
+                BonusType::Circumstance,
+                2,
+                1,
+                1,
+                None,
+                Statistic::Perception,
+            ),
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Damage),
+        ];
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.applied().len(), 4);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
+        assert_eq!(stacked.get(Statistic::ArmorClass), 2);
+        assert_eq!(stacked.get(Statistic::Perception), 2);
+        assert_eq!(stacked.get(Statistic::Damage), 2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Duplicate Effects.
+    ///
+    /// Two maximum bonuses on different statistics each fit. They are not one sum.
+    #[test]
+    fn two_max_values_on_different_statistics_do_not_overflow() {
+        let dice = script();
+        let stacked = total(&[
+            bonus(
+                BonusType::Circumstance,
+                i32::MAX,
+                1,
+                1,
+                None,
+                Statistic::Attack,
+            ),
+            bonus(
+                BonusType::Circumstance,
+                i32::MAX,
+                1,
+                2,
+                None,
+                Statistic::Damage,
+            ),
+        ])
+        .expect("each statistic fits");
+        assert_eq!(stacked.get(Statistic::Attack), i32::MAX);
+        assert_eq!(stacked.get(Statistic::Damage), i32::MAX);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    #[test]
+    fn a_same_condition_keeps_the_worse_penalty_in_both_orders() {
+        let dice = script();
+        let mild = penalty(PenaltyType::Circumstance, -1, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let worse = penalty(PenaltyType::Circumstance, -4, 2, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        for modifiers in orders_of_two(mild, worse) {
+            let stacked = summed(&modifiers);
+            let applied: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Circumstance))
+                .collect();
+            assert_eq!(applied.len(), 1);
+            assert_eq!(applied[0].value(), -4);
+            assert_eq!(stacked.get(Statistic::Attack), -4);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    /// Player Core pg. 444, Frightened.
+    ///
+    /// The rewrite to `-rank` happens before the value tie, so the declared `-1` is not
+    /// the applied value.
+    #[test]
+    fn two_frightened_penalties_report_the_lower_source_in_both_orders() {
+        let dice = script();
+        let source_1 = penalty(PenaltyType::Status, -1, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let source_2 = penalty(PenaltyType::Status, -1, 2, 5, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        for modifiers in orders_of_two(source_1, source_2) {
+            let stacked = summed(&modifiers);
+            let status: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .collect();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].source(), Some(SourceId(1)));
+            assert_eq!(status[0].value(), -2);
+            assert_eq!(stacked.get(Statistic::Attack), -2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    ///
+    /// The order is the worst penalty or the highest bonus. For a condition whose modifier
+    /// is derived from its value (frightened, sickened: −value), that is the highest
+    /// condition value (Player Core p.442, Rules 2455). Otherwise the larger modifier wins
+    /// (our ruling, see the non-derived requirement). Then rank, sequence, and source id
+    /// are engineering tiebreaks with no rules effect.
+    #[test]
+    fn an_older_higher_condition_value_beats_a_newer_lower_one() {
+        let dice = script();
+        let older = penalty(PenaltyType::Status, -3, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let newer = penalty(PenaltyType::Status, -1, 2, 2, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(1));
+        for modifiers in orders_of_two(older, newer) {
+            let stacked = summed(&modifiers);
+            let status: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .collect();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].value(), -3);
+            assert_eq!(stacked.get(Statistic::Attack), -3);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    #[test]
+    fn frightened_and_sickened_stay_present_while_the_worse_penalty_applies() {
+        let dice = script();
+        let frightened = penalty(PenaltyType::Status, -3, 4, 1, Some(1), Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let sickened = penalty(PenaltyType::Status, -1, 4, 2, Some(5), Statistic::Attack)
+            .with_condition(ConditionId::SICKENED, Some(1));
+        let mut list = vec![frightened, sickened];
+        let stacked = summed(&list);
+        let status: Vec<_> = stacked
+            .applied()
+            .iter()
+            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+            .collect();
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0].value(), -3);
+        assert_eq!(stacked.get(Statistic::Attack), -3);
+        assert!(list.iter().any(|modifier| {
+            modifier.condition_id() == Some(ConditionId::FRIGHTENED) && modifier.rank() == Some(3)
+        }));
+        assert!(list.iter().any(|modifier| {
+            modifier.condition_id() == Some(ConditionId::SICKENED) && modifier.rank() == Some(1)
+        }));
+        let index = list
+            .iter()
+            .position(|modifier| modifier.condition_id() == Some(ConditionId::FRIGHTENED))
+            .expect("frightened stays in the caller's list");
+        list[index] = penalty(PenaltyType::Status, -2, 4, 1, Some(1), Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let stacked = summed(&list);
+        let status: Vec<_> = stacked
+            .applied()
+            .iter()
+            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+            .collect();
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0].value(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
+        assert!(list.iter().any(|modifier| {
+            modifier.condition_id() == Some(ConditionId::SICKENED) && modifier.rank() == Some(1)
+        }));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Penalties.
+    ///
+    /// This is our extension, consistent with Rules 2282 (Player Core pg. 400), not the
+    /// text of Rules 2455, and it is a ruling, not a deviation.
+    #[test]
+    fn a_non_derived_penalty_keeps_the_larger_modifier() {
+        let dice = script();
+        let larger = penalty(PenaltyType::Circumstance, -4, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let smaller = penalty(PenaltyType::Circumstance, -1, 2, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(2));
+        for modifiers in orders_of_two(larger, smaller) {
+            let stacked = summed(&modifiers);
+            let applied: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Circumstance))
+                .collect();
+            assert_eq!(applied.len(), 1);
+            assert_eq!(applied[0].value(), -4);
+            assert_eq!(applied[0].rank(), Some(1));
+            assert_eq!(stacked.get(Statistic::Attack), -4);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    #[test]
+    fn frightened_1_3_and_2_give_minus_3_in_all_six_orders() {
+        let dice = script();
+        let frightened_1 = penalty(PenaltyType::Status, -1, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(1));
+        let frightened_3 = penalty(PenaltyType::Status, -3, 2, 2, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let frightened_2 = penalty(PenaltyType::Status, -2, 3, 3, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        for modifiers in orders_of_three(frightened_1, frightened_3, frightened_2) {
+            let stacked = summed(&modifiers);
+            let status: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .collect();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].value(), -3);
+            assert_eq!(status[0].sequence(), 2);
+            assert_eq!(stacked.get(Statistic::Attack), -3);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    #[test]
+    fn removing_frightened_2_leaves_frightened_1() {
+        let dice = script();
+        let frightened_2 = penalty(PenaltyType::Status, -2, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let frightened_1 = penalty(PenaltyType::Status, -1, 2, 2, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(1));
+        let mut list = vec![frightened_2, frightened_1];
+        list.retain(|modifier| modifier.rank() != Some(2));
+        let stacked = summed(&list);
+        let status: Vec<_> = stacked
+            .applied()
+            .iter()
+            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+            .collect();
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0].value(), -1);
+        assert_eq!(status[0].rank(), Some(1));
+        assert_eq!(status[0].condition_id(), Some(ConditionId::FRIGHTENED));
+        assert_eq!(stacked.get(Statistic::Attack), -1);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    #[test]
+    fn frightened_0_plus_sickened_1_gives_minus_1() {
+        let dice = script();
+        let frightened = penalty(PenaltyType::Status, -1, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(0));
+        let sickened = penalty(PenaltyType::Status, -1, 2, 2, None, Statistic::Attack)
+            .with_condition(ConditionId::SICKENED, Some(1));
+        let stacked = summed(&[frightened, sickened]);
+        assert_eq!(stacked.get(Statistic::Attack), -1);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.condition_id() == Some(ConditionId::SICKENED) && modifier.rank() == Some(1)
+        }));
+        assert!(
+            stacked
+                .applied()
+                .iter()
+                .all(|modifier| modifier.condition_id() != Some(ConditionId::FRIGHTENED))
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    #[test]
+    fn frightened_0_alone_gives_total_0() {
+        let dice = script();
+        let frightened = penalty(PenaltyType::Status, -1, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(0));
+        let stacked = summed(&[frightened]);
+        assert_eq!(stacked.get(Statistic::Attack), 0);
+        assert!(stacked.applied().is_empty());
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    #[test]
+    fn removing_frightened_leaves_sickened_1() {
+        let dice = script();
+        let frightened = penalty(PenaltyType::Status, -3, 4, 1, Some(1), Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let sickened = penalty(PenaltyType::Status, -1, 4, 2, Some(5), Statistic::Attack)
+            .with_condition(ConditionId::SICKENED, Some(1));
+        let mut list = vec![frightened, sickened];
+        let stacked = summed(&list);
+        assert_eq!(stacked.get(Statistic::Attack), -3);
+        list.retain(|modifier| modifier.condition_id() != Some(ConditionId::FRIGHTENED));
+        let stacked = summed(&list);
+        let status: Vec<_> = stacked
+            .applied()
+            .iter()
+            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+            .collect();
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0].value(), -1);
+        assert_eq!(stacked.get(Statistic::Attack), -1);
+        assert!(list.iter().any(|modifier| {
+            modifier.condition_id() == Some(ConditionId::SICKENED) && modifier.rank() == Some(1)
+        }));
+        assert!(
+            list.iter()
+                .all(|modifier| modifier.condition_id() != Some(ConditionId::FRIGHTENED))
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn a_condition_bonus_and_penalty_both_apply() {
+        let dice = script();
+        let bonus = bonus(BonusType::Circumstance, 2, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let penalty = penalty(PenaltyType::Circumstance, -1, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        for modifiers in orders_of_two(bonus, penalty) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 2);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -1
+            }));
+            assert_eq!(stacked.get(Statistic::Attack), 1);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Bonuses.
+    /// Player Core pg. 398, "Duplicate Effects".
+    ///
+    /// Substitute: rule, Duplicate Effects and same-type stacking name no further instance
+    /// once the bonus or penalty is chosen; why not, they are silent when those match;
+    /// substitute, the lower source id wins; intent, every input order reports the same
+    /// modifier and the same total.
+    #[test]
+    fn a_tied_circumstance_bonus_reports_the_lower_source_in_both_orders() {
+        let dice = script();
+        let source_1 = bonus(BonusType::Circumstance, 2, 1, 3, None, Statistic::Attack);
+        let source_2 = bonus(BonusType::Circumstance, 2, 2, 3, None, Statistic::Attack);
+        for modifiers in orders_of_two(source_1, source_2) {
+            let stacked = summed(&modifiers);
+            let applied: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.bonus_type() == Some(BonusType::Circumstance))
+                .collect();
+            assert_eq!(applied.len(), 1);
+            assert_eq!(applied[0].source(), Some(SourceId(1)));
+            assert_eq!(stacked.get(Statistic::Attack), 2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    #[test]
+    fn every_input_order_gives_an_identical_result() {
+        let dice = script();
+        let mut modifiers = [
+            penalty(PenaltyType::Circumstance, -1, 1, 5, None, Statistic::Attack)
+                .with_condition(ConditionId(10), Some(1)),
+            penalty(PenaltyType::Circumstance, -4, 2, 5, None, Statistic::Attack)
+                .with_condition(ConditionId(10), Some(1)),
+            penalty(PenaltyType::Status, -1, 1, 5, None, Statistic::Attack)
+                .with_condition(ConditionId::FRIGHTENED, Some(2)),
+            penalty(PenaltyType::Status, -1, 2, 5, None, Statistic::Attack)
+                .with_condition(ConditionId::FRIGHTENED, Some(2)),
+            bonus(BonusType::Circumstance, 2, 1, 3, None, Statistic::Attack),
+            bonus(BonusType::Circumstance, 2, 2, 3, None, Statistic::Attack),
+            penalty(PenaltyType::Status, -3, 4, 1, Some(1), Statistic::Attack)
+                .with_condition(ConditionId::FRIGHTENED, Some(3)),
+            penalty(PenaltyType::Status, -1, 4, 2, Some(5), Statistic::Attack)
+                .with_condition(ConditionId::SICKENED, Some(1)),
+        ];
+        let first = summed(&modifiers);
+        for_each_order(&mut modifiers, &mut |order| {
+            assert_eq!(summed(order), first);
+        });
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Bonuses.
+    ///
+    /// Sequence wins before source id.
+    #[test]
+    fn the_lowest_sequence_beats_the_lower_source_id() {
+        let dice = script();
+        let earlier = bonus(BonusType::Circumstance, 2, 2, 1, None, Statistic::Attack);
+        let later = bonus(BonusType::Circumstance, 2, 1, 4, None, Statistic::Attack);
+        for modifiers in orders_of_two(earlier, later) {
+            let stacked = summed(&modifiers);
+            let applied: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.bonus_type() == Some(BonusType::Circumstance))
+                .collect();
+            assert_eq!(applied.len(), 1);
+            assert_eq!(applied[0].source(), Some(SourceId(2)));
+            assert_eq!(applied[0].sequence(), 1);
+            assert_eq!(stacked.get(Statistic::Attack), 2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn a_circumstance_and_status_tie_totals_minus_5_in_every_order() {
+        let dice = script();
+        let circumstance = penalty(PenaltyType::Circumstance, -2, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let status = penalty(PenaltyType::Status, -2, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let worse = penalty(PenaltyType::Status, -3, 2, 1, None, Statistic::Attack);
+        let orders = orders_of_three(circumstance, status, worse);
+        let first = summed(&orders[0]);
+        for modifiers in orders {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked, first);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -2
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -3
+            }));
+            assert!(stacked.applied().iter().all(|modifier| {
+                !(modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -2)
+            }));
+            assert_eq!(stacked.get(Statistic::Attack), -5);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 398, "Duplicate Effects".
+    ///
+    /// The higher level is an engineering tiebreak with no rules effect.
+    #[test]
+    fn a_same_type_tie_keeps_the_higher_level() {
+        let dice = script();
+        let lower = penalty(PenaltyType::Status, -2, 1, 5, Some(1), Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let higher = penalty(PenaltyType::Status, -2, 1, 5, Some(4), Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        for modifiers in orders_of_two(lower, higher) {
+            let stacked = summed(&modifiers);
+            let status: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .collect();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].level(), Some(4));
+            assert_eq!(stacked.get(Statistic::Attack), -2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn a_circumstance_and_item_tie_totals_minus_5_in_every_order() {
+        let dice = script();
+        let circumstance = penalty(PenaltyType::Circumstance, -2, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let item = penalty(PenaltyType::Item, -2, 1, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        let worse = penalty(PenaltyType::Circumstance, -3, 9, 1, None, Statistic::Attack);
+        let orders = orders_of_three(circumstance, item, worse);
+        let first = summed(&orders[0]);
+        for modifiers in orders {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked, first);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Item)
+                    && modifier.value() == -2
+                    && modifier.source() == Some(SourceId(1))
+                    && modifier.condition_id() == Some(ConditionId(10))
+            }));
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Circumstance)
+                    && modifier.value() == -3
+                    && modifier.source() == Some(SourceId(9))
+            }));
+            assert!(stacked.applied().iter().all(|modifier| {
+                !(modifier.penalty_type() == Some(PenaltyType::Circumstance)
+                    && modifier.value() == -2)
+            }));
+            assert_eq!(stacked.get(Statistic::Attack), -5);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    /// Player Core pg. 444, Frightened.
+    #[test]
+    fn a_frightened_level_tie_keeps_level_3() {
+        let dice = script();
+        let lower = penalty(PenaltyType::Status, -1, 1, 5, Some(1), Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let higher = penalty(PenaltyType::Status, -1, 1, 5, Some(3), Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        for modifiers in orders_of_two(lower, higher) {
+            let stacked = summed(&modifiers);
+            let status: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .collect();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].level(), Some(3));
+            assert_eq!(status[0].value(), -2);
+            assert_eq!(stacked.get(Statistic::Attack), -2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    /// Player Core pg. 398, "Duplicate Effects".
+    #[test]
+    fn two_identical_condition_penalties_apply_once() {
+        let dice = script();
+        let penalty = penalty(PenaltyType::Status, -2, 1, 5, Some(1), Statistic::Attack)
+            .with_condition(ConditionId(10), Some(1));
+        for modifiers in orders_of_two(penalty, penalty) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.get(Statistic::Attack), -2);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, Bonuses and Penalties.
+    #[test]
+    fn permuted_sets_match_the_stacking_oracle() {
+        let dice = script();
+        let seed = 0x0D1A_7E5B_u64;
+        let sets = generated_sets(seed);
+        assert_eq!(sets, generated_sets(seed));
+        assert!(sets.iter().any(|set| is_untyped_exact_duplicate(set)));
+        assert!(sets.iter().any(|set| both_levels_absent(set)));
+        for set in &sets {
+            assert!(set.len() <= 4);
+            let mut modifiers = set.clone();
+            let first = summed(&modifiers);
+            for_each_order(&mut modifiers, &mut |order| {
+                let stacked = summed(order);
+                assert_eq!(stacked, first);
+                for statistic in [
+                    Statistic::Attack,
+                    Statistic::ArmorClass,
+                    Statistic::Perception,
+                    Statistic::Damage,
+                ] {
+                    assert_eq!(stacked.get(statistic), oracle_total(order, statistic));
+                }
+            });
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    fn generated_sets(seed: u64) -> Vec<Vec<Modifier>> {
+        let mut rng = Lcg(seed);
+        let mut sets = vec![untyped_exact_duplicates(), both_levels_absent_set()];
+        for _ in 0..20 {
+            let count = rng.below(5) as usize;
+            sets.push((0..count).map(|_| random_modifier(&mut rng)).collect());
+        }
+        sets
+    }
+
+    fn untyped_exact_duplicates() -> Vec<Modifier> {
+        let penalty = penalty(PenaltyType::Untyped, -2, 4, 3, None, Statistic::Attack);
+        vec![penalty, penalty]
+    }
+
+    fn both_levels_absent_set() -> Vec<Modifier> {
+        vec![
+            penalty(PenaltyType::Status, -1, 1, 5, None, Statistic::Attack)
+                .with_condition(ConditionId::FRIGHTENED, Some(2)),
+            penalty(PenaltyType::Status, -4, 1, 5, None, Statistic::Attack)
+                .with_condition(ConditionId::FRIGHTENED, Some(2)),
+        ]
+    }
+
+    fn is_untyped_exact_duplicate(set: &[Modifier]) -> bool {
+        set.len() == 2
+            && set[0] == set[1]
+            && set[0].condition_id().is_none()
+            && set[0].penalty_type() == Some(PenaltyType::Untyped)
+    }
+
+    fn both_levels_absent(set: &[Modifier]) -> bool {
+        set.len() == 2 && set.iter().all(|modifier| modifier.level().is_none())
+    }
+
+    fn random_modifier(rng: &mut Lcg) -> Modifier {
+        let statistic = match rng.below(4) {
+            0 => Statistic::Attack,
+            1 => Statistic::ArmorClass,
+            2 => Statistic::Perception,
+            _ => Statistic::Damage,
+        };
+        let source = 1 + rng.below(6) as u32;
+        let sequence = 1 + rng.below(5) as u32;
+        let level = match rng.below(3) {
+            0 => None,
+            _ => Some(1 + rng.below(4) as u32),
+        };
+        let magnitude = 1 + rng.below(5) as i32;
+        let modifier = if rng.below(2) == 0 {
+            let ty = match rng.below(4) {
+                0 => PenaltyType::Circumstance,
+                1 => PenaltyType::Item,
+                2 => PenaltyType::Status,
+                _ => PenaltyType::Untyped,
+            };
+            penalty(ty, -magnitude, source, sequence, level, statistic)
+        } else {
+            let ty = match rng.below(3) {
+                0 => BonusType::Circumstance,
+                1 => BonusType::Item,
+                _ => BonusType::Status,
+            };
+            bonus(ty, magnitude, source, sequence, level, statistic)
+        };
+        match rng.below(5) {
+            0 => modifier.with_condition(ConditionId(10), Some(1 + rng.below(3) as u32)),
+            1 => modifier.with_condition(ConditionId::FRIGHTENED, Some(rng.below(4) as u32)),
+            2 => modifier.with_condition(ConditionId::SICKENED, Some(rng.below(4) as u32)),
+            _ => modifier,
+        }
+    }
+
+    /// Best bonus per type, plus worst penalty per type, plus every untyped penalty.
+    /// Condition grouping and the duplicate-key collapse run first. This does not call `total`.
+    fn oracle_total(modifiers: &[Modifier], statistic: Statistic) -> i32 {
+        let mut best_bonus: [Option<i32>; 3] = [None; 3];
+        let mut worst_penalty: [Option<i32>; 3] = [None; 3];
+        let mut untyped = 0i64;
+        for modifier in oracle_survivors(modifiers) {
+            if modifier.statistic() != statistic {
+                continue;
+            }
+            match modifier.kind {
+                ModifierKind::Bonus(BonusType::Circumstance) => {
+                    best_bonus[0] =
+                        Some(best_bonus[0].map_or(modifier.value, |v| v.max(modifier.value)));
+                }
+                ModifierKind::Bonus(BonusType::Item) => {
+                    best_bonus[1] =
+                        Some(best_bonus[1].map_or(modifier.value, |v| v.max(modifier.value)));
+                }
+                ModifierKind::Bonus(BonusType::Status) => {
+                    best_bonus[2] =
+                        Some(best_bonus[2].map_or(modifier.value, |v| v.max(modifier.value)));
+                }
+                ModifierKind::Penalty(PenaltyType::Circumstance) => {
+                    worst_penalty[0] =
+                        Some(worst_penalty[0].map_or(modifier.value, |v| v.min(modifier.value)));
+                }
+                ModifierKind::Penalty(PenaltyType::Item) => {
+                    worst_penalty[1] =
+                        Some(worst_penalty[1].map_or(modifier.value, |v| v.min(modifier.value)));
+                }
+                ModifierKind::Penalty(PenaltyType::Status) => {
+                    worst_penalty[2] =
+                        Some(worst_penalty[2].map_or(modifier.value, |v| v.min(modifier.value)));
+                }
+                ModifierKind::Penalty(PenaltyType::Untyped) => {
+                    untyped += i64::from(modifier.value);
+                }
+            }
+        }
+        let mut sum = untyped;
+        for value in best_bonus.into_iter().chain(worst_penalty).flatten() {
+            sum += i64::from(value);
+        }
+        i32::try_from(sum).expect("oracle fits")
+    }
+
+    fn oracle_survivors(modifiers: &[Modifier]) -> Vec<Modifier> {
+        let mut plain = Vec::new();
+        let mut groups: Vec<(ConditionId, Statistic, ModifierKind, Vec<Modifier>)> = Vec::new();
+        for modifier in modifiers.iter().copied() {
+            if derived_rank(modifier) == Some(0) {
+                continue;
+            }
+            let Some(id) = modifier.condition_id() else {
+                plain.push(modifier);
+                continue;
+            };
+            let kind = if derived_rank(modifier).is_some() {
+                ModifierKind::Penalty(PenaltyType::Status)
+            } else {
+                modifier.kind
+            };
+            match groups
+                .iter_mut()
+                .find(|(group_id, statistic, group_kind, _)| {
+                    *group_id == id && *statistic == modifier.statistic() && *group_kind == kind
+                }) {
+                Some((_, _, _, group)) => group.push(modifier),
+                None => groups.push((id, modifier.statistic(), kind, vec![modifier])),
+            }
+        }
+        for (_, _, _, group) in groups {
+            let mut best = group[0];
+            for candidate in group.into_iter().skip(1) {
+                if oracle_prefers(candidate, best) {
+                    best = candidate;
+                }
+            }
+            plain.push(oracle_rewrite(best));
+        }
+        oracle_collapse(plain)
+    }
+
+    fn oracle_prefers(candidate: Modifier, current: Modifier) -> bool {
+        let candidate_value = oracle_grouped_value(candidate);
+        let current_value = oracle_grouped_value(current);
+        if candidate_value != current_value {
+            return match candidate.kind {
+                ModifierKind::Bonus(_) => candidate_value > current_value,
+                ModifierKind::Penalty(_) => candidate_value < current_value,
+            };
+        }
+        match (candidate.rank(), current.rank()) {
+            (Some(candidate_rank), Some(current_rank)) if candidate_rank != current_rank => {
+                return candidate_rank > current_rank;
+            }
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            _ => {}
+        }
+        if candidate.sequence() != current.sequence() {
+            return candidate.sequence() > current.sequence();
+        }
+        let candidate_source = source_ord(candidate.source);
+        let current_source = source_ord(current.source);
+        if candidate_source != current_source {
+            return candidate_source < current_source;
+        }
+        match (candidate.level(), current.level()) {
+            (Some(candidate_level), Some(current_level)) if candidate_level != current_level => {
+                return candidate_level > current_level;
+            }
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            _ => {}
+        }
+        if candidate.value() != current.value() {
+            return match candidate.kind {
+                ModifierKind::Bonus(_) => candidate.value() > current.value(),
+                ModifierKind::Penalty(_) => candidate.value() < current.value(),
+            };
+        }
+        false
+    }
+
+    fn oracle_grouped_value(modifier: Modifier) -> i32 {
+        derived_rank(modifier).map_or(modifier.value(), |rank| -i32::try_from(rank).expect("rank"))
+    }
+
+    fn oracle_rewrite(mut modifier: Modifier) -> Modifier {
+        if let Some(rank) = derived_rank(modifier) {
+            modifier.value = -i32::try_from(rank).expect("rank");
+            modifier.kind = ModifierKind::Penalty(PenaltyType::Status);
+        }
+        modifier
+    }
+
+    fn oracle_collapse(modifiers: Vec<Modifier>) -> Vec<Modifier> {
+        let mut kept = Vec::new();
+        for modifier in modifiers {
+            match kept
+                .iter_mut()
+                .find(|existing| same_duplicate_key(**existing, modifier))
+            {
+                Some(existing) => {
+                    if oracle_key_prefers(modifier, *existing) {
+                        *existing = modifier;
+                    }
+                }
+                None => kept.push(modifier),
+            }
+        }
+        kept
+    }
+
+    fn oracle_key_prefers(candidate: Modifier, current: Modifier) -> bool {
+        match (candidate.level(), current.level()) {
+            (Some(candidate_level), Some(current_level)) if candidate_level != current_level => {
+                return candidate_level > current_level;
+            }
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            _ => {}
+        }
+        match (candidate.rank(), current.rank()) {
+            (Some(candidate_rank), Some(current_rank)) if candidate_rank != current_rank => {
+                return candidate_rank > current_rank;
+            }
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            _ => {}
+        }
+        if candidate.sequence() != current.sequence() {
+            return candidate.sequence() > current.sequence();
+        }
+        if candidate.value() != current.value() {
+            return match candidate.kind {
+                ModifierKind::Bonus(_) => candidate.value() > current.value(),
+                ModifierKind::Penalty(_) => candidate.value() < current.value(),
+            };
+        }
+        match (candidate.condition_id(), current.condition_id()) {
+            (Some(candidate_id), Some(current_id)) if candidate_id != current_id => {
+                return candidate_id < current_id;
+            }
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            _ => {}
+        }
+        source_ord(candidate.source) < source_ord(current.source)
+    }
+
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.0
+        }
+
+        fn below(&mut self, bound: u64) -> u64 {
+            self.next() % bound
+        }
     }
 }

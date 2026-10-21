@@ -53,4 +53,4 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 
 ## Known defects
 
-- Penalty tie at equal (source, sequence) keeps the milder penalty; RAW keeps the worse. Rules 2282 (same-type stacking), https://2e.aonprd.com/Rules.aspx?ID=2282 (PC 400). Fixed by amend-modifier-duplicates.
+None. An equal-sequence penalty tie kept the milder penalty; RAW keeps the worse. Rules 2282 (same-type stacking), https://2e.aonprd.com/Rules.aspx?ID=2282 (PC 400). Resolved by amend-modifier-duplicates. Ruling R-01 keeps the worse penalty.
