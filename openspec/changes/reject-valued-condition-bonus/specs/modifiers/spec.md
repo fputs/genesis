@@ -11,8 +11,9 @@
 
 ### Requirement: Valued conditions are validated at construction
 
-A frightened or sickened modifier with no rank, non-status type, or a bonus at any rank including 0, SHALL be rejected at construction with InvalidValuedCondition and SHALL NOT panic. A penalty of rank above 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. A penalty of rank 0 SHALL stay legal and contribute nothing. Any other condition with no rank SHALL stay legal. A bonus and a penalty of a condition whose modifiers are not derived from its value SHALL both apply.
+Frightened or sickened with no rank, non-status type, or a bonus including rank 0 SHALL return InvalidValuedCondition at construction and SHALL NOT panic. A penalty above rank 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. A rank 0 penalty SHALL stay legal and contribute nothing. Other unranked conditions SHALL stay legal. A bonus and a penalty of a condition whose modifiers are not derived from its value SHALL both apply (Rules 2282, Player Core p.400, Penalties).
 
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=91 (Player Core pg. 446, Sickened)
