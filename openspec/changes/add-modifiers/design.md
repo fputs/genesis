@@ -39,7 +39,7 @@ crates/rules/src/combatant.rs     fold validation, damage floor, heal cap
 
 `Cargo.toml` gains no dependency. The new code does not read a clock, a file, the network, or a global, and it does not use `Cell`, `RefCell`, `Mutex`, or `unsafe`. Sequence numbers are caller-supplied. Newer means a greater sequence number, not a timestamp.
 
-Every fallible function returns `Result`. Sums use `checked_add`. Overflow is a typed error, not a panic and not a wrapped `i32`. Library code has no `unwrap`, `expect`, or `panic`.
+Every fallible function returns `Result`. Sums use `checked_add`. Overflow is `ModifierError::Overflow`, not a panic, not a wrapped `i32`, and not saturation to the minimum or maximum value. Library code has no `unwrap`, `expect`, or `panic`.
 
 ### 2. Illegal modifiers cannot be built
 
@@ -50,6 +50,7 @@ pub enum PenaltyType { Circumstance, Item, Status, Untyped }
 pub enum ModifierError {
     UntypedBonus,
     Zero,
+    Sign,
     Overflow,
 }
 
@@ -61,7 +62,7 @@ impl Modifier {
 }
 ```
 
-There is no proficiency variant and no untyped bonus variant. `bonus` rejects a value that is not positive with `Zero` when it is 0. `penalty` requires a negative value and returns `Zero` for 0. `penalty(Untyped, positive, ...)` returns `UntypedBonus`. `SourceId` is a `u32` newtype. Equal ids are the same effect.
+There is no proficiency variant and no untyped bonus variant. A bonus value must be greater than 0. A penalty value must be less than 0. `bonus` returns `Zero` for 0 and `Sign` for a negative value. `penalty` returns `Zero` for 0, `UntypedBonus` for a positive untyped value, and `Sign` for any other positive value. `SourceId` is a `u32` newtype. Equal ids are the same effect.
 
 Alternative considered: store untyped bonuses in a bucket that sums. Rejected. Remaster text says penalties can be untyped, unlike bonuses (Player Core pg. 400). Nothing in Phase 1 needs that bucket.
 
@@ -71,9 +72,9 @@ Alternative considered: store untyped bonuses in a bucket that sums. Rejected. R
 
 1. Modifiers that share a `ConditionId` collapse first. The kept condition has the highest rank. Frightened and sickened then become one status penalty equal to the negation of that rank, so frightened 2 is -2, not a second modifier of -1. A condition with no rank, such as off-guard, is kept once. Rank is the condition's own number. It is not the algebraic maximum of the penalty, which would keep frightened 1 over frightened 2.
 2. Modifiers that share a `SourceId` collapse next. The higher `level` wins. If level does not decide, the algebraically higher `value` wins, so -2 beats -5. If value also ties, the greater sequence number wins. This happens before any sum.
-3. For each of circumstance, item, and status, add the highest positive value and the lowest negative value. Both are kept when both exist. Add every remaining untyped penalty with `checked_add`. `None` is `ModifierError::Overflow`.
+3. For each of circumstance, item, and status, add the highest positive value and the lowest negative value. Both are kept when both exist. When different sources tie for that highest bonus or that worst penalty, the applied modifier is the one with the lowest sequence number. The result reports that modifier, not only the number. Add every remaining untyped penalty with `checked_add`. `None` is `ModifierError::Overflow`. Do not use saturating arithmetic.
 
-The same inputs produce the same total. Insertion order does not matter except for the sequence tie-break, which is an input.
+The same inputs produce the same total. Insertion order does not matter. Same-source ties still keep the greater sequence number. Different-source ties for one type's winning value keep the lowest sequence number.
 
 `dc_from_total` is 10 plus that total, with the same checked add, and it does not clamp. A total of -6 yields DC 4.
 

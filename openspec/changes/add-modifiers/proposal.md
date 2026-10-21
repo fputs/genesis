@@ -7,14 +7,14 @@ Phase 1 checks add penalties as loose numbers, and a negative damage total is cl
 ## What Changes
 
 - Add a `modifiers` capability. Bonus types are circumstance, item, and status. Penalty types are circumstance, item, status, and untyped. Proficiency is out of scope. The item type exists and is tested; Phase 1 produces none.
-- Same type: keep the highest bonus and the worst penalty. A bonus and a penalty of the same type both apply. Untyped penalties all add, including the existing multiple attack penalty and a caller-supplied range penalty.
-- Reject an untyped bonus and a zero value at construction, each with a typed error.
+- Same type: keep the highest bonus and the worst penalty. When different sources tie, the lowest sequence number is the one reported as applied. A bonus and a penalty of the same type both apply. Untyped penalties all add, including the existing multiple attack penalty and a caller-supplied range penalty. A sum that overflows is a typed error and does not saturate.
+- A bonus value is greater than 0 and a penalty value is less than 0. Any other value, including zero and an untyped bonus, is a typed construction error.
 - Each modifier carries a source id and a sequence number. One source contributes once: higher level, otherwise higher value, otherwise the newer sequence. This happens before the sum. A repeated condition keeps its highest rank before that sum.
 - Totals and DCs are not clamped and may be negative. A DC is 10 plus the total. Flat checks take no modifier total. Attack rolls, Armor Class, Perception, and damage keep separate collections and do not compete.
 - Phase 1 applies the existing multiple attack penalty (including agile), prone -2 circumstance, and Aid circumstance on attack rolls; cover +1/+2/+4 circumstance, off-guard -2 circumstance, and unconscious -4 status on Armor Class; unconscious -4 status on Perception; and the same stacking on damage. Shield bonuses stay in the shields change. This change does not define a second multiple attack penalty.
 - On `creature-template`, folding contributions uses the same maximum Hit Points and Speed checks as template validation and returns a `FoldError` instead of an invalid Creature. Current Hit Points on the damage and heal paths stay from 0 through the maximum.
 - On `creature-template`, when modifiers or penalties reduce a damage total to 0 or below, deal 1, and apply that floor before critical doubling, so the smallest critical hit deals 2. This replaces the clamp-to-0 behavior in `apply_dice_damage`. That behavior is code, not a named requirement, so the delta adds the requirement. Resistance that reduces damage to 0 stays out of scope.
-- Fallible operations return `Result`. Arithmetic is checked, and overflow is a typed error. No new dependency.
+- Fallible operations return `Result`. Arithmetic is checked. Overflow while summing is a typed error and never saturates. No new dependency.
 
 ## Capabilities
 

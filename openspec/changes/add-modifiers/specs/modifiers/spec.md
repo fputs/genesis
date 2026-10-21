@@ -37,7 +37,7 @@ A bonus SHALL be circumstance, item, or status. A penalty SHALL be circumstance,
 
 ### Requirement: Same-type stacking
 
-For one type, only the highest bonus and only the worst penalty SHALL apply. A bonus and a penalty of the same type SHALL both apply. Every untyped penalty SHALL be added. A sum that does not fit SHALL return a typed error.
+For one type, only the highest bonus and only the worst penalty SHALL apply. When different sources tie for that bonus or that penalty, the lowest sequence number SHALL be the one reported as applied. A bonus and a penalty of the same type SHALL both apply. Every untyped penalty SHALL be added. A sum that overflows SHALL return a typed error and SHALL NOT saturate.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -83,6 +83,7 @@ For one type, only the highest bonus and only the worst penalty SHALL apply. A b
 - **GIVEN** untyped penalties of -2147483648 and -1 from different sources
 - **WHEN** they are totaled
 - **THEN** the result is a typed overflow error and not a total
+- **AND** the result is not a saturated value
 
 #### Scenario: The same modifiers total twice
 
@@ -90,9 +91,23 @@ For one type, only the highest bonus and only the worst penalty SHALL apply. A b
 - **WHEN** the total is taken twice
 - **THEN** the two totals are equal
 
-### Requirement: Construction rejects an untyped bonus or a zero
+#### Scenario: A tied highest bonus reports the lowest sequence
 
-Creating a modifier SHALL return a typed error when the bonus is untyped, and SHALL return a typed error when the value is zero. Neither case SHALL produce a modifier.
+- **GIVEN** circumstance bonuses of +2 from two sources, with sequence numbers 4 and 1
+- **WHEN** they are totaled
+- **THEN** the applied circumstance bonus has sequence number 1
+- **AND** the total is +2
+
+#### Scenario: A tied worst penalty reports the lowest sequence
+
+- **GIVEN** circumstance penalties of -2 from two sources, with sequence numbers 7 and 3
+- **WHEN** they are totaled
+- **THEN** the applied circumstance penalty has sequence number 3
+- **AND** the total is -2
+
+### Requirement: Construction rejects an illegal value
+
+A bonus value SHALL be greater than 0 and a penalty value SHALL be less than 0. Any other value, including zero and an untyped bonus, SHALL return a typed construction error and SHALL NOT produce a modifier.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2456 (Player Core pg. 442, Condition Values)
@@ -109,6 +124,20 @@ Creating a modifier SHALL return a typed error when the bonus is untyped, and SH
 - **GIVEN** a circumstance value of 0
 - **WHEN** a modifier is created
 - **THEN** the error is the zero-value error
+- **AND** no modifier is returned
+
+#### Scenario: A negative bonus is rejected
+
+- **GIVEN** a circumstance bonus of -1
+- **WHEN** a modifier is created
+- **THEN** the result is a typed construction error
+- **AND** no modifier is returned
+
+#### Scenario: A positive penalty is rejected
+
+- **GIVEN** a circumstance penalty of +1
+- **WHEN** a modifier is created
+- **THEN** the result is a typed construction error
 - **AND** no modifier is returned
 
 ### Requirement: One effect and the highest condition rank
