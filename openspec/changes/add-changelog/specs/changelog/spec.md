@@ -80,3 +80,14 @@ A spec-only, docs-only, or archive-only pull request MUST NOT need a changelog b
 - **WHEN** a reviewer reads section 2
 - **THEN** it contains one line about adding the changelog entry before done
 - **AND** that line does not require an entry from spec-only, docs-only, or archive-only pull requests
+
+### Requirement: No post-merge changelog step
+
+The changelog entry MUST be written in the implementation pull request before that work is done. `docs/producer/process.md` and `AGENTS.md` section 10 MUST say so. No file under `docs/` and no part of `AGENTS.md` MUST describe a separate post-merge changelog step.
+
+#### Scenario: No doc describes a post-merge changelog step
+
+- **GIVEN** `docs/` and `AGENTS.md` after this change is implemented
+- **WHEN** a reviewer reads them for how a changelog entry is written
+- **THEN** no document describes a separate post-merge changelog step
+- **AND** `docs/producer/process.md` and `AGENTS.md` section 10 say the implementation pull request writes the entry before the work is done
