@@ -1,15 +1,24 @@
 use crate::dice::Dice;
 
 /// Four degrees of success on a d20 check.
+///
+/// Player Core, "Step 4: Degree of Success".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Degree {
+    /// Missed the DC by 10 or more. Player Core, "Step 4: Degree of Success".
     CriticalFailure,
+    /// Missed the DC by less than 10. Player Core, "Step 4: Degree of Success".
     Failure,
+    /// Met the DC by less than 10. Player Core, "Step 4: Degree of Success".
     Success,
+    /// Beat the DC by 10 or more. Player Core, "Step 4: Degree of Success".
     CriticalSuccess,
 }
 
 impl Degree {
+    /// One step toward critical success. A critical success stays put.
+    ///
+    /// Player Core, "Natural 1 and Natural 20".
     pub fn improve(self) -> Self {
         match self {
             Degree::CriticalFailure => Degree::Failure,
@@ -19,6 +28,9 @@ impl Degree {
         }
     }
 
+    /// One step toward critical failure. A critical failure stays put.
+    ///
+    /// Player Core, "Natural 1 and Natural 20".
     pub fn worsen(self) -> Self {
         match self {
             Degree::CriticalSuccess => Degree::Success,
@@ -32,6 +44,8 @@ impl Degree {
 /// Degree from `total` against `dc`, then a natural 20 improves it one step and a natural 1 worsens it one step.
 ///
 /// The natural 20 or natural 1 is applied before any later effect calls [`Degree::improve`] or [`Degree::worsen`].
+///
+/// Player Core, "Step 4: Degree of Success" and "Natural 1 and Natural 20".
 pub fn degree_of_success(natural: u8, total: i32, dc: i32) -> Degree {
     let mut degree = if total >= dc + 10 {
         Degree::CriticalSuccess
@@ -51,6 +65,8 @@ pub fn degree_of_success(natural: u8, total: i32, dc: i32) -> Degree {
 }
 
 /// Maps an unlisted critical success to success and an unlisted critical failure to failure.
+///
+/// Player Core, "Step 4: Degree of Success".
 pub fn fallback_unlisted_critical(
     degree: Degree,
     lists_critical_success: bool,
@@ -64,20 +80,28 @@ pub fn fallback_unlisted_critical(
 }
 
 /// DC taken from a modifier: 10 plus that modifier.
+///
+/// Player Core, "Getting a DC from a Modifier".
 pub fn dc_from_modifier(modifier: i32) -> i32 {
     10 + modifier
 }
 
-/// One resolved d20 check.
+/// One resolved d20 check. Player Core, Checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CheckRoll {
+    /// Face rolled on the d20. Player Core, Checks.
     pub natural: u8,
+    /// Natural roll plus the modifier. Player Core, Checks.
     pub total: i32,
+    /// DC the total was compared with. Player Core, Checks.
     pub dc: i32,
+    /// Degree after the natural 20 or natural 1 shift. Player Core, "Step 4: Degree of Success".
     pub degree: Degree,
 }
 
 /// Rolls a d20, adds `modifier`, and applies [`degree_of_success`] (natural 20 and natural 1 included).
+///
+/// Player Core, Checks.
 pub fn resolve_check(dice: &mut impl Dice, modifier: i32, dc: i32) -> CheckRoll {
     let natural = dice.d20();
     let total = i32::from(natural) + modifier;
@@ -91,10 +115,15 @@ pub fn resolve_check(dice: &mut impl Dice, modifier: i32, dc: i32) -> CheckRoll 
 }
 
 /// A flat check. `natural` is absent when the DC resolves without a roll.
+///
+/// Player Core, Flat Checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatRoll {
+    /// The d20, or nothing when the DC did not roll. Player Core, Flat Checks.
     pub natural: Option<u8>,
+    /// DC that was compared. Player Core, Flat Checks.
     pub dc: i32,
+    /// Degree of the flat check. Player Core, Flat Checks.
     pub degree: Degree,
 }
 
@@ -102,6 +131,8 @@ pub struct FlatRoll {
 ///
 /// DC 1 or lower succeeds without a roll. DC 21 or higher fails without a roll.
 /// Automatic results are an ordinary success or an ordinary failure.
+///
+/// Player Core, Flat Checks.
 pub fn flat_check(dice: &mut impl Dice, dc: i32) -> FlatRoll {
     if dc <= 1 {
         return FlatRoll {
@@ -126,6 +157,8 @@ pub fn flat_check(dice: &mut impl Dice, dc: i32) -> FlatRoll {
 }
 
 /// Several flat checks for the same thing roll once, at the highest DC.
+///
+/// Player Core, Flat Checks.
 pub fn flat_checks_for_same_thing(dice: &mut impl Dice, dcs: &[i32]) -> FlatRoll {
     let dc = dcs
         .iter()
@@ -136,10 +169,15 @@ pub fn flat_checks_for_same_thing(dice: &mut impl Dice, dcs: &[i32]) -> FlatRoll
 }
 
 /// Inputs for the untyped multiple attack penalty. The caller counts attack-trait checks.
+///
+/// Player Core, "Multiple Attack Penalty".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MapInput {
+    /// False on another creature's turn, including a reaction then. Player Core, "Multiple Attack Penalty".
     pub on_own_turn: bool,
+    /// Attack-trait checks already made on this own turn. Player Core, "Multiple Attack Penalty".
     pub prior_attack_trait_checks_this_turn: u8,
+    /// Agile on the weapon used for this check, not an earlier one. Player Core, "Multiple Attack Penalty".
     pub current_weapon_agile: bool,
 }
 
@@ -147,6 +185,8 @@ pub struct MapInput {
 ///
 /// On the creature's own turn the penalty is 0, then −5, then −10, or 0, then −4, then −8
 /// when the current weapon is agile. Off turn the penalty is 0. This does not increment the count.
+///
+/// Player Core, "Multiple Attack Penalty".
 pub fn multiple_attack_penalty(input: MapInput) -> i32 {
     if !input.on_own_turn {
         return 0;
@@ -166,6 +206,8 @@ pub fn multiple_attack_penalty(input: MapInput) -> i32 {
 /// Adds the natural roll, attack bonus, untyped MAP, a circumstance penalty, and another untyped penalty.
 ///
 /// Penalties are negative. MAP is not dropped by keeping only the worse of MAP and the circumstance penalty.
+///
+/// Player Core, Penalties.
 pub fn attack_check_total(
     natural: u8,
     attack_bonus: i32,
@@ -485,6 +527,402 @@ mod tests {
             current_weapon_agile: false,
         });
         assert_eq!(map, -5);
+        let natural = ScriptedDice::new([12]).d20();
+        let total = attack_check_total(natural, 9, map, 0, -2);
+        assert_eq!(total, 14);
+        assert_eq!(degree_of_success(natural, total, 16), Degree::Failure);
+    }
+
+    fn check(natural: u8, modifier: i32, dc: i32) -> CheckRoll {
+        resolve_check(&mut ScriptedDice::new([natural]), modifier, dc)
+    }
+
+    fn penalty(prior: u8, agile: bool, on_own_turn: bool) -> i32 {
+        multiple_attack_penalty(MapInput {
+            on_own_turn,
+            prior_attack_trait_checks_this_turn: prior,
+            current_weapon_agile: agile,
+        })
+    }
+
+    fn strike_check(
+        natural: u8,
+        prior: u8,
+        agile: bool,
+        on_own_turn: bool,
+        bonus: i32,
+        dc: i32,
+    ) -> (i32, i32, Degree) {
+        let mut dice = ScriptedDice::new([natural]);
+        let rolled = dice.d20();
+        let map = penalty(prior, agile, on_own_turn);
+        let total = attack_check_total(rolled, bonus, map, 0, 0);
+        (map, total, degree_of_success(rolled, total, dc))
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn total_equal_to_the_dc_is_a_success() {
+        let roll = check(11, 4, 15);
+        assert_eq!(roll.total, 15);
+        assert_eq!(roll.degree, Degree::Success);
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn beating_the_dc_by_9_is_a_success() {
+        let roll = check(14, 10, 15);
+        assert_eq!(roll.total, 24);
+        assert_eq!(roll.degree, Degree::Success);
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn beating_the_dc_by_10_is_a_critical_success() {
+        let roll = check(15, 10, 15);
+        assert_eq!(roll.total, 25);
+        assert_eq!(roll.degree, Degree::CriticalSuccess);
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn missing_the_dc_by_9_is_a_failure() {
+        let roll = check(6, 0, 15);
+        assert_eq!(roll.total, 6);
+        assert_eq!(roll.degree, Degree::Failure);
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn missing_the_dc_by_10_is_a_critical_failure() {
+        let roll = check(5, 0, 15);
+        assert_eq!(roll.total, 5);
+        assert_eq!(roll.degree, Degree::CriticalFailure);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_20_turns_a_failure_into_a_success() {
+        let roll = check(20, 0, 25);
+        assert_eq!(roll.total, 20);
+        assert_eq!(degree_of_success(10, 20, 25), Degree::Failure);
+        assert_eq!(roll.degree, Degree::Success);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_20_turns_a_success_into_a_critical_success() {
+        let roll = check(20, 0, 18);
+        assert_eq!(roll.total, 20);
+        assert_eq!(roll.degree, Degree::CriticalSuccess);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_20_does_not_raise_a_critical_success() {
+        let roll = check(20, 8, 18);
+        assert_eq!(roll.total, 28);
+        assert_eq!(roll.degree, Degree::CriticalSuccess);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_20_turns_a_critical_failure_into_a_failure() {
+        let roll = check(20, 0, 30);
+        assert_eq!(roll.total, 20);
+        assert_eq!(degree_of_success(10, 20, 30), Degree::CriticalFailure);
+        assert_eq!(roll.degree, Degree::Failure);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_1_turns_a_success_into_a_failure() {
+        let roll = check(1, 17, 15);
+        assert_eq!(roll.total, 18);
+        assert_eq!(degree_of_success(10, 18, 15), Degree::Success);
+        assert_eq!(roll.degree, Degree::Failure);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_1_turns_a_critical_success_into_a_success() {
+        let roll = check(1, 24, 15);
+        assert_eq!(roll.total, 25);
+        assert_eq!(roll.degree, Degree::Success);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn natural_1_does_not_lower_a_critical_failure() {
+        let roll = check(1, 0, 15);
+        assert_eq!(roll.total, 1);
+        assert_eq!(roll.degree, Degree::CriticalFailure);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn a_later_upgrade_sees_the_degree_after_the_natural_20() {
+        let roll = check(20, 0, 25);
+        assert_eq!(degree_of_success(10, roll.total, 25), Degree::Failure);
+        assert_eq!(roll.degree, Degree::Success);
+        assert_eq!(upgrade_success(roll.degree), Degree::CriticalSuccess);
+    }
+
+    /// Player Core, "Natural 1 and Natural 20".
+    #[test]
+    fn a_later_upgrade_does_not_see_the_degree_from_before_the_natural_1() {
+        let roll = check(1, 17, 15);
+        assert_eq!(degree_of_success(10, roll.total, 15), Degree::Success);
+        assert_eq!(roll.degree, Degree::Failure);
+        assert_eq!(upgrade_success(roll.degree), Degree::Failure);
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn no_critical_success_entry() {
+        let roll = check(15, 10, 15);
+        assert_eq!(roll.degree, Degree::CriticalSuccess);
+        assert_eq!(
+            fallback_unlisted_critical(roll.degree, false, true),
+            Degree::Success
+        );
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn no_critical_failure_entry() {
+        let roll = check(5, 0, 15);
+        assert_eq!(roll.degree, Degree::CriticalFailure);
+        assert_eq!(
+            fallback_unlisted_critical(roll.degree, true, false),
+            Degree::Failure
+        );
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn listed_critical_entries_stay() {
+        let success = check(15, 10, 15);
+        let failure = check(5, 0, 15);
+        assert_eq!(
+            fallback_unlisted_critical(success.degree, true, true),
+            Degree::CriticalSuccess
+        );
+        assert_eq!(
+            fallback_unlisted_critical(failure.degree, true, true),
+            Degree::CriticalFailure
+        );
+    }
+
+    /// Player Core, "Getting a DC from a Modifier".
+    #[test]
+    fn positive_modifier() {
+        assert_eq!(dc_from_modifier(7), 17);
+    }
+
+    /// Player Core, "Getting a DC from a Modifier".
+    #[test]
+    fn zero_modifier() {
+        assert_eq!(dc_from_modifier(0), 10);
+    }
+
+    /// Player Core, "Getting a DC from a Modifier".
+    #[test]
+    fn negative_modifier() {
+        assert_eq!(dc_from_modifier(-3), 7);
+    }
+
+    /// Player Core, "Getting a DC from a Modifier".
+    #[test]
+    fn a_check_uses_the_derived_dc() {
+        let roll = check(12, 5, dc_from_modifier(7));
+        assert_eq!(roll.total, 17);
+        assert_eq!(roll.degree, Degree::Success);
+    }
+
+    /// Player Core, "Flat Checks".
+    #[test]
+    fn modifiers_are_ignored() {
+        let mut dice = ScriptedDice::new([10]);
+        let roll = flat_check(&mut dice, 11);
+        assert_eq!(roll.natural, Some(10));
+        assert_eq!(roll.degree, Degree::Failure);
+        assert_eq!(degree_of_success(10, 19, 11), Degree::Success);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, "Flat Checks".
+    #[test]
+    fn dc_1_succeeds_without_rolling() {
+        let mut dice = ScriptedDice::new([4]);
+        let roll = flat_check(&mut dice, 1);
+        assert_eq!(roll.degree, Degree::Success);
+        assert_eq!(roll.natural, None);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Flat Checks".
+    #[test]
+    fn dc_0_succeeds_without_rolling() {
+        let mut dice = ScriptedDice::new([4]);
+        let roll = flat_check(&mut dice, 0);
+        assert_eq!(roll.degree, Degree::Success);
+        assert_eq!(roll.natural, None);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Flat Checks".
+    #[test]
+    fn dc_21_fails_without_rolling() {
+        let mut dice = ScriptedDice::new([20]);
+        let roll = flat_check(&mut dice, 21);
+        assert_eq!(roll.degree, Degree::Failure);
+        assert_eq!(roll.natural, None);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Flat Checks".
+    ///
+    /// Numeric total 20 meets DC 20. Natural 20 then improves that success.
+    #[test]
+    fn dc_20_still_rolls() {
+        let mut dice = ScriptedDice::new([20]);
+        let roll = flat_check(&mut dice, 20);
+        assert_eq!(dice.remaining(), 0);
+        assert_eq!(roll.natural, Some(20));
+        assert_eq!(degree_of_success(10, 20, 20), Degree::Success);
+        assert_eq!(roll.degree, Degree::CriticalSuccess);
+    }
+
+    /// Player Core, "Flat Checks".
+    #[test]
+    fn the_same_thing_rolls_once_at_the_highest_dc() {
+        let mut dice = ScriptedDice::new([10, 20]);
+        let roll = flat_checks_for_same_thing(&mut dice, &[5, 15]);
+        assert_eq!(roll.natural, Some(10));
+        assert_eq!(roll.dc, 15);
+        assert_eq!(roll.degree, Degree::Failure);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Flat Checks".
+    #[test]
+    fn different_things_roll_separately() {
+        let mut dice = ScriptedDice::new([10, 4]);
+        let first = flat_check(&mut dice, 5);
+        let second = flat_check(&mut dice, 11);
+        assert_eq!(first.natural, Some(10));
+        assert_eq!(first.degree, Degree::Success);
+        assert_eq!(second.natural, Some(4));
+        assert_eq!(second.degree, Degree::Failure);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn the_first_check_on_your_turn_has_no_penalty() {
+        assert_eq!(
+            strike_check(10, 0, false, true, 8, 18),
+            (0, 18, Degree::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn the_second_non_agile_check_takes_minus_5() {
+        assert_eq!(
+            strike_check(15, 1, false, true, 8, 18),
+            (-5, 18, Degree::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn the_third_and_later_non_agile_checks_take_minus_10() {
+        assert_eq!(
+            strike_check(15, 2, false, true, 8, 18),
+            (-10, 13, Degree::Failure)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn a_fourth_non_agile_check_stays_at_minus_10() {
+        let (map, total, _) = strike_check(15, 3, false, true, 8, 18);
+        assert_eq!(map, -10);
+        assert_eq!(total, 13);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn the_second_agile_check_takes_minus_4() {
+        assert_eq!(
+            strike_check(14, 1, true, true, 8, 18),
+            (-4, 18, Degree::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn the_third_agile_check_takes_minus_8() {
+        assert_eq!(
+            strike_check(18, 2, true, true, 8, 18),
+            (-8, 18, Degree::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn the_current_weapon_sets_the_penalty() {
+        assert_eq!(
+            strike_check(12, 1, true, true, 8, 16),
+            (-4, 16, Degree::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn a_non_agile_weapon_after_an_agile_weapon_uses_minus_5() {
+        assert_eq!(
+            strike_check(12, 1, false, true, 8, 16),
+            (-5, 15, Degree::Failure)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn a_reaction_on_another_turn_takes_no_penalty_and_does_not_count() {
+        let (map, total, _) = strike_check(10, 2, false, false, 8, 18);
+        assert_eq!(map, 0);
+        assert_eq!(total, 18);
+        let (next_map, next_total, _) = strike_check(11, 0, false, true, 8, 19);
+        assert_eq!(next_map, 0);
+        assert_eq!(next_total, 19);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn an_attack_trait_check_that_is_not_a_strike_still_counts() {
+        assert_eq!(
+            strike_check(15, 1, false, true, 8, 19),
+            (-5, 18, Degree::Failure)
+        );
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn the_penalty_stacks_with_a_circumstance_penalty() {
+        let map = penalty(1, false, true);
+        let natural = ScriptedDice::new([12]).d20();
+        let total = attack_check_total(natural, 9, map, -2, 0);
+        assert_eq!(total, 14);
+        assert_eq!(degree_of_success(natural, total, 16), Degree::Failure);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn the_penalty_stacks_with_another_untyped_penalty() {
+        let map = penalty(1, false, true);
         let natural = ScriptedDice::new([12]).d20();
         let total = attack_check_total(natural, 9, map, 0, -2);
         assert_eq!(total, 14);

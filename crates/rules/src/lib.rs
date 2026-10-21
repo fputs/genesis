@@ -2,6 +2,8 @@
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 
+#![forbid(unsafe_code)]
+
 mod check;
 mod combatant;
 mod dice;
