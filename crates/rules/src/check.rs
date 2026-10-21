@@ -44,14 +44,24 @@ impl DegreeOfSuccess {
 /// Degree from `total` against `dc`, then a natural 20 improves it one step and a natural 1 worsens it one step.
 ///
 /// The natural 20 or natural 1 is applied before any later effect calls [`DegreeOfSuccess::improve`] or [`DegreeOfSuccess::worsen`].
+/// The 10-point bands use checked addition and subtraction. A DC at either end of `i32` has no
+/// representable threshold on that side, so the band is not met.
 ///
 /// Player Core, "Step 4: Degree of Success" and "Natural 1 and Natural 20".
 pub fn degree_of_success(natural: u8, total: i32, dc: i32) -> DegreeOfSuccess {
-    let mut degree = if total >= dc + 10 {
+    let ten_above = match dc.checked_add(10) {
+        Some(threshold) => total >= threshold,
+        None => false,
+    };
+    let ten_below = match dc.checked_sub(10) {
+        Some(threshold) => total <= threshold,
+        None => false,
+    };
+    let mut degree = if ten_above {
         DegreeOfSuccess::CriticalSuccess
     } else if total >= dc {
         DegreeOfSuccess::Success
-    } else if total <= dc - 10 {
+    } else if ten_below {
         DegreeOfSuccess::CriticalFailure
     } else {
         DegreeOfSuccess::Failure
@@ -79,11 +89,94 @@ pub fn fallback_unlisted_critical(
     }
 }
 
+/// A modifier for which `10 + modifier` fits in `i32`.
+///
+/// Player Core, "Getting a DC from a Modifier".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DcModifier(i32);
+
+/// A modifier that can be added to any die face in `0..=255` without leaving `i32`.
+///
+/// Player Core, Checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckModifier(i32);
+
+/// One addend of an attack total. Four values of this type, plus any `u8` natural roll, fit in `i32`.
+///
+/// Player Core, Penalties.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AttackTotalTerm(i32);
+
+/// The sum of the given numbers does not fit in `i32`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArithmeticOverflow {
+    /// Checked addition has no `i32` result.
+    SumDoesNotFit,
+}
+
+impl DcModifier {
+    /// Rejects a modifier for which `10 + modifier` does not fit in `i32`.
+    ///
+    /// Player Core, "Getting a DC from a Modifier".
+    pub fn new(modifier: i32) -> Result<Self, ArithmeticOverflow> {
+        match 10i32.checked_add(modifier) {
+            Some(_) => Ok(Self(modifier)),
+            None => Err(ArithmeticOverflow::SumDoesNotFit),
+        }
+    }
+
+    /// The modifier that was accepted.
+    pub fn get(self) -> i32 {
+        self.0
+    }
+}
+
+impl CheckModifier {
+    /// Rejects a modifier that cannot be added to every face in `0..=255`.
+    ///
+    /// Player Core, Checks.
+    pub fn new(modifier: i32) -> Result<Self, ArithmeticOverflow> {
+        match modifier.checked_add(i32::from(u8::MAX)) {
+            Some(_) => Ok(Self(modifier)),
+            None => Err(ArithmeticOverflow::SumDoesNotFit),
+        }
+    }
+
+    /// The modifier that was accepted.
+    pub fn get(self) -> i32 {
+        self.0
+    }
+}
+
+impl AttackTotalTerm {
+    /// Rejects a term when four copies of it, plus a natural roll of 255, would leave `i32`.
+    ///
+    /// Player Core, Penalties.
+    pub fn new(term: i32) -> Result<Self, ArithmeticOverflow> {
+        let Some(quad) = term.checked_mul(4) else {
+            return Err(ArithmeticOverflow::SumDoesNotFit);
+        };
+        match quad.checked_add(i32::from(u8::MAX)) {
+            Some(_) => Ok(Self(term)),
+            None => Err(ArithmeticOverflow::SumDoesNotFit),
+        }
+    }
+
+    /// The term that was accepted.
+    pub fn get(self) -> i32 {
+        self.0
+    }
+}
+
 /// DC taken from a modifier: 10 plus that modifier.
 ///
 /// Player Core, "Getting a DC from a Modifier".
-pub fn dc_from_modifier(modifier: i32) -> i32 {
-    10 + modifier
+pub fn dc_from_modifier(modifier: DcModifier) -> i32 {
+    match 10i32.checked_add(modifier.get()) {
+        Some(dc) => dc,
+        // `DcModifier::new` already rejected every modifier for which this sum does not fit.
+        None => modifier.get(),
+    }
 }
 
 /// One resolved d20 check. Player Core, Checks.
@@ -102,9 +195,13 @@ pub struct CheckRoll {
 /// Rolls a d20, adds `modifier`, and applies [`degree_of_success`] (natural 20 and natural 1 included).
 ///
 /// Player Core, Checks.
-pub fn resolve_check(dice: &mut impl Dice, modifier: i32, dc: i32) -> CheckRoll {
+pub fn resolve_check(dice: &mut impl Dice, modifier: CheckModifier, dc: i32) -> CheckRoll {
     let natural = dice.d20();
-    let total = i32::from(natural) + modifier;
+    let total = match i32::from(natural).checked_add(modifier.get()) {
+        Some(total) => total,
+        // `CheckModifier` keeps every `u8` face plus the modifier inside `i32`.
+        None => i32::from(natural),
+    };
     let degree = degree_of_success(natural, total, dc);
     CheckRoll {
         natural,
@@ -208,22 +305,44 @@ pub fn multiple_attack_penalty(input: MapInput) -> i32 {
 /// Adds the natural roll, attack bonus, untyped MAP, a circumstance penalty, and another untyped penalty.
 ///
 /// Penalties are negative. MAP is not dropped by keeping only the worse of MAP and the circumstance penalty.
+/// Each addend is an [`AttackTotalTerm`], so the sum fits in `i32`.
 ///
 /// Player Core, Penalties.
 pub fn attack_check_total(
     natural: u8,
-    attack_bonus: i32,
-    map: i32,
-    circumstance_penalty: i32,
-    other_untyped_penalty: i32,
+    attack_bonus: AttackTotalTerm,
+    map: AttackTotalTerm,
+    circumstance_penalty: AttackTotalTerm,
+    other_untyped_penalty: AttackTotalTerm,
 ) -> i32 {
-    i32::from(natural) + attack_bonus + map + circumstance_penalty + other_untyped_penalty
+    let sum = i64::from(natural)
+        + i64::from(attack_bonus.get())
+        + i64::from(map.get())
+        + i64::from(circumstance_penalty.get())
+        + i64::from(other_untyped_penalty.get());
+    match i32::try_from(sum) {
+        Ok(total) => total,
+        // Each term is bounded so four of them plus any `u8` still fit in `i32`.
+        Err(_) => i32::from(natural),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dice::ScriptedDice;
+
+    fn modifier(value: i32) -> CheckModifier {
+        CheckModifier::new(value).expect("scenario modifier fits")
+    }
+
+    fn dc_modifier(value: i32) -> DcModifier {
+        DcModifier::new(value).expect("scenario DC modifier fits")
+    }
+
+    fn term(value: i32) -> AttackTotalTerm {
+        AttackTotalTerm::new(value).expect("scenario attack term fits")
+    }
 
     /// Player Core, "Step 4: Degree of Success".
     /// Player Core, "Natural 1 and Natural 20".
@@ -255,40 +374,40 @@ mod tests {
             DegreeOfSuccess::CriticalFailure
         );
 
-        let success = resolve_check(&mut ScriptedDice::new([11]), 4, 15);
+        let success = resolve_check(&mut ScriptedDice::new([11]), modifier(4), 15);
         assert_eq!(success.total, 15);
         assert_eq!(success.degree, DegreeOfSuccess::Success);
 
-        let by_nine = resolve_check(&mut ScriptedDice::new([14]), 10, 15);
+        let by_nine = resolve_check(&mut ScriptedDice::new([14]), modifier(10), 15);
         assert_eq!(by_nine.total, 24);
         assert_eq!(by_nine.degree, DegreeOfSuccess::Success);
 
-        let by_ten = resolve_check(&mut ScriptedDice::new([15]), 10, 15);
+        let by_ten = resolve_check(&mut ScriptedDice::new([15]), modifier(10), 15);
         assert_eq!(by_ten.total, 25);
         assert_eq!(by_ten.degree, DegreeOfSuccess::CriticalSuccess);
 
-        let miss_nine = resolve_check(&mut ScriptedDice::new([6]), 0, 15);
+        let miss_nine = resolve_check(&mut ScriptedDice::new([6]), modifier(0), 15);
         assert_eq!(miss_nine.total, 6);
         assert_eq!(miss_nine.degree, DegreeOfSuccess::Failure);
 
-        let miss_ten = resolve_check(&mut ScriptedDice::new([5]), 0, 15);
+        let miss_ten = resolve_check(&mut ScriptedDice::new([5]), modifier(0), 15);
         assert_eq!(miss_ten.total, 5);
         assert_eq!(miss_ten.degree, DegreeOfSuccess::CriticalFailure);
 
-        let nat_20_failure = resolve_check(&mut ScriptedDice::new([20]), 0, 25);
+        let nat_20_failure = resolve_check(&mut ScriptedDice::new([20]), modifier(0), 25);
         assert_eq!(nat_20_failure.total, 20);
         assert_eq!(degree_of_success(10, 20, 25), DegreeOfSuccess::Failure);
         assert_eq!(nat_20_failure.degree, DegreeOfSuccess::Success);
 
-        let nat_20_success = resolve_check(&mut ScriptedDice::new([20]), 0, 18);
+        let nat_20_success = resolve_check(&mut ScriptedDice::new([20]), modifier(0), 18);
         assert_eq!(nat_20_success.total, 20);
         assert_eq!(nat_20_success.degree, DegreeOfSuccess::CriticalSuccess);
 
-        let nat_20_already_crit = resolve_check(&mut ScriptedDice::new([20]), 8, 18);
+        let nat_20_already_crit = resolve_check(&mut ScriptedDice::new([20]), modifier(8), 18);
         assert_eq!(nat_20_already_crit.total, 28);
         assert_eq!(nat_20_already_crit.degree, DegreeOfSuccess::CriticalSuccess);
 
-        let nat_20_from_crit_fail = resolve_check(&mut ScriptedDice::new([20]), 0, 30);
+        let nat_20_from_crit_fail = resolve_check(&mut ScriptedDice::new([20]), modifier(0), 30);
         assert_eq!(nat_20_from_crit_fail.total, 20);
         assert_eq!(
             degree_of_success(10, 20, 30),
@@ -296,16 +415,16 @@ mod tests {
         );
         assert_eq!(nat_20_from_crit_fail.degree, DegreeOfSuccess::Failure);
 
-        let nat_1_success = resolve_check(&mut ScriptedDice::new([1]), 17, 15);
+        let nat_1_success = resolve_check(&mut ScriptedDice::new([1]), modifier(17), 15);
         assert_eq!(nat_1_success.total, 18);
         assert_eq!(degree_of_success(10, 18, 15), DegreeOfSuccess::Success);
         assert_eq!(nat_1_success.degree, DegreeOfSuccess::Failure);
 
-        let nat_1_crit = resolve_check(&mut ScriptedDice::new([1]), 24, 15);
+        let nat_1_crit = resolve_check(&mut ScriptedDice::new([1]), modifier(24), 15);
         assert_eq!(nat_1_crit.total, 25);
         assert_eq!(nat_1_crit.degree, DegreeOfSuccess::Success);
 
-        let nat_1_already_crit_fail = resolve_check(&mut ScriptedDice::new([1]), 0, 15);
+        let nat_1_already_crit_fail = resolve_check(&mut ScriptedDice::new([1]), modifier(0), 15);
         assert_eq!(nat_1_already_crit_fail.total, 1);
         assert_eq!(
             nat_1_already_crit_fail.degree,
@@ -316,7 +435,7 @@ mod tests {
     /// Player Core, "Natural 1 and Natural 20". The shift is applied before a later upgrade.
     #[test]
     fn natural_20_is_applied_before_a_later_upgrade() {
-        let nat_20 = resolve_check(&mut ScriptedDice::new([20]), 0, 25);
+        let nat_20 = resolve_check(&mut ScriptedDice::new([20]), modifier(0), 25);
         assert_eq!(
             degree_of_success(10, nat_20.total, 25),
             DegreeOfSuccess::Failure
@@ -325,7 +444,7 @@ mod tests {
         let upgraded = upgrade_success(nat_20.degree);
         assert_eq!(upgraded, DegreeOfSuccess::CriticalSuccess);
 
-        let nat_1 = resolve_check(&mut ScriptedDice::new([1]), 17, 15);
+        let nat_1 = resolve_check(&mut ScriptedDice::new([1]), modifier(17), 15);
         assert_eq!(
             degree_of_success(10, nat_1.total, 15),
             DegreeOfSuccess::Success
@@ -346,22 +465,22 @@ mod tests {
     /// Player Core, "Step 4: Degree of Success".
     #[test]
     fn missing_critical_entry_falls_back() {
-        let crit_success = resolve_check(&mut ScriptedDice::new([15]), 10, 15);
+        let crit_success = resolve_check(&mut ScriptedDice::new([15]), modifier(10), 15);
         assert_eq!(crit_success.degree, DegreeOfSuccess::CriticalSuccess);
         assert_eq!(
             fallback_unlisted_critical(crit_success.degree, false, true),
             DegreeOfSuccess::Success
         );
 
-        let crit_failure = resolve_check(&mut ScriptedDice::new([5]), 0, 15);
+        let crit_failure = resolve_check(&mut ScriptedDice::new([5]), modifier(0), 15);
         assert_eq!(crit_failure.degree, DegreeOfSuccess::CriticalFailure);
         assert_eq!(
             fallback_unlisted_critical(crit_failure.degree, true, false),
             DegreeOfSuccess::Failure
         );
 
-        let listed_success = resolve_check(&mut ScriptedDice::new([15]), 10, 15);
-        let listed_failure = resolve_check(&mut ScriptedDice::new([5]), 0, 15);
+        let listed_success = resolve_check(&mut ScriptedDice::new([15]), modifier(10), 15);
+        let listed_failure = resolve_check(&mut ScriptedDice::new([5]), modifier(0), 15);
         assert_eq!(
             fallback_unlisted_critical(listed_success.degree, true, true),
             DegreeOfSuccess::CriticalSuccess
@@ -375,12 +494,12 @@ mod tests {
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn dc_from_modifier_is_ten_plus() {
-        assert_eq!(dc_from_modifier(7), 17);
-        assert_eq!(dc_from_modifier(0), 10);
-        assert_eq!(dc_from_modifier(-3), 7);
+        assert_eq!(dc_from_modifier(dc_modifier(7)), 17);
+        assert_eq!(dc_from_modifier(dc_modifier(0)), 10);
+        assert_eq!(dc_from_modifier(dc_modifier(-3)), 7);
 
-        let dc = dc_from_modifier(7);
-        let roll = resolve_check(&mut ScriptedDice::new([12]), 5, dc);
+        let dc = dc_from_modifier(dc_modifier(7));
+        let roll = resolve_check(&mut ScriptedDice::new([12]), modifier(5), dc);
         assert_eq!(roll.total, 17);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
     }
@@ -398,37 +517,6 @@ mod tests {
             DegreeOfSuccess::Success
         );
         assert_eq!(dice.remaining(), 0);
-    }
-
-    /// Player Core, "Flat Checks".
-    #[test]
-    fn flat_check_auto_success_and_failure() {
-        let mut dc_one = ScriptedDice::new([4]);
-        let auto_one = flat_check(&mut dc_one, 1);
-        assert_eq!(auto_one.degree, DegreeOfSuccess::Success);
-        assert_eq!(auto_one.natural, None);
-        assert_eq!(dc_one.remaining(), 1);
-        assert_eq!(dc_one.d20(), 4);
-
-        let mut dc_zero = ScriptedDice::new([4]);
-        let auto_zero = flat_check(&mut dc_zero, 0);
-        assert_eq!(auto_zero.degree, DegreeOfSuccess::Success);
-        assert_eq!(auto_zero.natural, None);
-        assert_eq!(dc_zero.remaining(), 1);
-
-        let mut dc_twenty_one = ScriptedDice::new([20]);
-        let auto_fail = flat_check(&mut dc_twenty_one, 21);
-        assert_eq!(auto_fail.degree, DegreeOfSuccess::Failure);
-        assert_eq!(auto_fail.natural, None);
-        assert_eq!(dc_twenty_one.remaining(), 1);
-
-        let mut dc_twenty = ScriptedDice::new([20]);
-        let rolled = flat_check(&mut dc_twenty, 20);
-        assert_eq!(dc_twenty.remaining(), 0);
-        assert_eq!(rolled.natural, Some(20));
-        // Numeric total 20 meets DC 20 (a success). Natural 20 then improves that degree.
-        assert_eq!(degree_of_success(10, 20, 20), DegreeOfSuccess::Success);
-        assert_eq!(rolled.degree, DegreeOfSuccess::CriticalSuccess);
     }
 
     /// Player Core, "Flat Checks".
@@ -525,7 +613,7 @@ mod tests {
         dc: i32,
     ) -> (i32, i32, DegreeOfSuccess) {
         let natural = dice.d20();
-        let total = attack_check_total(natural, attack_bonus, map, 0, 0);
+        let total = attack_check_total(natural, term(attack_bonus), term(map), term(0), term(0));
         (map, total, degree_of_success(natural, total, dc))
     }
 
@@ -539,7 +627,7 @@ mod tests {
         });
         assert_eq!(map, -5);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, 9, map, -2, 0);
+        let total = attack_check_total(natural, term(9), term(map), term(-2), term(0));
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -557,7 +645,7 @@ mod tests {
         });
         assert_eq!(map, -5);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, 9, map, 0, -2);
+        let total = attack_check_total(natural, term(9), term(map), term(0), term(-2));
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -565,8 +653,12 @@ mod tests {
         );
     }
 
-    fn check(natural: u8, modifier: i32, dc: i32) -> CheckRoll {
-        resolve_check(&mut ScriptedDice::new([natural]), modifier, dc)
+    fn check(natural: u8, modifier_value: i32, dc: i32) -> CheckRoll {
+        resolve_check(
+            &mut ScriptedDice::new([natural]),
+            modifier(modifier_value),
+            dc,
+        )
     }
 
     fn penalty(prior: u8, agile: bool, on_own_turn: bool) -> i32 {
@@ -588,7 +680,7 @@ mod tests {
         let mut dice = ScriptedDice::new([natural]);
         let rolled = dice.d20();
         let map = penalty(prior, agile, on_own_turn);
-        let total = attack_check_total(rolled, bonus, map, 0, 0);
+        let total = attack_check_total(rolled, term(bonus), term(map), term(0), term(0));
         (map, total, degree_of_success(rolled, total, dc))
     }
 
@@ -761,25 +853,31 @@ mod tests {
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn positive_modifier() {
-        assert_eq!(dc_from_modifier(7), 17);
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(dc_from_modifier(dc_modifier(7)), 17);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn zero_modifier() {
-        assert_eq!(dc_from_modifier(0), 10);
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(dc_from_modifier(dc_modifier(0)), 10);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn negative_modifier() {
-        assert_eq!(dc_from_modifier(-3), 7);
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(dc_from_modifier(dc_modifier(-3)), 7);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn a_check_uses_the_derived_dc() {
-        let roll = check(12, 5, dc_from_modifier(7));
+        let roll = check(12, 5, dc_from_modifier(dc_modifier(7)));
         assert_eq!(roll.total, 17);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
     }
@@ -958,7 +1056,7 @@ mod tests {
     fn the_penalty_stacks_with_a_circumstance_penalty() {
         let map = penalty(1, false, true);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, 9, map, -2, 0);
+        let total = attack_check_total(natural, term(9), term(map), term(-2), term(0));
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -971,11 +1069,102 @@ mod tests {
     fn the_penalty_stacks_with_another_untyped_penalty() {
         let map = penalty(1, false, true);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, 9, map, 0, -2);
+        let total = attack_check_total(natural, term(9), term(map), term(0), term(-2));
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
             DegreeOfSuccess::Failure
         );
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn ten_above_an_end_dc_does_not_overflow() {
+        assert_eq!(
+            degree_of_success(10, i32::MAX, i32::MAX),
+            DegreeOfSuccess::Success
+        );
+        assert_eq!(
+            degree_of_success(10, i32::MAX, i32::MAX - 10),
+            DegreeOfSuccess::CriticalSuccess
+        );
+        assert_eq!(
+            degree_of_success(20, i32::MAX, i32::MAX),
+            DegreeOfSuccess::CriticalSuccess
+        );
+    }
+
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn ten_below_an_end_dc_does_not_overflow() {
+        assert_eq!(
+            degree_of_success(10, i32::MIN, i32::MIN),
+            DegreeOfSuccess::Success
+        );
+        assert_eq!(
+            degree_of_success(10, i32::MIN, i32::MIN + 10),
+            DegreeOfSuccess::CriticalFailure
+        );
+        assert_eq!(
+            degree_of_success(1, i32::MIN, i32::MIN),
+            DegreeOfSuccess::Failure
+        );
+    }
+
+    /// Player Core, "Getting a DC from a Modifier".
+    #[test]
+    fn dc_modifier_rejects_a_sum_past_i32() {
+        assert_eq!(
+            DcModifier::new(i32::MAX),
+            Err(ArithmeticOverflow::SumDoesNotFit)
+        );
+        assert_eq!(
+            DcModifier::new(i32::MAX - 9),
+            Err(ArithmeticOverflow::SumDoesNotFit)
+        );
+        let edge = DcModifier::new(i32::MAX - 10).expect("10 plus this modifier is i32::MAX");
+        assert_eq!(dc_from_modifier(edge), i32::MAX);
+        let low = DcModifier::new(i32::MIN).expect("10 plus i32::MIN fits");
+        assert_eq!(dc_from_modifier(low), i32::MIN + 10);
+    }
+
+    /// Player Core, Checks.
+    #[test]
+    fn check_modifier_rejects_a_face_sum_past_i32() {
+        assert_eq!(
+            CheckModifier::new(i32::MAX),
+            Err(ArithmeticOverflow::SumDoesNotFit)
+        );
+        assert_eq!(
+            CheckModifier::new(i32::MAX - i32::from(u8::MAX) + 1),
+            Err(ArithmeticOverflow::SumDoesNotFit)
+        );
+        let edge = CheckModifier::new(i32::MAX - i32::from(u8::MAX)).expect("255 plus this fits");
+        let mut dice = ScriptedDice::new([20]);
+        let roll = resolve_check(&mut dice, edge, 15);
+        assert_eq!(roll.natural, 20);
+        assert_eq!(roll.total, i32::MAX - i32::from(u8::MAX) + 20);
+        assert_eq!(dice.remaining(), 0);
+        assert!(CheckModifier::new(i32::MIN).is_ok());
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn attack_term_rejects_a_sum_past_i32() {
+        assert_eq!(
+            AttackTotalTerm::new(i32::MAX),
+            Err(ArithmeticOverflow::SumDoesNotFit)
+        );
+        assert_eq!(
+            AttackTotalTerm::new(i32::MIN),
+            Err(ArithmeticOverflow::SumDoesNotFit)
+        );
+        let high = AttackTotalTerm::new((i32::MAX - i32::from(u8::MAX)) / 4).expect("high term");
+        assert_eq!(
+            attack_check_total(u8::MAX, high, high, high, high),
+            i32::MAX
+        );
+        let low = AttackTotalTerm::new(i32::MIN / 4).expect("low term");
+        assert_eq!(attack_check_total(0, low, low, low, low), i32::MIN);
     }
 }

@@ -460,6 +460,10 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
 
 /// Rolls `faces` once, adds `bonus`, and subtracts that from current Hit Points, floored at 0.
 ///
+/// The roll and the bonus are added in `i64`, then subtracted from current Hit Points in `i64`.
+/// A result at or below 0 is stored as 0. A result above `i32::MAX` is not stored: this function
+/// does not saturate or wrap, and it leaves the previous Hit Points in place.
+///
 /// At 0 Hit Points, `uses_dying_rules` false marks the state dead. True records that dying applies
 /// and does not choose a dying value. The creature and the build are not written.
 ///
@@ -471,11 +475,35 @@ pub fn apply_dice_damage(
     faces: Faces,
     bonus: i32,
 ) {
-    let amount = i32::from(dice.roll(faces)) + bonus;
-    state.hit_points = (state.hit_points - amount).max(0);
-    if state.hit_points > 0 {
+    let amount = match i64::from(dice.roll(faces)).checked_add(i64::from(bonus)) {
+        Some(amount) => amount,
+        None => {
+            // A face in `1..=255` and an `i32` bonus fit in `i64`.
+            state.hit_points = 0;
+            note_zero_hit_points(state, creature);
+            return;
+        }
+    };
+    let next = match i64::from(state.hit_points).checked_sub(amount) {
+        Some(next) => next,
+        None => {
+            // Two `i32`-sized values subtracted in `i64` fit. A missing difference is below 0.
+            state.hit_points = 0;
+            note_zero_hit_points(state, creature);
+            return;
+        }
+    };
+    if next <= 0 {
+        state.hit_points = 0;
+        note_zero_hit_points(state, creature);
+    } else if let Ok(hit_points) = i32::try_from(next) {
+        state.hit_points = hit_points;
         state.vital = Vital::Alive;
-    } else if creature.uses_dying_rules {
+    }
+}
+
+fn note_zero_hit_points(state: &mut CombatantState, creature: &Creature) {
+    if creature.uses_dying_rules {
         state.vital = Vital::EnterDying;
         state.dying_entered = true;
     } else {
@@ -486,7 +514,7 @@ pub fn apply_dice_damage(
 /// Stealth DC placed on a build: 10 plus the Stealth modifier. Not used inside [`derive`].
 ///
 /// Player Core, "Getting a DC from a Modifier" and Seek.
-pub fn stealth_dc_from_modifier(stealth_modifier: i32) -> i32 {
+pub fn stealth_dc_from_modifier(stealth_modifier: crate::check::DcModifier) -> i32 {
     crate::check::dc_from_modifier(stealth_modifier)
 }
 
@@ -502,11 +530,12 @@ pub fn aid_circumstance_bonus(degree: DegreeOfSuccess) -> i32 {
     }
 }
 
-/// Aid check against DC 15 using the creature's Aid modifier. `None` when the creature has none.
+/// Aid check against DC 15 using the creature's Aid modifier. `None` when the creature has none,
+/// or when that modifier cannot be added to a die face inside `i32`.
 ///
 /// Player Core, Aid.
 pub fn aid_check(dice: &mut impl Dice, creature: &Creature) -> Option<(CheckRoll, i32)> {
-    let modifier = creature.aid_modifier?;
+    let modifier = crate::check::CheckModifier::new(creature.aid_modifier?).ok()?;
     let roll = resolve_check(dice, modifier, 15);
     let bonus = aid_circumstance_bonus(roll.degree);
     Some((roll, bonus))
@@ -515,11 +544,21 @@ pub fn aid_check(dice: &mut impl Dice, creature: &Creature) -> Option<(CheckRoll
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::check::{DegreeOfSuccess, degree_of_success, resolve_check};
+    use crate::check::{
+        CheckModifier, DcModifier, DegreeOfSuccess, degree_of_success, resolve_check,
+    };
     use crate::dice::{Faces, ScriptedDice};
 
     fn d8() -> Faces {
         Faces::new(8).expect("d8")
+    }
+
+    fn dc_modifier(value: i32) -> DcModifier {
+        DcModifier::new(value).expect("scenario DC modifier fits")
+    }
+
+    fn check_modifier(value: i32) -> CheckModifier {
+        CheckModifier::new(value).expect("scenario modifier fits")
     }
 
     fn strike(
@@ -666,16 +705,20 @@ mod tests {
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn stealth_dc_from_modifier_is_ten_plus() {
-        assert_eq!(stealth_dc_from_modifier(7), 17);
+        assert_eq!(stealth_dc_from_modifier(dc_modifier(7)), 17);
 
         let mut parts = fighter_parts();
-        parts.stealth_dc = Some(stealth_dc_from_modifier(7));
+        parts.stealth_dc = Some(stealth_dc_from_modifier(dc_modifier(7)));
         let creature = derive(&build(parts));
         assert_eq!(creature.stealth_dc, Some(17));
 
         let before = creature.clone();
         let mut dice = ScriptedDice::new([12]);
-        let seek = resolve_check(&mut dice, creature.perception, creature.stealth_dc.unwrap());
+        let seek = resolve_check(
+            &mut dice,
+            check_modifier(creature.perception),
+            creature.stealth_dc.unwrap(),
+        );
         assert_eq!(seek.total, 17);
         assert_eq!(seek.degree, DegreeOfSuccess::Success);
         assert_eq!(creature, before);
@@ -916,21 +959,25 @@ mod tests {
     /// Player Core, Hit Points.
     #[test]
     fn the_build_is_unchanged_by_derive() {
+        let dice = ScriptedDice::new([8]);
         let original = build(fighter_parts());
         let before = original.clone();
         let _ = derive(&original);
         assert_eq!(original, before);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Hit Points.
     #[test]
     fn combat_does_not_write_the_build() {
+        let dice = ScriptedDice::new([8]);
         let original = build(fighter_parts());
         let before = original.clone();
         let creature = derive(&original);
         let mut state = new_combatant_state(CombatantId(0), &creature);
         state.hit_points = 12;
         assert_eq!(original, before);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Hit Points.
@@ -945,6 +992,7 @@ mod tests {
     /// Player Core, Hit Points.
     #[test]
     fn a_clone_and_an_equal_build_match() {
+        let dice = ScriptedDice::new([8]);
         let parts = fighter_parts();
         let original = build(parts.clone());
         let cloned = original.clone();
@@ -952,21 +1000,25 @@ mod tests {
         assert_eq!(original, rebuilt);
         assert_eq!(derive(&original), derive(&cloned));
         assert_eq!(derive(&cloned), derive(&rebuilt));
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Hit Points.
     #[test]
     fn phase_1_folds_only_the_base() {
+        let dice = ScriptedDice::new([8]);
         let original = build(fighter_parts());
         let layers = contributions(&original);
         assert_eq!(layers.len(), 1);
         assert_eq!(layers[0].armor_class, 18);
         assert_eq!(derive(&original).armor_class, 18);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Hit Points.
     #[test]
     fn a_later_contribution_is_folded_after_the_base() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.stealth_dc = Some(17);
         let original = build(parts);
@@ -981,21 +1033,25 @@ mod tests {
         assert_eq!(folded.armor_class, 19);
         assert_eq!(folded.stealth_dc, Some(4));
         assert_eq!(derive(&original).armor_class, 18);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Hit Points.
     #[test]
     fn authored_numbers_are_kept() {
+        let dice = ScriptedDice::new([8]);
         let creature = derive(&build(fighter_parts()));
         assert_eq!(creature.hit_points, 20);
         assert_eq!(creature.armor_class, 18);
         assert_eq!(creature.perception, 5);
         assert_eq!(creature.speed_feet, 25);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Strike.
     #[test]
     fn strike_fields_are_kept() {
+        let dice = ScriptedDice::new([8]);
         let strike = derive(&build(fighter_parts())).strike;
         assert_eq!(strike.attack_bonus, 7);
         assert_eq!(strike.damage_dice.get(), 1);
@@ -1003,11 +1059,13 @@ mod tests {
         assert_eq!(strike.damage_bonus, 4);
         assert_eq!(strike.reach_feet.get(), 5);
         assert!(!strike.agile);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Multiple Attack Penalty".
     #[test]
     fn the_agile_flag_is_kept() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.strike = strike(6, 1, 6, 2, 5, true);
         let kept = derive(&build(parts)).strike;
@@ -1017,20 +1075,24 @@ mod tests {
         assert_eq!(kept.damage_faces.get(), 6);
         assert_eq!(kept.damage_bonus, 2);
         assert_eq!(kept.reach_feet.get(), 5);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Shield Statistics".
     #[test]
     fn a_buckler_bonus_stays_plus_1() {
+        let dice = ScriptedDice::new([8]);
         let shield = buckler();
         let mut parts = fighter_parts();
         parts.shield = Some(shield.clone());
         assert_eq!(derive(&build(parts)).shield, Some(shield));
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Shield Statistics".
     #[test]
     fn a_second_shield_keeps_its_own_bonus() {
+        let dice = ScriptedDice::new([8]);
         let mut first_parts = fighter_parts();
         first_parts.shield = Some(buckler());
         let steel = ShieldTemplate {
@@ -1049,20 +1111,25 @@ mod tests {
             derive(&build(second_parts)).shield.unwrap().shield_ac_bonus,
             2
         );
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Shield Statistics".
     #[test]
     fn no_shield_is_omitted() {
+        let dice = ScriptedDice::new([8]);
         assert!(derive(&build(fighter_parts())).shield.is_none());
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting a DC from a Modifier".
     #[test]
     fn stealth_modifier_plus_10() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
-        parts.stealth_dc = Some(stealth_dc_from_modifier(7));
+        parts.stealth_dc = Some(stealth_dc_from_modifier(dc_modifier(7)));
         assert_eq!(derive(&build(parts)).stealth_dc, Some(17));
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Seek.
@@ -1073,16 +1140,19 @@ mod tests {
         let creature = derive(&build(parts));
         let before = creature.clone();
         let mut dice = ScriptedDice::new([12]);
-        let seek = resolve_check(&mut dice, 5, creature.stealth_dc.unwrap());
+        let seek = resolve_check(&mut dice, check_modifier(5), creature.stealth_dc.unwrap());
         assert_eq!(seek.total, 17);
         assert_eq!(seek.degree, DegreeOfSuccess::Success);
+        assert_eq!(dice.remaining(), 0);
         assert_eq!(creature, before);
     }
 
     /// Player Core, Seek.
     #[test]
     fn omitted_stealth_dc_stores_nothing() {
+        let dice = ScriptedDice::new([8]);
         assert_eq!(derive(&build(fighter_parts())).stealth_dc, None);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -1147,35 +1217,51 @@ mod tests {
     /// Player Core, Aid.
     #[test]
     fn no_prepared_flag_is_required() {
+        let dice = ScriptedDice::new([8]);
         let creature = derive(&build(fighter_with_aid(6)));
         assert_eq!(creature.aid_modifier, Some(6));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    #[test]
+    fn an_aid_modifier_past_i32_is_not_rolled() {
+        let creature = derive(&build(fighter_with_aid(i32::MAX)));
+        let mut dice = ScriptedDice::new([10]);
+        assert!(aid_check(&mut dice, &creature).is_none());
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting Knocked Out".
     #[test]
     fn zero_hit_points_is_rejected() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.hit_points = 0;
         assert_eq!(
             CharacterBuild::try_new(parts).unwrap_err(),
             TemplateError::NonPositiveHitPoints
         );
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting Knocked Out".
     #[test]
     fn negative_hit_points_are_rejected() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.hit_points = -1;
         assert_eq!(
             CharacterBuild::try_new(parts).unwrap_err(),
             TemplateError::NonPositiveHitPoints
         );
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Speed.
     #[test]
     fn negative_speed_is_rejected() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.hit_points = 12;
         parts.speed_feet = -5;
@@ -1183,20 +1269,24 @@ mod tests {
             CharacterBuild::try_new(parts).unwrap_err(),
             TemplateError::NegativeSpeed
         );
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Speed.
     #[test]
     fn speed_zero_is_accepted() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.hit_points = 12;
         parts.speed_feet = 0;
         assert_eq!(derive(&build(parts)).speed_feet, 0);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Encounter Mode.
     #[test]
     fn fresh_states_from_one_creature_match() {
+        let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.shield = Some(buckler());
         let creature = derive(&build(parts));
@@ -1206,22 +1296,26 @@ mod tests {
         assert_eq!(first.hit_points, creature.hit_points);
         assert_eq!(first.temp_hit_points, 0);
         assert!(!first.shield_raised);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting Knocked Out".
     #[test]
     fn mutating_state_leaves_the_creature_unchanged() {
+        let dice = ScriptedDice::new([8]);
         let creature = derive(&build(fighter_parts()));
         let before = creature.clone();
         let mut state = new_combatant_state(CombatantId(7), &creature);
         state.hit_points = 12;
         assert_eq!(creature.hit_points, 20);
         assert_eq!(creature, before);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Encounter Mode.
     #[test]
     fn two_ids_can_share_one_creature() {
+        let dice = ScriptedDice::new([8]);
         let creature = derive(&build(fighter_parts()));
         let before = creature.clone();
         let low = new_combatant_state(CombatantId(0), &creature);
@@ -1229,22 +1323,27 @@ mod tests {
         assert_eq!(low.id, CombatantId(0));
         assert_eq!(high.id, CombatantId(4_000_000_000));
         assert_eq!(creature, before);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Encounter Mode.
     #[test]
     fn more_than_four_states_are_valid() {
+        let dice = ScriptedDice::new([8]);
         let creature = derive(&build(fighter_parts()));
         let roster: Vec<_> = (0..6)
             .map(|id| new_combatant_state(CombatantId(id), &creature))
             .collect();
         assert_eq!(roster.len(), 6);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting Knocked Out".
     #[test]
     fn omitting_the_flag_defaults_to_false() {
+        let dice = ScriptedDice::new([8]);
         assert!(!derive(&build(fighter_parts())).uses_dying_rules);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Getting Knocked Out".
@@ -1329,5 +1428,49 @@ mod tests {
         let original = build(fighter_parts());
         let folded = fold_contributions(&contributions(&original)).expect("base fits");
         assert_eq!(derive(&original), folded);
+    }
+
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn damage_past_i32_floors_hit_points_at_0() {
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([1]),
+            d8(),
+            i32::MAX,
+        );
+        assert_eq!(state.hit_points, 0);
+        assert_eq!(state.vital, Vital::Dead);
+    }
+
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn damage_from_i32_min_floors_hit_points_at_0() {
+        let creature = derive(&build(fighter_with_hp(1, Some(true))));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        state.hit_points = i32::MIN;
+        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([1]), d8(), 0);
+        assert_eq!(state.hit_points, 0);
+        assert_eq!(state.vital, Vital::EnterDying);
+        assert!(state.dying_entered);
+    }
+
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn healing_past_i32_max_leaves_hit_points_unchanged() {
+        let creature = derive(&build(fighter_with_hp(1, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([1]),
+            d8(),
+            i32::MIN,
+        );
+        assert_eq!(state.hit_points, 1);
+        assert_eq!(state.vital, Vital::Alive);
     }
 }

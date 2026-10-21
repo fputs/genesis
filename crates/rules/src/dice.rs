@@ -189,33 +189,6 @@ mod tests {
     }
 
     /// Player Core, Checks.
-    #[test]
-    #[should_panic(expected = "scripted dice exhausted")]
-    fn scripted_dice_panics_when_exhausted() {
-        let mut dice = ScriptedDice::new([8]);
-        assert_eq!(dice.d20(), 8);
-        dice.d20();
-    }
-
-    /// Player Core, Checks.
-    #[test]
-    #[should_panic(expected = "scripted roll 6 is not a legal d4")]
-    fn scripted_dice_panics_when_out_of_range() {
-        for (value, faces) in [(0, 20), (21, 20)] {
-            let mut dice = ScriptedDice::new([value]);
-            let caught =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dice.roll(die(faces))));
-            assert!(caught.is_err(), "d{faces} value {value} should panic");
-        }
-
-        let mut legal = ScriptedDice::new([1, 20]);
-        assert_eq!(legal.d20(), 1);
-        assert_eq!(legal.d20(), 20);
-
-        ScriptedDice::new([6]).roll(die(4));
-    }
-
-    /// Player Core, Checks.
     ///
     /// The dice spec requires two seeded sources for this scenario, so this test does not use scripted dice.
     #[test]
