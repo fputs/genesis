@@ -42,11 +42,11 @@ Replace the equal-sequence arm of `source_prefers`. The candidate replaces the i
 1. Higher level. A level beats no level.
 2. Higher rank. A rank beats no rank.
 3. Greater sequence. Newer is the greater sequence.
-4. Value: a bonus keeps the greater value; a penalty keeps the more negative value.
+4. Value, which is ruling R-01: an extension consistent with RAW via Rules 2282, not a deviation. A bonus keeps the greater value; a penalty keeps the more negative value. Duplicate Effects (Rules 2266) has no value step. Same-type stacking reaches the same total.
 5. Lower condition id. A missing condition id loses to any condition id.
 6. Otherwise the modifiers are equal. Keeping the incumbent does not change the result.
 
-Step 4 is the defect fix. Today step 4 is `candidate.value > current.value` for penalties as well as bonuses, which keeps -1 over -8.
+Step 4 is the ruling, not a deviation. Today `candidate.value > current.value` keeps -1 over -8.
 
 Tie-break substitute for step 5, recorded in the test comment: rule, Duplicate Effects stops at level or rank and then the newer effect; why not, it does not say which instance remains when those and the value also match; substitute, the lower condition id wins and a missing id loses; intent, every input order reports the same modifier.
 

@@ -151,7 +151,7 @@ Each modifier SHALL carry a source id, a sequence number, and its statistic. Onl
 
 ### Requirement: Duplicate key comparison is a total order
 
-Within a duplicate key, the kept modifier SHALL follow a total order that ignores input order. A higher level SHALL win, and a level SHALL beat none. A higher rank SHALL win, and a rank SHALL beat none. The greater sequence SHALL win. If those are equal, a bonus SHALL keep the higher value and a penalty SHALL keep the more negative value. If the value ties, the lower condition id SHALL win, and a missing condition id SHALL lose to any condition id. A remaining tie SHALL match in every order.
+Within a duplicate key the kept modifier SHALL follow a total order that ignores input order: higher level, a level over none, higher rank, a rank over none, then the greater sequence. If those tie, ruling R-01 (an extension consistent with RAW via Rules 2282, not a deviation) SHALL keep the higher bonus or the more negative penalty. If the value ties, the lower condition id SHALL win, and a missing condition id SHALL lose. A remaining tie SHALL match in every order.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
