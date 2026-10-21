@@ -22,3 +22,9 @@ Rules 2302, PC 406: "If the combined penalties on an attack would reduce the dam
 - The condition group key is (condition, statistic, bonus or penalty, modifier type). Penalties of different types from one condition all apply, and only modifiers of the same type compete (Player Core p.400, Rules 2281/2282). Redundant Conditions (Player Core p.442, Rules 2455) keeps the highest value of one condition; it does not merge different types into one. Grouping runs after frightened and sickened are rewritten to status.
 - Example: condition 10 applies item -2 and circumstance -2, and source 9 applies circumstance -3. The total is -5: item -2 plus circumstance -3.
 - Any later tiebreak inside a group (level, then canonical key) is an engineering choice with no rules effect. Rules 2266 (Player Core p.398) is context only.
+
+## R-03 Frightened and sickened must carry a value (QA, post-#30, 2026-10-21)
+- Frightened (Player Core p.444) and sickened (Player Core p.446) always have a value, and each gives a status penalty equal to that value. Valued conditions are described on Player Core p.442 (Rules 2455).
+- Ruling: reject at construction any frightened or sickened modifier with no rank, or with a declared type other than status. The value is the rank, so the modifier is always -rank. Rank 0 is allowed and contributes nothing (covered in #34).
+- Reason: a frightened penalty that isn't a status penalty can't exist under the rules. Accepting one and stacking it, or guessing a value for it, would produce totals the rules never allow (QA example: -6 instead of -2). Rejecting bad input matches our existing template-load validation. This is not a deviation.
+- This replaces the sentence in amendment 2 saying frightened and sickened are "rewritten to status" before grouping. Frightened and sickened are status by construction, and grouping uses their type as declared.
