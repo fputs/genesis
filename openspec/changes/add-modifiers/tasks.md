@@ -85,8 +85,8 @@
 
 ## 6. Changelog, proof, and archive
 
-- [ ] 6.1 Add one bullet under `### Added` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet names modifier stacking and the damage minimum of 1 before critical doubling, and it links to the implementation pull request. Verify the new bullet is under `### Added` and contains that link
-- [ ] 6.2 Run the AGENTS.md proof commands and verify each exits 0. Fallible functions return `Result`, sums use checked arithmetic, overflow is a typed error, library code does not panic, and no dependency was added.
+- [x] 6.1 Add one bullet under `### Added` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet names modifier stacking and the damage minimum of 1 before critical doubling, and it links to the implementation pull request. Verify the new bullet is under `### Added` and contains that link
+- [x] 6.2 Run the AGENTS.md proof commands and verify each exits 0. Fallible functions return `Result`, sums use checked arithmetic, overflow is a typed error, library code does not panic, and no dependency was added.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
