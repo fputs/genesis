@@ -22,4 +22,4 @@
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 3.3 After `amend-modifier-duplicates` and `amend-modifier-tiebreaks` are archived, and as the final commit of the implementation pull request, run `openspec archive amend-modifier-tiebreaks-2 --yes`. If either earlier change is still active, stop before this archive. Verify this change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 3.3 After `amend-modifier-duplicates` and `amend-modifier-tiebreaks` are archived, and as the final commit of the implementation pull request, run `openspec archive amend-modifier-tiebreaks-2 --yes`. If either earlier change is still active, stop before this archive. Verify this change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
