@@ -31,7 +31,7 @@ When the source ids are equal, it continues:
 2. Higher level. A level beats none.
 3. `key_prefers`, the canonical duplicate-key comparison. It runs after type, because it does not look at type. Equal modifiers keep the incumbent.
 
-The repro keeps circumstance -2 over status -2, then stacks the unconditioned status -3. Every order totals -5. Same type at level 1 and level 4 keeps level 4 and totals -2.
+The repro keeps circumstance -2 over status -2, then stacks the unconditioned status -3. Every order totals -5 and applies those two modifiers. Same type at level 1 and level 4 keeps level 4 and totals -2. Circumstance -2 and item -2 in one group keep the circumstance -2, and stacking then drops it for an unconditioned circumstance -3 from source 9. Every order applies that modifier and totals -3. Two frightened status -1 penalties at rank 2, same source and sequence, keep level 3. The rewrite sets the value to -2. Every order applies that level-3 modifier and totals -2. The applied modifier is part of the result, not only the total.
 
 Alternative considered: keep the incumbent when the source id ties. Rejected. The two orders total -5 and -3.
 

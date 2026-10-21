@@ -38,9 +38,28 @@ After the worst penalty or the highest bonus, the order SHALL be the highest ran
 - **AND** the level 1 penalty is not applied
 - **AND** the total is -2 in both orders
 
+#### Scenario: A circumstance and item tie totals -3 in every order
+
+- **GIVEN** on the attack roll, a circumstance penalty of -2 and an item penalty of -2, both from source 1 at sequence 5, condition 10, and rank 1, with no level, plus a circumstance penalty of -3 from source 9 at sequence 1 with no condition
+- **WHEN** they are totaled in all 6 orders
+- **THEN** every attack-roll total is -3
+- **AND** every result applies one modifier, the circumstance penalty of -3 from source 9 at sequence 1
+- **AND** no result applies the circumstance penalty of -2
+- **AND** no result applies the item penalty of -2
+
+#### Scenario: A frightened level tie keeps level 3
+
+- **GIVEN** on the attack roll, two frightened status penalties of -1, both from source 1 at sequence 5 and rank 2, at level 1 and level 3
+- **WHEN** they are totaled with either modifier first
+- **THEN** one status penalty is applied in both orders
+- **AND** its level is 3
+- **AND** its value is -2, the negation of rank 2
+- **AND** the level 1 penalty is not applied
+- **AND** the attack-roll total is -2 in both orders
+
 ### Requirement: Comparisons end on the lower source id
 
-Stacking SHALL keep the highest bonus or worst penalty, then the lowest sequence, then the lower condition id, a missing id losing, then the lower source id. A duplicate-key comparison SHALL end on that source id. A condition-group comparison SHALL continue after that source id, in the order its tie requirement states, and SHALL be a total order over distinct modifiers. For any input set, every ordering SHALL produce an identical result.
+Stacking SHALL keep the highest bonus or worst penalty, then the lowest sequence, then the lower condition id, a missing id losing, then the lower source id. A duplicate-key comparison SHALL end on that source id. A condition-group comparison SHALL continue after that source id, in the order its tie requirement states, and SHALL be a total order over distinct modifiers. For any input set, every ordering SHALL keep the same applied modifier and the same total.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
