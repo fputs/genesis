@@ -30,9 +30,9 @@ The 2026-10-20 changelog interim ruling treats a pull request that touches only 
 
 ### 1. A separate workflow file
 
-Add `.github/workflows/pr-hygiene.yml` whose only job is `pr-hygiene`. Triggers are pull_request `opened`, `synchronize`, `reopened`, and `edited`, targeting `main`. Permissions are `contents: read` and `pull-requests: read`. Concurrency group is `pr-hygiene-<pull request number>` with `cancel-in-progress: true`, so a newer `synchronize` or `edited` run replaces the one still going for that pull request.
+Add `.github/workflows/pr-hygiene.yml` whose only job is `pr-hygiene`. Triggers are pull_request `opened`, `synchronize`, `reopened`, and `edited`, targeting `main`. Permissions are `contents: read` only. The body comes from the event payload, so the workflow does not grant `pull-requests: read`. Concurrency group is `pr-hygiene-<pull request number>` with `cancel-in-progress: true`, so a newer `synchronize` or `edited` run replaces the one still going for that pull request.
 
-`edited` has to re-run the job because the body can gain or lose `OpenSpec-Change:` lines without a new commit. Putting those types, or `pull-requests: read`, on `.github/workflows/ci.yml` would also change when the Cargo and spec-drift jobs run. Leave that file untouched.
+`edited` has to re-run the job because the body can gain or lose `OpenSpec-Change:` lines without a new commit. Putting those types on `.github/workflows/ci.yml` would also change when the Cargo and spec-drift jobs run. Leave that file untouched.
 
 Alternative considered: job-level `if:` on the existing workflow. That still edits the Cargo and spec-drift jobs' trigger block. A second file keeps their behavior identical.
 

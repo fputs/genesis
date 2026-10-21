@@ -8,7 +8,7 @@ The pr-hygiene capability fails a pull request when an implementation change add
 
 ### Requirement: PR-only hygiene job
 
-The repository SHALL run a job named `pr-hygiene` that invokes `scripts/pr-hygiene.mjs` on pull_request types `opened`, `synchronize`, `reopened`, and `edited` targeting `main`. That job SHALL NOT run on push. Its permissions SHALL be `contents: read` and `pull-requests: read`.
+The repository SHALL run a job named `pr-hygiene` that invokes `scripts/pr-hygiene.mjs` on pull_request types `opened`, `synchronize`, `reopened`, and `edited` targeting `main`. That job SHALL NOT run on push. Its permissions SHALL be `contents: read` only.
 
 #### Scenario: Job runs on the four pull request types
 
@@ -23,11 +23,12 @@ The repository SHALL run a job named `pr-hygiene` that invokes `scripts/pr-hygie
 - **WHEN** its triggers are read
 - **THEN** the workflow has no push trigger
 
-#### Scenario: Permissions are contents and pull requests read
+#### Scenario: Permissions are contents read only
 
 - **GIVEN** `.github/workflows/pr-hygiene.yml`
 - **WHEN** its permissions are read
-- **THEN** they are `contents: read` and `pull-requests: read`
+- **THEN** they are `contents: read` only
+- **AND** they do not grant `pull-requests: read`
 
 ### Requirement: Cargo and spec-drift stay
 
