@@ -74,20 +74,21 @@ The research quotes ORC I.b and II.d.i: the ORC grants no trademark rights and n
 
 Check: the product title, logos, store page, marketing text, `README.md`, and `NOTICE-ORC.md` contain no compatibility claim and no endorsement claim. A Pathfinder mention is one of the book titles in the Attribution section of `NOTICE-ORC.md`.
 
-## LIC-8. The four-part notice is placed in four places
+## LIC-8. Where the notice is placed
 
 The notice has the four parts required by ORC Art. III, as named in the AxE sample: ORC Notice, Attribution, Reserved Material, and Expressly Designated Licensed Material. The research quotes Art. III: the grant is conditioned on including those notices in a reasonable manner for the medium.
 
-The notice is present in all four of these places:
+Required places:
 
 1. An in-game Credits or Legal screen reachable from the main menu.
-2. A file bundled with the build.
+2. A notice file bundled with the build.
 3. `NOTICE-ORC.md` in this repository.
-4. The store page.
 
-**UNVERIFIED**: the research marks placement ambiguous. Art. III names no location. The AxE says "a notice in your published work." The store page is the researcher's recommendation, not a sentence of the license. A public repository is a distribution and needs the notice (research §6). Today only place 3 exists. Places 1, 2, and 4 are still required and are not shipped.
+Recommended, as project policy and not as an ORC requirement (research §1.2): the store page. The research says the license does not require the store page. The store page is not release-blocking.
 
-Check: `NOTICE-ORC.md` has the four headings. A release is incomplete while the in-game screen, the bundled file, or the store page is missing.
+**UNVERIFIED**: the research marks placement ambiguous. Art. III names no location. The AxE says "a notice in your published work." A public repository is a distribution and needs the notice (research §6). Today only the repository copy exists. The in-game screen and the bundled file are still required and are not shipped.
+
+Check: `NOTICE-ORC.md` has the four headings. A release is incomplete while the in-game credits screen or the bundled notice file is missing. A missing store-page notice does not block the release.
 
 ## LIC-9. Attribution names the three books and their authors
 
