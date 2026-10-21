@@ -180,6 +180,15 @@ Within a duplicate key the kept modifier SHALL follow a total order that ignores
 - **AND** its condition id is 3
 - **AND** both totals are +2
 
+#### Scenario: A three-way tie is the same in all six orders
+
+- **GIVEN** source 11 on the attack roll, three circumstance bonuses of +2, all level 1, rank 1, and sequence 8, with condition ids 6, 1, and 4
+- **WHEN** they are totaled in all 6 orders
+- **THEN** every result is the same
+- **AND** one modifier is applied
+- **AND** its condition id is 1
+- **AND** the attack-roll total is +2
+
 ### Requirement: Resolution ignores input order
 
 The same modifiers SHALL produce the same total and the same applied modifiers in every input order. Modifiers that differ in type, or in bonus versus penalty, SHALL both apply, including equal values from one source at one sequence.
