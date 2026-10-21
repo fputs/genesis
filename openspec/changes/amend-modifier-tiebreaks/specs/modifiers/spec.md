@@ -247,7 +247,7 @@ Frightened and sickened grouping SHALL key on (condition, statistic) only, never
 
 ### Requirement: Condition groups ignore the source key
 
-Condition modifiers SHALL group by (condition, statistic) only, never by source key, after the bonus and penalty split. Unequal condition ids, including a present id against none, SHALL NOT share a source key. Within a group the order SHALL be the worst penalty or the highest bonus. For a condition with a value, that SHALL be the highest condition value. Then the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect.
+Condition modifiers SHALL group by (condition, statistic), not by source key, after the bonus and penalty split. Unequal condition ids, including a present id against none, SHALL NOT share a source key. Order SHALL be the worst penalty or the highest bonus. For a condition whose modifier is derived from its value (frightened, sickened: −value), that is the highest condition value (Player Core p.442, Rules 2455). Otherwise the larger modifier wins (our ruling, see the non-derived requirement).
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -258,15 +258,6 @@ Condition modifiers SHALL group by (condition, statistic) only, never by source 
 - **WHEN** they are totaled with either modifier first
 - **THEN** the circumstance penalty is -4 in both orders
 - **AND** the total is -4 in both orders
-
-#### Scenario: Two frightened penalties report the lower source in both orders
-
-- **GIVEN** two frightened status penalties of -1 on the attack roll, from source 1 and source 2, both at sequence 5 and rank 2
-- **WHEN** they are totaled with either modifier first
-- **THEN** one status penalty is applied
-- **AND** its source id is 1 in both orders
-- **AND** its value is -2, the negation of rank 2
-- **AND** the attack-roll total is -2 in both orders
 
 #### Scenario: An older higher condition value beats a newer lower one
 
@@ -290,6 +281,21 @@ Condition modifiers SHALL group by (condition, statistic) only, never by source 
 - **THEN** the status penalty is -1
 - **AND** the total is -1
 - **AND** frightened 1 is applied
+
+### Requirement: Condition-group ties break on rank, sequence, and source id
+
+After the worst penalty or the highest bonus, the order SHALL be the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+
+#### Scenario: Two frightened penalties report the lower source in both orders
+
+- **GIVEN** two frightened status penalties of -1 on the attack roll, from source 1 and source 2, both at sequence 5 and rank 2
+- **WHEN** they are totaled with either modifier first
+- **THEN** one status penalty is applied
+- **AND** its source id is 1 in both orders
+- **AND** its value is -2, the negation of rank 2
+- **AND** the attack-roll total is -2 in both orders
 
 ### Requirement: A non-derived modifier keeps the larger one
 
