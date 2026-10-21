@@ -4,7 +4,7 @@ Genesis DevOps agent implements this change. The changelog bullet is added in an
 
 ## 1. Hygiene script
 
-- [ ] 1.1 Add `scripts/pr-hygiene.mjs` with no npm dependencies. It parses paths with `git diff -z` split on NUL, including both rename sides, as `scripts/spec-drift-check.mjs` does. It compares the pull request base to the event head for the bullet, and reads that head commit's message and first-parent diff for archive-last. It fails closed when the event, a diff, a NUL record, the base, the head, or the head's first parent cannot be parsed. Honor `PR_HYGIENE_EVENT`, `PR_HYGIENE_ACTION`, `PR_HYGIENE_ROOT`, `PR_HYGIENE_BASE_SHA`, `PR_HYGIENE_HEAD_SHA`, and `PR_HYGIENE_BODY`, and otherwise read `GITHUB_EVENT_NAME` and `GITHUB_EVENT_PATH`. Verify `node --check scripts/pr-hygiene.mjs` exits 0.
+- [ ] 1.1 Add `scripts/pr-hygiene.mjs` with no npm dependencies. It parses paths with `git diff -z` split on NUL, including both rename sides, as `scripts/spec-drift-check.mjs` does. Every pull request diff, including classification, the bullet diff, and the base-side Unreleased section, uses `git merge-base` of the event base sha and head sha, not `pull_request.base.sha` directly. Archive-last reads that head commit's message and first-parent diff. It fails closed when the event, a diff, a NUL record, the base, the head, the head's first parent, or the merge-base cannot be parsed. Honor `PR_HYGIENE_EVENT`, `PR_HYGIENE_ACTION`, `PR_HYGIENE_ROOT`, `PR_HYGIENE_BASE_SHA`, `PR_HYGIENE_HEAD_SHA`, and `PR_HYGIENE_BODY`, and otherwise read `GITHUB_EVENT_NAME` and `GITHUB_EVENT_PATH`. Verify `node --check scripts/pr-hygiene.mjs` exits 0.
 - [ ] 1.2 Add `scripts/pr-hygiene.test.mjs` with `node:test`. Each case builds a temporary git repository and runs `node scripts/pr-hygiene.mjs`. Verify `node --test scripts/pr-hygiene.test.mjs` exits 0.
 - [ ] 1.3 Scenario "Each case is a fixture repository": verify the suite builds one temporary git repository per case and asserts exit status and failure lines.
 - [ ] 1.4 Scenario "NUL-split diff includes both rename sides": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
@@ -54,6 +54,7 @@ Genesis DevOps agent implements this change. The changelog bullet is added in an
 - [ ] 1.48 Scenario "A body without a head SHA passes": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
 - [ ] 1.49 Scenario "Both checks fail together": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
 - [ ] 1.50 Scenario "The hygiene job enforces the bullet": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
+- [ ] 1.51 Scenario "main advanced after branching": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
 
 ## 2. CI job
 

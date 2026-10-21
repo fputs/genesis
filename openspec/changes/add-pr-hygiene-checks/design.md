@@ -45,17 +45,17 @@ The script prints every failure line and exits 1 if any check failed or a parse 
 - `implementation PR missing CHANGELOG bullet`
 - `archive commit is not last`
 
-Tests may set `PR_HYGIENE_EVENT`, `PR_HYGIENE_ACTION`, `PR_HYGIENE_ROOT`, `PR_HYGIENE_BASE_SHA`, `PR_HYGIENE_HEAD_SHA`, and `PR_HYGIENE_BODY`. When those are unset, the script uses `GITHUB_EVENT_NAME`, `GITHUB_EVENT_PATH`, and the event's `pull_request.head.sha` and `pull_request.base.sha`.
+Tests may set `PR_HYGIENE_EVENT`, `PR_HYGIENE_ACTION`, `PR_HYGIENE_ROOT`, `PR_HYGIENE_BASE_SHA`, `PR_HYGIENE_HEAD_SHA`, and `PR_HYGIENE_BODY`. When those are unset, the script uses `GITHUB_EVENT_NAME`, `GITHUB_EVENT_PATH`, and the event's `pull_request.head.sha` and `pull_request.base.sha`. It then runs `git merge-base` on those two shas and does not diff `pull_request.base.sha` directly.
 
 Alternative considered: extend `scripts/spec-drift-check.mjs`. That script also runs on push and owns validation and the change-id reference. Mixing in pull-request-only rules would change its push behavior. A second script keeps spec-drift stable.
 
 ### 3. Paths match the spec-drift parse
 
-Run `git diff -z --name-status --find-renames` and split on NUL, including both sides of a rename, the same record walk as `scripts/spec-drift-check.mjs`. The bullet diff is base to the event head. The archive diff is the event head against its first parent.
+Run `git diff -z --name-status --find-renames` from `git merge-base <base.sha> <head.sha>` to the event head, and split on NUL, including both sides of a rename, the same record walk as `scripts/spec-drift-check.mjs`. That is `base...head`. Every pull request diff uses it: implementation classification, the bullet diff, and the base-side `## [Unreleased]` section, which is the file at the merge-base. The job does not diff `pull_request.base.sha` directly. If `git merge-base` finds no commit, the job fails closed.
 
-The default `pull_request` checkout is a merge commit the runner creates. Archive-last must read `pull_request.head.sha`, not that merge. `fetch-depth: 0` makes the base, the head, and the head's first parent available. A missing sha, a missing parent, a non-zero diff, or a broken NUL record fails the job closed. The pull request is not treated as exempt.
+The archive diff is still the event head against its first parent. The default `pull_request` checkout is a merge commit the runner creates. Archive-last must read `pull_request.head.sha`, not that merge. `fetch-depth: 0` makes both tips, the merge-base, and the head's first parent available. A missing sha, a missing parent, a missing merge-base, a non-zero diff, or a broken NUL record fails the job closed. The pull request is not treated as exempt.
 
-The script does not call the GitHub API. `pull-requests: read` is the workflow token scope the job declares. The body still comes from the local event payload, including on `edited`.
+The script does not call the GitHub API. The body comes from the local event payload, including on `edited`.
 
 ### 4. Implementation classification, then exemptions
 
@@ -97,6 +97,7 @@ When this change is applied, Genesis DevOps agent:
 ## Risks / Trade-offs
 
 - [The runner checkout is a merge commit] → Read `pull_request.head.sha` and its first parent. Do not classify `HEAD` after the default checkout.
+- [Main advances after the branch point] → Diff from the merge-base, so a later crate edit or Unreleased bullet on main is not this pull request's change.
 - [A shallow checkout cannot see the base or the parent] → `fetch-depth: 0` on this job only. `ci.yml` stays as it is.
 - [An archive commit deletes `openspec/changes/<id>/`] → That removed directory is an allowed path for each id the rule is enforcing. Every other path must be under `openspec/changes/archive/` or `openspec/specs/`.
 - [`Cargo.lock` is a spec-drift code path and still exempt] → Accepted. The exemption matches the 2026-10-20 interim ruling. A second code path drops it.

@@ -84,7 +84,7 @@ Changed paths SHALL be parsed from `git diff -z` output split on NUL, including 
 
 ### Requirement: Fail closed on parse errors
 
-When the event payload, a diff, a NUL record, the base, the head, or the head's first parent cannot be parsed, the job SHALL exit non-zero and SHALL NOT treat the pull request as exempt.
+When the event payload, a diff, a NUL record, the base, the head, the head's first parent, or the merge-base cannot be parsed, the job SHALL exit non-zero and SHALL NOT treat the pull request as exempt.
 
 #### Scenario: A diff parse error fails closed
 
@@ -95,7 +95,7 @@ When the event payload, a diff, a NUL record, the base, the head, or the head's 
 
 #### Scenario: A missing base fails closed
 
-- **GIVEN** a pull_request event with no base sha
+- **GIVEN** a pull_request event with no base sha, or whose base and head have no merge-base
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
 
@@ -107,13 +107,23 @@ When the event payload, a diff, a NUL record, the base, the head, or the head's 
 
 ### Requirement: Pull request head from the event
 
-The bullet diff SHALL compare the pull request base to the event's pull request head. Archive-last SHALL read that head commit's message and its diff against its first parent, not a merge commit created by the runner.
+Every pull request diff SHALL use `git merge-base` of the event base sha and head sha, including implementation classification, the bullet diff, and the base-side `## [Unreleased]` section. The job SHALL NOT diff `pull_request.base.sha` directly. Archive-last SHALL still read the event head message and its first-parent diff, not a runner merge commit. No merge-base SHALL fail the job closed.
 
 #### Scenario: The check uses the event head
 
 - **GIVEN** a pull_request event whose head sha differs from a merge commit the runner created
 - **WHEN** the `pr-hygiene` job runs
-- **THEN** the bullet diff and the archive-last commit are that event head sha
+- **THEN** the bullet diff ends at that event head sha
+- **AND** its other side is the merge-base of the event base sha and that head
+- **AND** archive-last reads that head commit, not the runner merge
+
+#### Scenario: main advanced after branching
+
+- **GIVEN** main gains a crate change and an Unreleased bullet after the branch point
+- **AND** the pull request changes only `docs/architect/decisions.md` since that merge-base
+- **AND** the pull request adds no Unreleased bullet
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
 
 ### Requirement: Implementation pull request
 

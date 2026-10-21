@@ -7,7 +7,7 @@ An implementation pull request can merge with no bullet under `## [Unreleased]`,
 ## What Changes
 
 - Add a pull-request-only job named `pr-hygiene`. It does not run on push. Permissions are `contents: read` and `pull-requests: read`. Triggers are pull_request `opened`, `synchronize`, `reopened`, and `edited`.
-- The job parses changed paths with `git diff -z` split on NUL, the same way `scripts/spec-drift-check.mjs` does. The script has no npm dependencies and fails closed when a parse fails.
+- The job parses changed paths with `git diff -z` split on NUL, the same way `scripts/spec-drift-check.mjs` does. Every pull request diff uses `git merge-base` of the event base sha and head sha, not `pull_request.base.sha` directly. The script has no npm dependencies and fails closed when a parse fails or no merge-base exists.
 - Changelog bullet: an implementation pull request adds at least one bullet under `## [Unreleased]` in `CHANGELOG.md`, or the job fails with `implementation PR missing CHANGELOG bullet`. Implementation uses the spec-drift code-path classification. Exempt: docs-only, openspec-only, and a diff whose every path is under `.cursor/`, or is exactly `README.md`, `Cargo.lock`, or `rust-toolchain.toml`. No label opts out.
 - Archive last: when the body has `OpenSpec-Change: <id>` and the diff removes `openspec/changes/<id>`, the head commit touches only `openspec/changes/archive/**` and `openspec/specs/**` (plus that removal) and its message contains `openspec archive <id>`. Otherwise the job fails with `archive commit is not last`. Several body lines are several archived changes, and each must pass.
 - No head-SHA check in pull request bodies. The Cargo job and spec-drift behavior stay as they are.
