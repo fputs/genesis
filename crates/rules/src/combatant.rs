@@ -1810,6 +1810,7 @@ mod tests {
             crate::modifiers::SourceId(1),
             1,
             None,
+            crate::modifiers::Statistic::Damage,
         )
         .expect("penalty");
         assert_eq!(damage_dealt(4, &[penalty], false).expect("damage"), 1);
@@ -1924,6 +1925,7 @@ mod tests {
             crate::modifiers::SourceId(1),
             1,
             None,
+            crate::modifiers::Statistic::Damage,
         )
         .expect("penalty");
         assert_eq!(damage_dealt(-4, &[penalty], false).expect("damage"), 0);
@@ -1943,6 +1945,7 @@ mod tests {
             crate::modifiers::SourceId(1),
             1,
             None,
+            crate::modifiers::Statistic::Damage,
         )
         .expect("bonus");
         let penalty = crate::modifiers::Modifier::penalty(
@@ -1951,6 +1954,7 @@ mod tests {
             crate::modifiers::SourceId(2),
             2,
             None,
+            crate::modifiers::Statistic::Damage,
         )
         .expect("penalty");
         assert_eq!(
@@ -1988,6 +1992,7 @@ mod tests {
             crate::modifiers::SourceId(1),
             1,
             None,
+            crate::modifiers::Statistic::Damage,
         )
         .expect("penalty");
         assert_eq!(damage_dealt(4, &[penalty], true).expect("damage"), 2);

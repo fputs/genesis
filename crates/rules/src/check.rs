@@ -1,5 +1,7 @@
 use crate::dice::Dice;
-use crate::modifiers::{BonusType, Modifier, ModifierError, PenaltyType, SourceId, total};
+use crate::modifiers::{
+    BonusType, Modifier, ModifierError, PenaltyType, SourceId, Statistic, total,
+};
 
 /// Four degrees of success on a d20 check.
 ///
@@ -375,15 +377,30 @@ fn push_attack_term(
         return;
     }
     let built = match kind {
-        AttackTerm::Untyped if value < 0 => {
-            Modifier::penalty(PenaltyType::Untyped, value, source, sequence, None)
-        }
-        AttackTerm::Circumstance if value < 0 => {
-            Modifier::penalty(PenaltyType::Circumstance, value, source, sequence, None)
-        }
-        AttackTerm::Circumstance => {
-            Modifier::bonus(BonusType::Circumstance, value, source, sequence, None)
-        }
+        AttackTerm::Untyped if value < 0 => Modifier::penalty(
+            PenaltyType::Untyped,
+            value,
+            source,
+            sequence,
+            None,
+            Statistic::Attack,
+        ),
+        AttackTerm::Circumstance if value < 0 => Modifier::penalty(
+            PenaltyType::Circumstance,
+            value,
+            source,
+            sequence,
+            None,
+            Statistic::Attack,
+        ),
+        AttackTerm::Circumstance => Modifier::bonus(
+            BonusType::Circumstance,
+            value,
+            source,
+            sequence,
+            None,
+            Statistic::Attack,
+        ),
         AttackTerm::Untyped => Err(ModifierError::UntypedBonus),
     };
     match built {
