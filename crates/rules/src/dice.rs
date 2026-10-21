@@ -31,12 +31,14 @@ impl Faces {
 
     /// Rejects zero, a negative count, and a count above `u8::MAX`.
     ///
+    /// Zero returns [`FaceCountError::Zero`], the same error as [`Faces::new`].
+    ///
     /// Player Core, Damage Rolls.
     pub fn try_from_i32(faces: i32) -> Result<Self, FaceCountError> {
         let Ok(faces) = u8::try_from(faces) else {
             return Err(FaceCountError::OutOfRange);
         };
-        Self::new(faces).map_err(|_| FaceCountError::OutOfRange)
+        Self::new(faces)
     }
 
     /// The face count. Always at least 1.
@@ -182,7 +184,7 @@ mod tests {
     #[test]
     fn faces_reject_zero_and_values_that_do_not_fit() {
         assert_eq!(Faces::new(0), Err(FaceCountError::Zero));
-        assert_eq!(Faces::try_from_i32(0), Err(FaceCountError::OutOfRange));
+        assert_eq!(Faces::try_from_i32(0), Err(FaceCountError::Zero));
         assert_eq!(Faces::try_from_i32(-1), Err(FaceCountError::OutOfRange));
         assert_eq!(Faces::try_from_i32(256), Err(FaceCountError::OutOfRange));
         assert_eq!(Faces::new(20).expect("d20").get(), 20);

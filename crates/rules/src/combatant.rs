@@ -460,9 +460,9 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
 
 /// Rolls `faces` once, adds `bonus`, and subtracts that from current Hit Points, floored at 0.
 ///
-/// The roll and the bonus are added in `i64`, then subtracted from current Hit Points in `i64`.
-/// A result at or below 0 is stored as 0. A result above `i32::MAX` is not stored: this function
-/// does not saturate or wrap, and it leaves the previous Hit Points in place.
+/// The addition and the subtraction are checked, so an overflowing `i32` does not panic.
+/// A result the floor would have stored as 0 is stored as 0. A difference above `i32::MAX`
+/// does not fit, so the stored Hit Points stay.
 ///
 /// At 0 Hit Points, `uses_dying_rules` false marks the state dead. True records that dying applies
 /// and does not choose a dying value. The creature and the build are not written.
@@ -475,35 +475,30 @@ pub fn apply_dice_damage(
     faces: Faces,
     bonus: i32,
 ) {
-    let amount = match i64::from(dice.roll(faces)).checked_add(i64::from(bonus)) {
+    let rolled = i32::from(dice.roll(faces));
+    let amount = match rolled.checked_add(bonus) {
         Some(amount) => amount,
+        // The sum is above `i32::MAX`, so Hit Points fall to 0.
         None => {
-            // A face in `1..=255` and an `i32` bonus fit in `i64`.
             state.hit_points = 0;
-            note_zero_hit_points(state, creature);
+            note_hit_points(state, creature);
             return;
         }
     };
-    let next = match i64::from(state.hit_points).checked_sub(amount) {
-        Some(next) => next,
-        None => {
-            // Two `i32`-sized values subtracted in `i64` fit. A missing difference is below 0.
-            state.hit_points = 0;
-            note_zero_hit_points(state, creature);
-            return;
-        }
+    state.hit_points = match state.hit_points.checked_sub(amount) {
+        Some(next) => next.max(0),
+        // Below `i32::MIN` is below 0, so the floor applies.
+        None if amount >= 0 => 0,
+        // Above `i32::MAX` does not fit. Leave the stored total.
+        None => state.hit_points,
     };
-    if next <= 0 {
-        state.hit_points = 0;
-        note_zero_hit_points(state, creature);
-    } else if let Ok(hit_points) = i32::try_from(next) {
-        state.hit_points = hit_points;
-        state.vital = Vital::Alive;
-    }
+    note_hit_points(state, creature);
 }
 
-fn note_zero_hit_points(state: &mut CombatantState, creature: &Creature) {
-    if creature.uses_dying_rules {
+fn note_hit_points(state: &mut CombatantState, creature: &Creature) {
+    if state.hit_points > 0 {
+        state.vital = Vital::Alive;
+    } else if creature.uses_dying_rules {
         state.vital = Vital::EnterDying;
         state.dying_entered = true;
     } else {
