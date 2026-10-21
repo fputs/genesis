@@ -1,0 +1,30 @@
+# Proposal
+
+## Why
+
+A frightened or sickened modifier with no rank, or with a type other than status, is rewritten to status or stacked as written. Designer ruling R-03 says that input is invalid. The property-test oracle still calls production helpers, and the attack check total labels its internal terms with caller sources 1 through 3.
+
+## What Changes
+
+- **BREAKING**: A frightened (Player Core p.444) or sickened (Player Core p.446) modifier with no rank, or with a declared type other than status, is rejected at construction with a typed error. It is not rewritten to status, and it does not panic. A penalty whose rank is above 0 applies as status `-rank` (Player Core p.442, Rules 2455). Rank 0 stays legal and contributes nothing. A status bonus tagged with either condition still keeps its declared value. Any other condition with no rank stays legal.
+- The property-test oracle is a brute-force RAW reference and does not call production helpers. A fixed seed draws at least 1,000 narrow-range sets. Sets of up to 4 are exhaustively permuted, including a conditioned exact duplicate.
+- The attack check total's internal terms use distinct reserved sources that no caller can construct, as the multiple attack penalty does. Caller source 1 does not collapse an internal term.
+- Type is part of the condition-group key, so a type-order tiebreak (circumstance, item, status, untyped) is not a step. A search of the live specs, design notes, and docs found no such step. This change says type is not a tiebreak.
+- This pull request copies `docs/designer/rules-rulings.md` exactly, which adds R-03. Designer sign-off is pending. It does not change Rust or `CHANGELOG.md`, and it does not archive.
+
+## Capabilities
+
+### New Capabilities
+
+None.
+
+### Modified Capabilities
+
+- `modifiers`: Construction rejects an unranked or non-status frightened or sickened modifier. The property-test oracle is independent of production code. Attack-check internal terms use reserved sources. Type is not a tiebreak.
+
+## Impact
+
+- Implementation edits construction in `crates/rules/src/modifiers.rs` and the internal terms of the attack check total in `crates/rules/src/check.rs`. No new crate and no new dependency. `crates/rules` stays free of Bevy, serde, files, network, clock, and global randomness.
+- Condition construction must be able to fail. Callers still cannot construct a reserved source.
+- The implementation pull request adds an Unreleased changelog bullet, then archives with `openspec archive harden-modifier-validation --yes` as its last commit. This pull request does not.
+- Designer sign-off on R-03 is pending.
