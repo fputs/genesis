@@ -31,6 +31,76 @@ function unknown(id) {
   return `spec-drift: unknown change ${id}`;
 }
 
+function shownInvalid(token) {
+  const shown = /\s/.test(token) ? JSON.stringify(token) : token;
+  return `spec-drift: invalid change id ${shown}`;
+}
+
+function whitespaceReferenceCases() {
+  const tokens = [
+    ["a tab", "\tadd-foo"],
+    ["a nbsp", "\u00a0add-foo"],
+    ["an em space", "\u2003add-foo"],
+    ["a tabbed Add-Foo", "\tAdd-Foo"],
+  ];
+  const docs = {
+    event: "pull_request",
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "docs/architect/decisions.md": "new\n" },
+    excludes: [MISSING],
+  };
+  const code = {
+    event: "pull_request",
+    base: {
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "crates/rules/src/lib.rs": "new\n" },
+    excludes: [MISSING],
+  };
+  const rows = [];
+  for (const [label, token] of tokens) {
+    const body = `OpenSpec-Change: ${token}`;
+    const line = shownInvalid(token);
+    rows.push(
+      failing(`Docs-only PR with ${label} before the id is invalid`, [line], { ...docs, body }),
+    );
+    rows.push(failing(`Code PR with ${label} before the id is invalid`, [line], { ...code, body }));
+  }
+  const hidden = shownInvalid("\tadd-foo");
+  const mixed = "OpenSpec-Change: add-dice-and-checks\nOpenSpec-Change: \tadd-foo";
+  rows.push(
+    failing("A valid id does not hide a whitespace token", [hidden], {
+      event: "pull_request",
+      body: mixed,
+      base: {
+        "Cargo.toml": "old\n",
+        "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "Cargo.toml": "new\n" },
+      excludes: [MISSING],
+    }),
+  );
+  rows.push(
+    failing("Docs-only valid id does not hide a whitespace token", [hidden], {
+      event: "pull_request",
+      body: mixed,
+      base: {
+        "docs/architect/decisions.md": "old\n",
+        "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    }),
+  );
+  return rows;
+}
+
 function passing(name, fields = {}) {
   return {
     event: "push",
@@ -398,7 +468,7 @@ const cases = [
   }),
   failing(
     "Two spaces before the change id are invalid",
-    ["spec-drift: invalid change id add-foo"],
+    [`spec-drift: invalid change id ${JSON.stringify("  add-foo")}`],
     {
       event: "pull_request",
       body: "OpenSpec-Change:  add-foo",
@@ -410,7 +480,9 @@ const cases = [
       excludes: [MISSING],
     },
   ),
-  failing("A tab after the colon is invalid", ["spec-drift: invalid change id add-foo"], {
+  failing("A tab after the colon is invalid", [
+    `spec-drift: invalid change id ${JSON.stringify("\tadd-foo")}`,
+  ], {
     event: "pull_request",
     body: "OpenSpec-Change:\tadd-foo",
     base: {
@@ -628,6 +700,7 @@ const cases = [
     base: { "openspec/changes/add-spec-drift-check/proposal.md": "old\n" },
     head: { "openspec/changes/add-spec-drift-check/proposal.md": "new\n" },
   }),
+  ...whitespaceReferenceCases(),
 ];
 
 for (const row of cases) {

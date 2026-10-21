@@ -185,9 +185,12 @@ function referenceFailures(root, body, baseSha) {
 }
 
 function invalidChangeId(token) {
-  return token.length === 0
-    ? "spec-drift: invalid change id"
-    : `spec-drift: invalid change id ${token}`;
+  if (token.length === 0) {
+    return "spec-drift: invalid change id";
+  }
+  // A raw tab or other space is invisible in the log and looks like a normal id.
+  const shown = /\s/.test(token) ? JSON.stringify(token) : token;
+  return `spec-drift: invalid change id ${shown}`;
 }
 
 function changedPaths(root, baseSha) {
@@ -282,20 +285,28 @@ function changeReferences(body) {
 }
 
 // A reference is the prefix, exactly one ASCII space (U+0020), and one token.
-// A tab is not that space. Extra words are not a reference. Any other remainder
-// is an invalid token, not a missing line.
+// Null means two or more words, which is not a reference. A token that starts
+// with whitespace (tab, NBSP, em space) is one invalid id, not a skipped line.
+// The raw remainder is kept so that whitespace is still there to show.
 function singleToken(rest) {
   if (rest.charCodeAt(0) === 0x20 && rest.charCodeAt(1) !== 0x20) {
     const token = rest.slice(1);
-    if (token.length > 0 && !/\s/.test(token)) {
-      return { token, spaced: true };
-    }
     if (token.length === 0) {
       return { token: "", spaced: false };
     }
-    return null;
+    if (countWords(token) >= 2) {
+      return null;
+    }
+    if (/^\S+$/.test(token)) {
+      return { token, spaced: true };
+    }
+    return { token, spaced: false };
   }
-  return { token: rest.trim(), spaced: false };
+  return { token: rest, spaced: false };
+}
+
+function countWords(token) {
+  return token.split(/\s+/).filter((word) => word.length > 0).length;
 }
 
 function changeExists(root, id) {
