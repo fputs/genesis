@@ -33,3 +33,11 @@ Deferred: attributes, proficiency, saves, skills, spells, classes, and broader c
 ## 2026-10-21 — Composition: CharacterBuild -> pure derive -> Creature; runtime CombatantState separate.
 
 Characters are built by composition. The same build inputs always produce the same character. `CharacterBuild` is immutable. Phase 1 stores the baked stat block and the choice fields (`stealth_dc`, `aid_modifier`, shield, `uses_dying_rules`). Later phases add ancestry, class, feat, attribute, and proficiency as further sources. `derive(&CharacterBuild) -> Creature` is pure: no Dice, no I/O, no global state. It folds an ordered list of contributions. Phase 1 has only the base contribution, and callers of `derive` do not change when a source is added. `Creature` is the read-only result. Runtime state (current Hit Points, temporary Hit Points, conditions, dying, wounded, shield Hit Points and raised, actions, reaction) lives on `CombatantState`, keyed by `CombatantId`, initialized from a `Creature`, and never written back into the build or the `Creature`.
+
+## 2026-10-21 — spec-drift-check follows add-dice-and-checks
+
+`spec-drift-check` slots immediately after `add-dice-and-checks`. The relative order of the rules changes after `add-dice-and-checks` stays as recorded on 2026-10-20.
+
+## 2026-10-21 — Implementation archives in its last commit
+
+An implementation pull request's last commit is `openspec archive <id> --yes`. There is no separate archive pull request. This gate leaves `main` green.
