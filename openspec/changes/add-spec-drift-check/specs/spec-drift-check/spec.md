@@ -19,7 +19,7 @@ The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on pus
 
 ### Requirement: Cargo job remains
 
-The workflow SHALL keep the existing job that runs `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`.
+The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`.
 
 #### Scenario: Cargo steps stay
 
