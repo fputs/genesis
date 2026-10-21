@@ -183,7 +183,7 @@ function referenceFailures(root, body, baseSha) {
 function changedPaths(root, baseSha) {
   const result = spawnSync(
     "git",
-    ["diff", "--name-status", "--find-renames", baseSha, "HEAD"],
+    ["-c", "core.quotePath=off", "diff", "--name-status", "--find-renames", baseSha, "HEAD"],
     { cwd: root, encoding: "utf8" },
   );
   if (result.status !== 0) {

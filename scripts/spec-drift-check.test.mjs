@@ -519,7 +519,7 @@ test("Job triggers match the Cargo workflow", () => {
 
 test("Cargo steps stay", () => {
   const job = jobBlock(workflow, "ci");
-  assert.match(job, /cargo fmt --check/);
+  assert.match(job, /cargo fmt --all --check/);
   assert.match(job, /cargo clippy --workspace --all-targets -- -D warnings/);
   assert.match(job, /cargo build --workspace/);
   assert.match(job, /cargo test --workspace/);
