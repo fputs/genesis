@@ -20,11 +20,11 @@ Check: `LICENSE` is the MIT license, `crates/rules/Cargo.toml` contains `license
 
 ## LIC-2. Rules mechanics are ORC Licensed Material
 
-Game rules mechanics are Licensed Material under the ORC License. That is the content in `NOTICE-ORC.md`, the mechanics stated in `openspec/specs/` (dice and checks, creature template, modifiers, and grid movement), and the mechanics stated in `docs/designer/`. The code under `crates/rules/` that implements those mechanics stays MIT source code under LIC-1. The mechanics are what the ORC covers.
+Game rules mechanics are Licensed Material under the ORC License. That is the mechanics derived from the books listed in the Attribution section of `NOTICE-ORC.md`, plus the mechanics in `openspec/specs/` (dice and checks, creature template, modifiers, and grid movement), plus the mechanics stated in `docs/designer/`. The text of `NOTICE-ORC.md` is a legal notice. It states Reserved Material, which ORC I.a excludes, so that notice is not Licensed Material. The code under `crates/rules/` stays MIT source code under LIC-1.
 
 The research quotes ORC I.e(2): expressions reasonably necessary to convey the functional ideas and methods of operation of a game, including character statistics, actions, encounters, combat, conditions, difficulty classes, and dice rolling. ORC I.h reserves trademarks, art, music, sound, and delineated characters, settings, plots, and proper nouns.
 
-Check: a rules spec or a designer rules document that states a mechanic is treated as ORC Licensed Material and satisfies LIC-3 and LIC-4. A source file under `crates/` is not reclassified as ORC text.
+Check: a rules spec or a designer rules document that states a mechanic is treated as ORC Licensed Material and satisfies LIC-3 and LIC-4. The text of `NOTICE-ORC.md` is not treated as Licensed Material. A source file under `crates/` is not reclassified as ORC text.
 
 ## LIC-3. Sources are three Remaster ORC books
 
