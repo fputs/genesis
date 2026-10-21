@@ -1218,17 +1218,12 @@ fn push_circumstance(
 mod tests {
     use super::*;
     use crate::check::{
-        AttackTotalTerm, DegreeOfSuccess, MapInput, attack_check_total, degree_of_success,
-        flat_check, multiple_attack_penalty,
+        DegreeOfSuccess, MapInput, degree_of_success, flat_check, multiple_attack_penalty,
     };
     use crate::dice::ScriptedDice;
 
     fn script() -> ScriptedDice {
         ScriptedDice::new([8])
-    }
-
-    fn term(value: i32) -> AttackTotalTerm {
-        AttackTotalTerm::new(value).expect("term")
     }
 
     fn bonus(
@@ -3105,6 +3100,7 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
+    // Internal term composition isn't observable through the public API.
     /// Player Core pg. 402, "Multiple Attack Penalty".
     /// Player Core pg. 403, "Range Penalty".
     #[test]
@@ -3112,10 +3108,10 @@ mod tests {
         let dice = script();
         let map = second_non_agile_map();
         assert_eq!(map, -5);
-        // A natural 0 and a zero attack bonus leave the modifier total.
-        let total = attack_check_total(0, term(0), term(map), term(0), term(0), &[]);
-        assert_eq!(total, -5);
-        assert_ne!(total, -10);
+        let parts = attack_check_parts(map, 0, 0);
+        let stacked = summed(&parts.modifiers);
+        assert_eq!(stacked.get(Statistic::Attack), -5);
+        assert_ne!(stacked.get(Statistic::Attack), -10);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -3123,10 +3119,18 @@ mod tests {
     #[test]
     fn an_internal_circumstance_penalty_and_a_caller_circumstance_penalty_total_minus_3() {
         let dice = script();
-        let caller = penalty(PenaltyType::Circumstance, -3, 1, 4, None, Statistic::Attack);
-        let total = attack_check_total(0, term(0), term(0), term(-2), term(0), &[caller]);
-        assert_eq!(total, -3);
-        assert_ne!(total, -5);
+        let mut modifiers = attack_check_parts(0, -2, 0).modifiers;
+        modifiers.push(penalty(
+            PenaltyType::Circumstance,
+            -3,
+            1,
+            4,
+            None,
+            Statistic::Attack,
+        ));
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Attack), -3);
+        assert_ne!(stacked.get(Statistic::Attack), -5);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -3141,9 +3145,17 @@ mod tests {
     #[test]
     fn a_caller_source_1_does_not_collapse_an_internal_term() {
         let dice = script();
-        let caller = penalty(PenaltyType::Untyped, -3, 1, 4, None, Statistic::Attack);
-        let total = attack_check_total(0, term(0), term(-5), term(-2), term(-2), &[caller]);
-        assert_eq!(total, -12);
+        let mut modifiers = attack_check_parts(-5, -2, -2).modifiers;
+        modifiers.push(penalty(
+            PenaltyType::Untyped,
+            -3,
+            1,
+            4,
+            None,
+            Statistic::Attack,
+        ));
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Attack), -12);
         assert_eq!(dice.remaining(), 1);
     }
 
