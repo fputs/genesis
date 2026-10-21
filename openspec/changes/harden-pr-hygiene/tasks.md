@@ -9,9 +9,9 @@ Genesis DevOps agent implements this change. Do not edit `crates/rules`. Do not 
 
 ## 2. spec-drift on edited
 
-Workflow scenarios in this section are verified by a workflow lint or test that parses the workflow YAML, not by reading the file.
+Workflow scenarios in this section are verified by a line or regex check of the workflow file, with no YAML dependency, not by reading the file.
 
-- [ ] 2.1 Add `.github/workflows/spec-drift-edited.yml` that runs only `scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`. Do not change triggers or jobs in `.github/workflows/ci.yml`: no `edited` type and no Cargo skip `if`. Verify scenarios "Job triggers match the Cargo workflow", "Editing the body does not replace a failed Cargo check", "Cargo steps stay", and "Cargo and spec-drift stay" with that workflow lint or test, not by reading.
+- [ ] 2.1 Add `.github/workflows/spec-drift-edited.yml`. It runs only `scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`. The job name is exactly `spec-drift`. Set `permissions: contents: read`. Set concurrency group `spec-drift-edited-${{ github.event.pull_request.number }}` and `cancel-in-progress: true`. Do not change triggers or jobs in `.github/workflows/ci.yml`: no `edited` type and no Cargo skip `if`. Verify scenarios "Job triggers match the Cargo workflow", "Editing the body does not replace a failed Cargo check", "Cargo steps stay", "Cargo and spec-drift stay", and "The edited workflow reuses the spec-drift job name" with a line or regex check of those files. Do not add a YAML parser.
 - [ ] 2.2 Add a fixture for scenario "Dropping the change line on edit fails": a code-path pull request that passed with `OpenSpec-Change: add-dice-and-checks` fails on `edited` after the body drops that line, and the log includes `spec-drift: code change missing OpenSpec-Change`. Verify `node --test scripts/spec-drift-check.test.mjs` runs it.
 - [ ] 2.3 Add the `### Fixed` bullet under `## [Unreleased]` for this change in a commit before the archive commit. The bullet links the implementation pull request. Verify the bullet is present and that the later archive commit does not modify `CHANGELOG.md`.
 

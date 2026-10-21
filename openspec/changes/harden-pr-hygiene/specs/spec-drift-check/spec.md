@@ -4,15 +4,15 @@
 
 ### Requirement: Spec-drift job
 
-The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on the same push and pull_request events as the Cargo job. Those triggers SHALL stay unchanged, with no `edited` type. That job SHALL still invoke `scripts/spec-drift-check.mjs`. A separate workflow SHALL run only that script on pull_request `edited` targeting `main`. The script SHALL have no npm dependencies. A code-path pull request that drops every `OpenSpec-Change` line on `edited` SHALL fail that re-run.
+The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on the same push and pull_request events as the Cargo job. Those triggers SHALL stay unchanged, with no `edited` type. That job SHALL still invoke `scripts/spec-drift-check.mjs`. `.github/workflows/spec-drift-edited.yml` SHALL run only that script on pull_request `edited`. The script SHALL have no npm dependencies. A code-path pull request that drops every `OpenSpec-Change` line on `edited` SHALL fail that re-run.
 
 #### Scenario: Job triggers match the Cargo workflow
 
-- **GIVEN** `.github/workflows/ci.yml` and the separate spec-drift workflow
+- **GIVEN** `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml`
 - **WHEN** the workflow triggers are read
 - **THEN** `ci.yml` still runs the Cargo job and the `spec-drift` job on push and pull_request to `main`, with no `edited` type and no skip `if`
 - **AND** the `spec-drift` job in `ci.yml` still invokes `scripts/spec-drift-check.mjs`
-- **AND** the separate workflow runs only that script on pull_request `edited` targeting `main`
+- **AND** `.github/workflows/spec-drift-edited.yml` runs only that script on pull_request `edited` targeting `main`
 
 #### Scenario: Dropping the change line on edit fails
 
@@ -20,13 +20,13 @@ The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on the
 - **AND** `openspec/changes/add-dice-and-checks/` exists
 - **AND** the body line `OpenSpec-Change: add-dice-and-checks` made the `spec-drift` job pass
 - **WHEN** the pull request is `edited` and the body has no `OpenSpec-Change` line
-- **THEN** the separate spec-drift workflow runs
+- **THEN** `.github/workflows/spec-drift-edited.yml` runs
 - **AND** the check fails
 - **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
 
 ### Requirement: Cargo job remains
 
-The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`. `.github/workflows/ci.yml` SHALL keep its current triggers and SHALL NOT skip that job. A body edit SHALL NOT replace a failed Cargo check. A separate workflow SHALL run spec-drift on pull_request `edited`.
+The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`. `.github/workflows/ci.yml` SHALL keep its current triggers and SHALL NOT skip that job. A body edit SHALL NOT replace a failed Cargo check. `.github/workflows/spec-drift-edited.yml` SHALL run a job named `spec-drift` on pull_request `edited`.
 
 #### Scenario: Cargo steps stay
 
@@ -40,7 +40,7 @@ The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo c
 - **WHEN** the pull request body is edited
 - **THEN** `.github/workflows/ci.yml` does not run for that `edited` event
 - **AND** the failed Cargo check stays failed
-- **AND** only the separate spec-drift workflow runs
+- **AND** only `.github/workflows/spec-drift-edited.yml` runs
 
 ### Requirement: Change reference line
 
@@ -156,6 +156,21 @@ When the diff has no code path, a missing reference SHALL pass, and a lowercase 
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
 
 ## ADDED Requirements
+
+### Requirement: Edited spec-drift workflow
+
+`.github/workflows/spec-drift-edited.yml` SHALL run only `scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`. Its only job SHALL be named exactly `spec-drift`. It SHALL set `permissions: contents: read`. Concurrency SHALL use group `spec-drift-edited-${{ github.event.pull_request.number }}` and `cancel-in-progress: true`, so an older passing run cannot become the latest result.
+
+#### Scenario: The edited workflow reuses the spec-drift job name
+
+- **GIVEN** `.github/workflows/spec-drift-edited.yml`
+- **WHEN** its lines are checked
+- **THEN** it runs on pull_request `edited` targeting `main`
+- **AND** its only job is named `spec-drift`
+- **AND** that job runs `scripts/spec-drift-check.mjs`
+- **AND** permissions are `contents: read`
+- **AND** the concurrency group is `spec-drift-edited-${{ github.event.pull_request.number }}`
+- **AND** `cancel-in-progress` is true
 
 ### Requirement: Git locale is C
 

@@ -4,7 +4,7 @@
 
 ### Requirement: Cargo and spec-drift stay
 
-The `pr-hygiene` job SHALL be the only job in `.github/workflows/pr-hygiene.yml`. `.github/workflows/ci.yml` SHALL keep the Cargo job and the `spec-drift` job, their steps, and their current triggers, with no `edited` type and no skip `if`. A separate workflow SHALL run only spec-drift on pull_request `edited`. `pr-hygiene` SHALL NOT be a job in `ci.yml`.
+The `pr-hygiene` job SHALL be the only job in `.github/workflows/pr-hygiene.yml`. `.github/workflows/ci.yml` SHALL keep the Cargo job and the `spec-drift` job, their steps, and their current triggers, with no `edited` type and no skip `if`. `.github/workflows/spec-drift-edited.yml` SHALL run only a job named `spec-drift` on pull_request `edited`. `pr-hygiene` SHALL NOT be a job in `ci.yml`.
 
 #### Scenario: Cargo and spec-drift stay
 
@@ -12,7 +12,7 @@ The `pr-hygiene` job SHALL be the only job in `.github/workflows/pr-hygiene.yml`
 - **WHEN** the Cargo job and the `spec-drift` job are read
 - **THEN** their steps and triggers are unchanged
 - **AND** neither job gains an `edited` type or a skip `if`
-- **AND** a separate workflow runs only spec-drift on pull_request `edited`
+- **AND** `.github/workflows/spec-drift-edited.yml` runs only a job named `spec-drift` on pull_request `edited`
 - **AND** `pr-hygiene` is not a job in that file
 
 ### Requirement: Implementation pull request

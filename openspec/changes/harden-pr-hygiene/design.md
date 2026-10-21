@@ -26,7 +26,9 @@
 
 A skipped required check counts as passing. An `if` that skips the Cargo `ci` job on `edited` would turn a red `ci` check green when someone edits the body. That is why the earlier rejection of a second workflow is reversed: one workflow with a job `if` does not keep the failed Cargo result.
 
-`.github/workflows/ci.yml` keeps its current triggers (push and pull_request to `main`, no `edited` type) and no skip `if`. `.github/workflows/spec-drift-edited.yml` runs only `scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`.
+`.github/workflows/ci.yml` keeps its current triggers (push and pull_request to `main`, no `edited` type) and no skip `if`. `.github/workflows/spec-drift-edited.yml` runs on pull_request `edited` targeting `main`. It sets `permissions: contents: read`. Its concurrency group is `spec-drift-edited-${{ github.event.pull_request.number }}` with `cancel-in-progress: true`, so an older passing run cannot become the latest result. Its only job is named exactly `spec-drift` and runs only `scripts/spec-drift-check.mjs`.
+
+Reusing the name `spec-drift` is safe. The Cargo `ci` job is never skipped, and the edit run re-runs the same script on the same commit. The required check named `spec-drift` sees that edit run, and a failed Cargo check stays failed.
 
 Alternative considered: skip Cargo with `if` inside `ci.yml`. Rejected. GitHub treats a skipped check as success, so a body edit would replace a failed Cargo check.
 
