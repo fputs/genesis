@@ -1,8 +1,15 @@
 # modifiers
 
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: Frightened grouping follows the split
+
+**Reason**: The requirement now rejects a frightened or sickened bonus, so the old name no longer describes it.
+**Migration**: Use "Valued conditions are validated at construction". Its scenarios move with it. The bonus-versus-penalty scenario is renamed to "A condition bonus does not hide that condition's penalty".
+
+## ADDED Requirements
+
+### Requirement: Valued conditions are validated at construction
 
 A frightened or sickened modifier with no rank, a type other than status, or a bonus at any rank including 0, SHALL be rejected at construction with InvalidValuedCondition and SHALL NOT panic. A penalty of rank above 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. A penalty of rank 0 SHALL stay legal and contribute nothing. Any other condition with no rank SHALL stay legal. A bonus and a penalty of a condition with no value SHALL both apply.
 
@@ -10,7 +17,7 @@ A frightened or sickened modifier with no rank, a type other than status, or a b
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=91 (Player Core pg. 446, Sickened)
 
-#### Scenario: A frightened bonus does not hide a frightened penalty
+#### Scenario: A condition bonus does not hide that condition's penalty
 
 - **GIVEN** condition 10, which has no value, from source 7 on the attack roll at sequence 4, with a status bonus of +2 at rank 3 and a status penalty of -1 at rank 1
 - **WHEN** they are totaled with either modifier first
@@ -104,6 +111,8 @@ A frightened or sickened modifier with no rank, a type other than status, or a b
 - **THEN** the result is InvalidValuedCondition
 - **AND** no modifier is returned
 - **AND** creation does not panic
+
+## MODIFIED Requirements
 
 ### Requirement: A property test checks every ordering
 

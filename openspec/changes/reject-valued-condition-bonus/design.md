@@ -37,7 +37,7 @@ Alternative considered: let the generator draw the bonus and expect `InvalidValu
 
 ### 3. Condition 10 keeps the old scenario's meaning
 
-Keep the test name `a_frightened_bonus_does_not_hide_a_frightened_penalty`. The spec scenario cannot be renamed: a modified requirement that drops a scenario the main spec still has fails strict validation. Change the inputs to condition 10, which has no value: source 7, attack roll, sequence 4, status bonus +2 at rank 3, status penalty -1 at rank 1. Both apply, and the total is +1 in either order. `a_frightened_bonus_keeps_its_declared_value` no longer expects a successful +2. That input is the rejection.
+The requirement is removed and added as "Valued conditions are validated at construction". The scenario is renamed to "A condition bonus does not hide that condition's penalty". Rename `a_frightened_bonus_does_not_hide_a_frightened_penalty` to `a_condition_bonus_does_not_hide_that_conditions_penalty`. Inputs are condition 10, which has no value: source 7, attack roll, sequence 4, status bonus +2 at rank 3, status penalty -1 at rank 1. Both apply, and the total is +1 in either order. `a_frightened_bonus_keeps_its_declared_value` no longer expects a successful +2. That input is the rejection.
 
 ### 4. Archive after harden-modifier-validation
 
