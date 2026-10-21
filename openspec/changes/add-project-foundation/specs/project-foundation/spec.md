@@ -54,7 +54,7 @@ The repository SHALL run `.github/workflows/ci.yml` on push and pull_request eve
 
 ### Requirement: CI checks and Cargo cache
 
-The CI workflow SHALL run `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo build --workspace`, and `cargo test --workspace`, and SHALL cache Cargo.
+The CI workflow SHALL run `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`, and SHALL cache Cargo.
 
 #### Scenario: Required cargo steps
 
