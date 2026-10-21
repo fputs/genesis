@@ -3182,6 +3182,7 @@ mod tests {
         assert!(sets.iter().any(|set| both_levels_absent(set)));
         let mut reserved = 0usize;
         let mut frightened_ranks = [0usize; 3];
+        let mut sickened_ranks = [0usize; 3];
         let mut built = 0usize;
         for set in &sets {
             assert!(set.len() <= 4);
@@ -3203,6 +3204,12 @@ mod tests {
                     assert!(rank <= 2);
                     frightened_ranks[rank as usize] += 1;
                 }
+                if modifier.condition_id() == Some(ConditionId::SICKENED) {
+                    assert_eq!(modifier.penalty_type(), Some(PenaltyType::Status));
+                    let rank = modifier.rank().expect("sickened rank");
+                    assert!(rank <= 2);
+                    sickened_ranks[rank as usize] += 1;
+                }
             }
             let mut modifiers = set.clone();
             let first = summed(&modifiers);
@@ -3221,9 +3228,10 @@ mod tests {
         }
         assert!(reserved >= 1);
         assert!(frightened_ranks.iter().all(|count| *count >= 1));
+        assert!(sickened_ranks.iter().all(|count| *count >= 1));
         let set_count = sets.len();
         println!(
-            "property-test seed=0x0D1A_7E5B sets={set_count} modifiers={built} reserved={reserved} frightened_ranks={frightened_ranks:?}"
+            "property-test seed=0x0D1A_7E5B sets={set_count} modifiers={built} reserved={reserved} frightened_ranks={frightened_ranks:?} sickened_ranks={sickened_ranks:?}"
         );
         assert_eq!(dice.remaining(), 1);
     }
@@ -3300,11 +3308,33 @@ mod tests {
             _ => Some(1 + rng.below(4) as u32),
         };
         let magnitude = 1 + rng.below(5) as i32;
-        match rng.below(4) {
+        match rng.below(5) {
             0 => frightened_status(rng, magnitude, source, sequence, level, statistic),
-            1 => conditioned_other(rng, magnitude, source, sequence, level, statistic),
+            1 => sickened_status_penalty(rng, magnitude, source, sequence, level, statistic),
+            2 => conditioned_other(rng, magnitude, source, sequence, level, statistic),
             _ => unconditioned(rng, magnitude, source, sequence, level, statistic),
         }
+    }
+
+    fn sickened_status_penalty(
+        rng: &mut Lcg,
+        magnitude: i32,
+        source: ModifierSource,
+        sequence: u32,
+        level: Option<u32>,
+        statistic: Statistic,
+    ) -> Modifier {
+        let base = Modifier::penalty_from(
+            PenaltyType::Status,
+            -magnitude,
+            source,
+            sequence,
+            level,
+            statistic,
+        )
+        .expect("penalty");
+        let rank = Some(rng.below(3) as u32);
+        built_ok(base.with_condition(ConditionId::SICKENED, rank))
     }
 
     fn random_source(rng: &mut Lcg) -> ModifierSource {
