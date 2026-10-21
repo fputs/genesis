@@ -3109,7 +3109,16 @@ mod tests {
         let map = second_non_agile_map();
         assert_eq!(map, -5);
         let parts = attack_check_parts(map, 0, 0);
+        assert_eq!(parts.raw_extra, 0);
         let stacked = summed(&parts.modifiers);
+        let untyped: Vec<_> = stacked
+            .applied()
+            .iter()
+            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Untyped))
+            .collect();
+        assert_eq!(untyped.len(), 1);
+        assert_eq!(untyped[0].value(), -5);
+        assert_eq!(untyped[0].source(), None);
         assert_eq!(stacked.get(Statistic::Attack), -5);
         assert_ne!(stacked.get(Statistic::Attack), -10);
         assert_eq!(dice.remaining(), 1);
@@ -3129,6 +3138,13 @@ mod tests {
             Statistic::Attack,
         ));
         let stacked = summed(&modifiers);
+        let circumstance: Vec<_> = stacked
+            .applied()
+            .iter()
+            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Circumstance))
+            .collect();
+        assert_eq!(circumstance.len(), 1);
+        assert_eq!(circumstance[0].value(), -3);
         assert_eq!(stacked.get(Statistic::Attack), -3);
         assert_ne!(stacked.get(Statistic::Attack), -5);
         assert_eq!(dice.remaining(), 1);
@@ -3145,7 +3161,14 @@ mod tests {
     #[test]
     fn a_caller_source_1_does_not_collapse_an_internal_term() {
         let dice = script();
-        let mut modifiers = attack_check_parts(-5, -2, -2).modifiers;
+        let parts = attack_check_parts(-5, -2, -2);
+        assert!(
+            parts
+                .modifiers
+                .iter()
+                .all(|modifier| modifier.source() != Some(SourceId(1)))
+        );
+        let mut modifiers = parts.modifiers;
         modifiers.push(penalty(
             PenaltyType::Untyped,
             -3,
@@ -3155,6 +3178,30 @@ mod tests {
             Statistic::Attack,
         ));
         let stacked = summed(&modifiers);
+        assert_eq!(stacked.applied().len(), 4);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped)
+                && modifier.value() == -3
+                && modifier.source() == Some(SourceId(1))
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped)
+                && modifier.value() == -5
+                && modifier.source().is_none()
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped)
+                && modifier.value() == -2
+                && modifier.source().is_none()
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Circumstance)
+                && modifier.value() == -2
+                && modifier.source().is_none()
+        }));
+        assert!(stacked.applied().iter().all(|modifier| {
+            modifier.source() != Some(SourceId(1)) || modifier.value() == -3
+        }));
         assert_eq!(stacked.get(Statistic::Attack), -12);
         assert_eq!(dice.remaining(), 1);
     }
