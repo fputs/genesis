@@ -19,6 +19,7 @@ cargo test --workspace
 npx @fission-ai/openspec@1.14.3 validate --all --strict
 ```
 All must pass. CI runs the same checks. (Why: "it should work" isn't evidence.)
+An implementation pull request adds a changelog entry under ## [Unreleased] before the work is done. Spec-only, docs-only, and archive-only pull requests do not.
 
 ## 3. Formatting and linting
 - Default `rustfmt` settings. Don't hand-format, don't add a `rustfmt.toml` without a spec.
@@ -71,4 +72,4 @@ All must pass. CI runs the same checks. (Why: "it should work" isn't evidence.)
 ## 10. Comments and docs
 - Code should explain itself; comment only *why*, never *what*.
 - Record a tabletop substitute in the spec as: rule, why not, substitute, intent.
-- Update `CHANGELOG.md` only through the process in `docs/producer/process.md`.
+- An implementation pull request writes its CHANGELOG.md entry under ## [Unreleased] before the work is done. There is no separate changelog pull request after merge.

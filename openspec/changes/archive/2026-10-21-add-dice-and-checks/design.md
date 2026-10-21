@@ -136,6 +136,8 @@ pub fn attack_check_total(
 
 `flat_check` does not add a modifier. DC <= 1 returns `FlatRoll { natural: None, degree: Success }` and does not roll. DC >= 21 returns `degree: Failure` the same way. Otherwise it rolls one d20 and uses `degree_of_success` with modifier 0. `flat_checks_for_same_thing` uses the highest DC in a non-empty `dcs` and calls `flat_check` once. It finds that maximum without `unwrap` or `panic`. Callers with two different things call `flat_check` twice.
 
+Flat checks return all four degrees; ruling from Designer, AoN Rules ID 2278 and 2287.
+
 `multiple_attack_penalty` returns 0 when `on_own_turn` is false. It does not increment `prior_attack_trait_checks_this_turn`; the caller does that only for an attack-trait check on the creature's own turn. On that turn the penalty is 0, then -5, then -10, or 0, then -4, then -8 when `current_weapon_agile` is true. The agile flag is the weapon of this check.
 
 `attack_check_total` returns `natural + attack_bonus + map + circumstance_penalty + other_untyped_penalty`. Penalties are negative. It does not take the minimum of `map` and `circumstance_penalty`. Those two `i32` slots are a stand-in until `add-modifiers` supplies buckets. This change does not implement "worst penalty of a type."
