@@ -489,13 +489,13 @@ pub enum HpError {
     Overflow,
 }
 
-/// Damage after modifiers. Penalties that bring the total to 0 or below deal 1, before a critical hit doubles it.
+/// Damage after modifiers. The result is never negative.
 ///
-/// The floor applies only when the applied penalty total is negative and the sum is 0 or below.
-/// A non-positive sum with no penalty stays that sum. DEV-14: RAW (Rules 2302 and Rules 2307)
-/// does not state whether the floor is before or after doubling. This applies it first, so the
-/// smallest critical hit that the floor produced deals 2. Resistance is not an argument; its
-/// floor of 0 stays out of scope.
+/// The floor of 1 applies only when the total without penalties is at least 1 and the total
+/// with penalties is 0 or below (Rules 2302). That 1 is chosen before critical doubling, so
+/// the smallest critical hit the floor produced deals 2 (DEV-14; Rules 2307). Any other
+/// non-positive total is clamped to 0 before doubling, so a critical hit of `i32::MIN` is 0
+/// and not an overflow. Resistance is not an argument; its floor of 0 stays out of scope.
 ///
 /// Player Core, "Damage Rolls" and "Doubling and Halving".
 pub fn damage_dealt(
@@ -505,10 +505,18 @@ pub fn damage_dealt(
 ) -> Result<i32, ModifierError> {
     let folded = total(modifiers)?;
     let penalties = applied_penalty_total(folded.applied())?;
-    let sum = rolled_plus_baked
-        .checked_add(folded.get())
+    // Both terms are `i32`, so their sum fits in `i64`.
+    let with_penalties = i64::from(rolled_plus_baked) + i64::from(folded.get());
+    let without_penalties = with_penalties
+        .checked_sub(penalties)
         .ok_or(ModifierError::Overflow)?;
-    let dealt = if penalties < 0 && sum <= 0 { 1 } else { sum };
+    let dealt = if without_penalties >= 1 && with_penalties <= 0 {
+        1
+    } else if with_penalties <= 0 {
+        0
+    } else {
+        i32::try_from(with_penalties).map_err(|_| ModifierError::Overflow)?
+    };
     if critical {
         dealt.checked_mul(2).ok_or(ModifierError::Overflow)
     } else {
@@ -534,7 +542,8 @@ fn applied_penalty_total(applied: &[Modifier]) -> Result<i64, ModifierError> {
 
 /// Rolls `faces` once, folds `bonus` and `modifiers`, and subtracts that from current Hit Points, floored at 0.
 ///
-/// [`damage_dealt`] applies the floor of 1 before critical doubling. An overflowing total returns
+/// [`damage_dealt`] clamps a non-positive total to 0, and applies the floor of 1 before critical
+/// doubling when penalties reduce a total of at least 1. An overflowing total returns
 /// [`HpError::Overflow`] and leaves the state unchanged.
 ///
 /// At 0 Hit Points, `uses_dying_rules` false marks the state dead. True records that dying applies
@@ -1640,14 +1649,14 @@ mod tests {
     /// Player Core, "Damage Rolls".
     ///
     /// A baked negative total is not a penalty modifier, so the floor of 1 does not apply.
-    /// Applying it does not raise current Hit Points.
+    /// The total is clamped to 0 before doubling, and applying it does not raise Hit Points.
     #[test]
     fn a_negative_total_does_not_raise_hit_points() {
         let creature = derive(&build(fighter_with_hp(9, None)));
         assert_eq!(creature.hit_points, 9);
         let baked = 1i32.checked_add(-5).expect("1 + -5 fits");
         assert!(baked < 0);
-        assert_eq!(damage_dealt(baked, &[], false).expect("damage"), baked);
+        assert_eq!(damage_dealt(baked, &[], false).expect("damage"), 0);
         let mut state = new_combatant_state(CombatantId(1), &creature);
         let mut dice = ScriptedDice::new([1]);
         apply_dice_damage(
@@ -1671,12 +1680,12 @@ mod tests {
     /// Player Core, "Damage Rolls".
     ///
     /// `1 + i32::MIN` is negative and is not a penalty modifier, so the floor of 1 does not
-    /// apply and current Hit Points stay where they are.
+    /// apply. The total is clamped to 0, and current Hit Points stay where they are.
     #[test]
     fn healing_past_i32_max_leaves_hit_points_unchanged() {
         let total = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
         assert!(total < 0);
-        assert_eq!(damage_dealt(total, &[], false).expect("damage"), total);
+        assert_eq!(damage_dealt(total, &[], false).expect("damage"), 0);
 
         let creature = derive(&build(fighter_with_hp(1, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
@@ -1829,7 +1838,7 @@ mod tests {
 
     /// Rules 2302. A baked 1d4-5 with no penalty modifier is not the penalty floor.
     ///
-    /// A scripted 1 and a bonus of -5 deal -4, not 1, and current Hit Points stay 9.
+    /// A scripted 1 and a bonus of -5 are clamped to 0, not raised to 1, and current Hit Points stay 9.
     #[test]
     fn a_baked_1d4_minus_5_without_a_penalty_is_not_floored() {
         let creature = derive(&build(fighter_with_hp(9, None)));
@@ -1845,7 +1854,7 @@ mod tests {
             false,
         )
         .expect("the sum fits");
-        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), -4);
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), 0);
         assert_eq!(state.hit_points, 9);
         assert_eq!(state.vital, Vital::Alive);
         assert_eq!(dice.remaining(), 0);
@@ -1853,13 +1862,17 @@ mod tests {
 
     /// Player Core, "Damage Rolls".
     ///
-    /// `1 + i32::MIN` fits and is not a penalty, so it is not floored to 1. Doubling that
-    /// sum does not fit, which is [`ModifierError::Overflow`], and Hit Points stay unchanged.
+    /// `1 + i32::MIN` fits and is not a penalty, so it is not floored to 1. The pre-crit
+    /// total is clamped to 0, so doubling it is 0 rather than an overflow, and Hit Points
+    /// stay unchanged.
     #[test]
     fn an_extreme_negative_bonus_does_not_overflow_silently() {
         let sum = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
-        assert_eq!(damage_dealt(sum, &[], false).expect("damage"), sum);
-        assert_eq!(damage_dealt(sum, &[], true), Err(ModifierError::Overflow));
+        assert_eq!(damage_dealt(sum, &[], false).expect("damage"), 0);
+        assert_eq!(
+            damage_dealt(sum, &[], true).expect("clamped before doubling"),
+            0
+        );
 
         let creature = derive(&build(fighter_with_hp(9, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
@@ -1872,21 +1885,95 @@ mod tests {
 
         let mut critical = new_combatant_state(CombatantId(1), &creature);
         let mut critical_dice = ScriptedDice::new([1]);
-        assert_eq!(
-            apply_dice_damage(
-                &mut critical,
-                &creature,
-                &mut critical_dice,
-                d8(),
-                i32::MIN,
-                &[],
-                true,
-            ),
-            Err(HpError::Overflow)
-        );
+        apply_dice_damage(
+            &mut critical,
+            &creature,
+            &mut critical_dice,
+            d8(),
+            i32::MIN,
+            &[],
+            true,
+        )
+        .expect("clamped before doubling");
         assert_eq!(critical.hit_points, 9);
         assert_eq!(critical.vital, Vital::Alive);
         assert_eq!(critical_dice.remaining(), 0);
+    }
+
+    /// Rules 2302. A non-positive total is clamped to 0 before critical doubling.
+    #[test]
+    fn a_negative_damage_total_is_clamped_to_0_before_doubling() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(-4, &[], true).expect("damage"), 0);
+        assert_eq!(damage_dealt(i32::MIN, &[], false).expect("damage"), 0);
+        assert_eq!(
+            damage_dealt(i32::MIN, &[], true).expect("not an overflow"),
+            0
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. A penalty on a total that was already below 1 does not raise it to 1.
+    #[test]
+    fn a_penalty_on_a_non_positive_total_deals_0() {
+        let dice = ScriptedDice::new([8]);
+        let penalty = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Untyped,
+            -1,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+        )
+        .expect("penalty");
+        assert_eq!(damage_dealt(-4, &[penalty], false).expect("damage"), 0);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. Rules 2307. DEV-14.
+    ///
+    /// The bonus brings 0 to 2 and the penalty brings that to 0, so the floor is 1.
+    /// A critical hit doubles that 1 to 2.
+    #[test]
+    fn a_bonus_and_penalty_that_reach_zero_deal_1() {
+        let dice = ScriptedDice::new([8]);
+        let bonus = crate::modifiers::Modifier::bonus(
+            crate::modifiers::BonusType::Circumstance,
+            2,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+        )
+        .expect("bonus");
+        let penalty = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Circumstance,
+            -2,
+            crate::modifiers::SourceId(2),
+            2,
+            None,
+        )
+        .expect("penalty");
+        assert_eq!(
+            damage_dealt(0, &[bonus, penalty], false).expect("damage"),
+            1
+        );
+        assert_eq!(
+            damage_dealt(0, &[penalty, bonus], false).expect("damage"),
+            1
+        );
+        assert_eq!(damage_dealt(0, &[bonus, penalty], true).expect("damage"), 2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. With no penalty, a positive total stays itself and a non-positive total is not raised to 1.
+    #[test]
+    fn no_penalty_does_not_apply_the_floor_of_1() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(damage_dealt(4, &[], false).expect("damage"), 4);
+        assert_eq!(damage_dealt(0, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), 0);
+        assert_eq!(damage_dealt(4, &[], true).expect("damage"), 8);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Damage Rolls".
