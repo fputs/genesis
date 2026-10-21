@@ -1,32 +1,8 @@
 schema: spec-driven
 
-# Project context (optional)
-# Add only constraints that should guide OpenSpec artifacts and workflows.
-# Include constraints an agent cannot infer by reading the code.
-# Keep general project documentation and discoverable codebase facts out.
-# Example:
-#   context: |
-#     Designs and tasks must cover Windows, macOS, and Linux
-#     Write all artifacts in Spanish
+context: |
+  Genesis v2. Phase 1 ships a Pathfinder 2e Remaster rules crate only; Phase 2 later ships a basic map editor. v1 lives on branch v1-reference as a parts bin; port files only when a change names them. Rust stable workspace. crates/rules has no Bevy, serde, or file I/O; callers inject Dice; ids are CombatantId. No game/editor crates until their phase. Tabletop procedure, or a recorded substitute (rule, why not, substitute, intent). One change = one procedure family. Tests use scripted dice and cite the Player Core section. Out of Phase 1: classes, spells, feats, attributes/proficiency/skills/saves, editor UI, AI.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always state what is out of scope
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
-
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+rules:
+  specs:
+    - Specs use Given/When/Then scenarios.
