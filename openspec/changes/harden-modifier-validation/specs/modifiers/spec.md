@@ -121,11 +121,13 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 
 ### Requirement: A property test checks every ordering
 
-(a) Group by condition, keyed on (condition, statistic, bonus or penalty, type). (b) Collapse same-source duplicates (R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id. (c) Per statistic keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack). Stacking ties SHALL go to value first, then lowest sequence, then lower condition id (an entry with no condition id loses), then lower source id.
+Frightened and sickened penalties use status -rank as their value, and rank 0 entries are dropped. A frightened status bonus keeps its declared value. (a) Group by condition, keyed on (condition, statistic, bonus or penalty, type). Grouped value first, then the condition-group ladder. (b) R-01 (source, statistic, type, bonus or penalty), same condition id. (c) Best bonus, worst penalty per type. Untyped stack. Ties SHALL: value, lowest sequence, lower condition id (none loses), lower source id.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects; context only)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
 
 #### Scenario: Permuted sets match the stacking oracle
 
@@ -134,7 +136,7 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 - **THEN** every generated modifier builds without error
 - **AND** the test adds no crate and does not read a clock
 - **AND** every ordering of a set keeps the same applied modifiers and the same total
-- **AND** each statistic total equals the independent oracle's three stages: (a) group by condition, keyed on (condition, statistic, bonus or penalty, type); (b) collapse same-source duplicates (rule R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id; (c) for each statistic, keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack)
+- **AND** each statistic total equals the independent oracle's three stages: Frightened and sickened penalties use status -rank as their value, and rank 0 entries are dropped. A frightened status bonus keeps its declared value. (a) group by condition, keyed on (condition, statistic, bonus or penalty, type). Stage (a) picks the grouped value first, then applies the condition-group ladder (Player Core pg. 442 and pg. 444); (b) collapse same-source duplicates (rule R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id; (c) for each statistic, keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack)
 - **AND** ties at the stacking step go to value first, then lowest sequence, then lower condition id (an entry with no condition id loses), then lower source id
 - **AND** that oracle does not call derived_rank, same_duplicate_key, source_ord, or the comparison chains
 - **AND** the second run generates the same sets

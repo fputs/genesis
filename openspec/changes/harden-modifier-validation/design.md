@@ -33,7 +33,9 @@ Alternative considered: reject only while totaling. Rejected. R-03 says construc
 
 The test builds its own three stages. It does not call `derived_rank`, `same_duplicate_key`, `source_ord`, `condition_prefers`, `key_prefers`, `bonus_prefers`, `penalty_prefers`, `stack_tie`, or `group_kind`.
 
-(a) Group by condition, keyed on (condition, statistic, bonus or penalty, type).
+Frightened and sickened penalties use status -rank as their value, and rank 0 entries are dropped. A frightened status bonus keeps its declared value. (Player Core p.442 and p.444.)
+
+(a) Group by condition, keyed on (condition, statistic, bonus or penalty, type). Stage (a) picks the grouped value first, then applies the condition-group ladder.
 (b) Collapse same-source duplicates (rule R-01), keyed on (source, statistic, type, bonus or penalty), among entries with the same condition id. Stage (b) uses the duplicate-key comparison already required by "Duplicate key comparison is a total order". It does not use the stacking-step order.
 (c) For each statistic, keep the best bonus per type, the worst penalty per type, and every untyped penalty (untyped penalties all stack).
 
