@@ -2,9 +2,86 @@
 
 ## MODIFIED Requirements
 
+### Requirement: Same-type stacking
+
+On one statistic, for one type, only the highest bonus and only the worst penalty SHALL apply. Another statistic SHALL NOT share that choice. When different sources tie, the lowest sequence number SHALL be the one reported as applied. A bonus and a penalty of the same type SHALL both apply. Every untyped penalty on that statistic SHALL be added. A sum that overflows SHALL return a typed error and SHALL NOT saturate.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2290 (Player Core pg. 403, Range Penalty)
+
+#### Scenario: Two circumstance bonuses keep the highest
+
+- **GIVEN** circumstance bonuses of +2 and +1 from different sources
+- **WHEN** they are totaled
+- **THEN** the circumstance bonus is +2
+- **AND** the total is +2
+
+#### Scenario: +2 circumstance with -2 circumstance equals 0
+
+- **GIVEN** a circumstance bonus of +2 and a circumstance penalty of -2
+- **WHEN** they are totaled
+- **THEN** both apply
+- **AND** the total is 0
+
+#### Scenario: Status +1 and status -2 total -1
+
+- **GIVEN** a status bonus of +1 and a status penalty of -2 from different sources
+- **WHEN** they are totaled
+- **THEN** both apply
+- **AND** the total is -1
+
+#### Scenario: Frightened 2 and sickened 1 equal -2
+
+- **GIVEN** frightened 2 as a status penalty of -2 and sickened 1 as a status penalty of -1, from different conditions
+- **WHEN** they are totaled
+- **THEN** the status penalty is -2
+- **AND** the total is -2
+
+#### Scenario: Untyped penalties stack
+
+- **GIVEN** untyped penalties of -2 and -3 from different sources
+- **WHEN** they are totaled
+- **THEN** the total is -5
+
+#### Scenario: MAP -5 plus range -2 equals -7
+
+- **GIVEN** the existing multiple attack penalty of -5 for a second non-agile attack on the creature's own turn, and a range penalty of -2 untyped from another source
+- **WHEN** they are totaled on the attack roll
+- **THEN** the untyped total is -7
+- **AND** that -5 is the value the existing multiple attack penalty returns
+
+#### Scenario: An overflowing modifier sum returns an error
+
+- **GIVEN** untyped penalties of -2147483648 and -1 from different sources
+- **WHEN** they are totaled
+- **THEN** the result is a typed overflow error and not a total
+- **AND** the result is not a saturated value
+
+#### Scenario: The same modifiers total twice
+
+- **GIVEN** one circumstance bonus of +2 and one untyped penalty of -3
+- **WHEN** the total is taken twice
+- **THEN** the two totals are equal
+
+#### Scenario: A tied highest bonus reports the lowest sequence
+
+- **GIVEN** circumstance bonuses of +2 from two sources, with sequence numbers 4 and 1
+- **WHEN** they are totaled
+- **THEN** the applied circumstance bonus has sequence number 1
+- **AND** the total is +2
+
+#### Scenario: A tied worst penalty reports the lowest sequence
+
+- **GIVEN** circumstance penalties of -2 from two sources, with sequence numbers 7 and 3
+- **WHEN** they are totaled
+- **THEN** the applied circumstance penalty has sequence number 3
+- **AND** the total is -2
+
 ### Requirement: One effect and the highest condition rank
 
-Each modifier SHALL carry a source id, a sequence number, and its statistic. Modifiers SHALL become one before any sum only when they share the key (source id, statistic, type, bonus or penalty). Within a key, the higher level wins, then the higher rank, otherwise the newer (greater) sequence. Value SHALL NOT override that. After the bonus and penalty split, a repeated condition SHALL keep only its highest rank, otherwise the newer sequence. A condition with no rank SHALL apply only once.
+Each modifier SHALL carry a source id, a sequence number, and its statistic. Only the key (source id, statistic, type, bonus or penalty) SHALL become one before the sum. Within a key, the higher level wins, then the higher rank, otherwise the newer (greater) sequence. Value SHALL NOT override that. After the bonus and penalty split, a repeated condition on one statistic SHALL keep its highest rank, otherwise the newer sequence. A condition with no rank SHALL apply once per statistic.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -121,7 +198,7 @@ The same modifiers SHALL produce the same total and the same applied modifiers i
 
 ### Requirement: Frightened grouping follows the split
 
-Frightened and sickened grouping SHALL run after the bonus and penalty split and before duplicate-key collapse. Those penalties SHALL contribute one status penalty equal to the negation of the kept rank. A bonus tagged with either condition SHALL keep its declared type and value and SHALL NOT hide a penalty of that condition.
+Frightened and sickened grouping SHALL key on (condition, statistic), not the condition alone, after the bonus and penalty split and before duplicate-key collapse. Those penalties SHALL contribute one status penalty equal to the negation of the kept rank. A bonus tagged with either condition SHALL keep its declared type and value and SHALL NOT hide a penalty of that condition.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
@@ -134,3 +211,11 @@ Frightened and sickened grouping SHALL run after the bonus and penalty split and
 - **THEN** the status bonus of +2 is applied
 - **AND** the status penalty of -1 is applied
 - **AND** both totals are +1
+
+#### Scenario: Frightened 2 on attack and Armor Class both survive
+
+- **GIVEN** frightened 2 on the attack roll and frightened 2 on Armor Class, same source, in one list
+- **WHEN** they are resolved together in either order
+- **THEN** both modifiers survive
+- **AND** the attack total is -2
+- **AND** the Armor Class total is -2
