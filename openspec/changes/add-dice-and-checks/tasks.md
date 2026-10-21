@@ -2,8 +2,9 @@
 
 ## 1. Dice
 
-- [ ] 1.1 Port `Dice`, `SeededDice`, and `ScriptedDice` from `v1-reference` `crates/rules/src/dice.rs` into `crates/rules/src/dice.rs`, including the xorshift and the seed-0 replacement. v1 has no dice unit test to port. Add `the_same_seed_repeats` and verify `cargo test -p rules the_same_seed_repeats` passes with two sources of seed 42 rolling d20, d8, and d6. Cite Player Core "Checks". The generator state is a field advanced through `&mut self`, not a `Cell`, `RefCell`, or `Mutex`
-- [ ] 1.2 Add `scripted_dice_panic_when_exhausted`, `scripted_dice_panic_out_of_range` (values 0 and 21 on a d20, and 6 on a d4), and `scripted_bounds_are_legal` (a scripted 1 then 20 on a d20 returns those faces). Verify the two panic tests with `#[should_panic]`. Cite Player Core "Checks"
+- [ ] 1.1 Port `Dice`, `SeededDice`, and `ScriptedDice` from `v1-reference` `crates/rules/src/dice.rs` into `crates/rules/src/dice.rs`, including the xorshift and the seed-0 replacement. Drop v1's `assert!(faces >= 1)` on `SeededDice`. `SeededDice::roll` and every production path never panic; a request for 0 faces returns 1 and does not divide by zero. v1 has no dice unit test to port. Add `the_same_seed_repeats` and verify `cargo test -p rules the_same_seed_repeats` passes with two sources of seed 42 rolling d20, d8, and d6. Cite Player Core "Checks". The generator state is a field advanced through `&mut self`, not a `Cell`, `RefCell`, or `Mutex`
+- [ ] 1.2 Add `scripted_dice_panic_when_exhausted`, `scripted_dice_panic_out_of_range` (values 0 and 21 on a d20, and 6 on a d4), and `scripted_bounds_are_legal` (a scripted 1 then 20 on a d20 returns those faces). Verify the two panic tests with `#[should_panic]`. Document those panics in a `# Panics` section on `ScriptedDice`. Cite Player Core "Checks"
+- [ ] 1.3 Add a `test-support` feature to `crates/rules/Cargo.toml` with an empty dependency list. Compile the whole `ScriptedDice` type and its re-export only under `#[cfg(any(test, feature = "test-support"))]`. Do not put a `#[cfg(test)]` branch inside `roll`. Verify `cargo test -p rules` passes, `cargo check -p rules --features test-support` passes, and `rg "struct ScriptedDice" crates/rules/src` finds the type only under that cfg
 
 ## 2. Degrees, DCs, and flat checks
 
@@ -20,7 +21,7 @@
 
 ## 4. Crate surface
 
-- [ ] 4.1 Re-export `Dice`, `SeededDice`, `ScriptedDice`, `DegreeOfSuccess`, `CheckRoll`, `FlatRoll`, `MapInput`, and the public functions from `crates/rules/src/lib.rs`. Add `#![forbid(unsafe_code)]` to that file. Give every new public item a `///` comment, citing the Player Core section when the item states a rule. Verify `cargo test -p rules` passes and the ported tests still cite the Player Core section in a comment
+- [ ] 4.1 Re-export `Dice`, `SeededDice`, `DegreeOfSuccess`, `CheckRoll`, `FlatRoll`, `MapInput`, and the public functions from `crates/rules/src/lib.rs`. Re-export `ScriptedDice` under the same `#[cfg(any(test, feature = "test-support"))]` gate as the type. Add `#![forbid(unsafe_code)]` to that file. Give every new public item a `///` comment, citing the Player Core section when the item states a rule. Verify `cargo test -p rules` passes and the ported tests still cite the Player Core section in a comment
 
 ## 5. One test per scenario
 
@@ -72,7 +73,7 @@
 
 ## 6. Proof and archive
 
-- [ ] 6.1 Run the AGENTS.md proof commands and verify each exits 0. Add no crate dependency; `crates/rules/Cargo.toml` stays dependency-free.
+- [ ] 6.1 Run the AGENTS.md proof commands and verify each exits 0. Add no crate dependency. The only `Cargo.toml` change is the empty `test-support` feature.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`

@@ -32,7 +32,15 @@ Do not add `combatant`, `encounter`, or `grid` in this change. If `lib.rs` alrea
 
 ### Purity
 
-`crates/rules` gains no dependencies, and `Cargo.toml` stays otherwise unchanged. `dice.rs` and `check.rs` do not read a clock, a file, the network, or a global. They do not use `Cell`, `RefCell`, `Mutex`, or `unsafe`. `lib.rs` carries `#![forbid(unsafe_code)]`. `SeededDice` and `ScriptedDice` keep their state in fields and advance it only through `&mut self` on `Dice::roll`. Callers pass the `Dice`.
+`crates/rules` gains no dependencies. The only `Cargo.toml` change is an empty `test-support` feature. `dice.rs` and `check.rs` do not read a clock, a file, the network, or a global. They do not use `Cell`, `RefCell`, `Mutex`, or `unsafe`. `lib.rs` carries `#![forbid(unsafe_code)]`. `SeededDice` and `ScriptedDice` keep their state in fields and advance it only through `&mut self` on `Dice::roll`. Callers pass the `Dice`.
+
+### ScriptedDice is test support
+
+`ScriptedDice` is a test double, not production library code. The whole type and its re-export compile only under `#[cfg(any(test, feature = "test-support"))]`. The `test-support` feature has no dependencies, so a later crate's tests can enable it. There is no `#[cfg(test)]` branch inside roll logic.
+
+Under that gate, panicking when the script is exhausted or a value is outside 1 through the requested faces (including `faces < 1`) is allowed. The type docs include a `# Panics` section, so a misscripted test fails loudly. That is the AGENTS.md section 7 exemption for code outside production.
+
+`SeededDice` and every production path do not panic. Porting drops v1's `assert!(faces >= 1)` on `SeededDice`. Its `roll` does not use `assert`, `panic`, `unwrap`, or `expect`. A request for 0 faces returns 1 and does not divide by zero.
 
 ### Public types and signatures
 
@@ -50,11 +58,15 @@ impl SeededDice {
 }
 impl Dice for SeededDice {}
 
+/// Test double. Docs include a `# Panics` section for exhaustion and an out-of-range value.
+#[cfg(any(test, feature = "test-support"))]
 pub struct ScriptedDice;
+#[cfg(any(test, feature = "test-support"))]
 impl ScriptedDice {
     pub fn new(rolls: impl IntoIterator<Item = u8>) -> Self;
     pub fn remaining(&self) -> usize;
 }
+#[cfg(any(test, feature = "test-support"))]
 impl Dice for ScriptedDice {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,7 +144,7 @@ pub fn attack_check_total(
 
 ### What is ported from v1-reference, and what changes
 
-Port `crates/rules/src/dice.rs` as the behavior of `Dice`, `SeededDice`, and `ScriptedDice`. Keep the xorshift, the replacement of seed 0 with `0xA5A5_5A5A_1234_5678`, and the scripted panic when the queue is empty or the value is not on the die (including `faces < 1`).
+Port `crates/rules/src/dice.rs` as the behavior of `Dice`, `SeededDice`, and `ScriptedDice`. Keep the xorshift and the replacement of seed 0 with `0xA5A5_5A5A_1234_5678`. Keep the scripted panic when the queue is empty or the value is not on the die (including `faces < 1`), and compile that type only under the test-support gate above. `SeededDice` does not keep v1's face-count assert.
 
 Port v1's `Degree` enum as `DegreeOfSuccess`, and port `degree_of_success` and the private improve/worsen steps from `crates/rules/src/check.rs`. Make `improve` and `worsen` public methods. The numeric bands and the natural 20 / natural 1 order stay. The public name is `DegreeOfSuccess`.
 
