@@ -33,7 +33,7 @@ Alternative considered: break a cross-type group with a type order. Rejected. Di
 
 ### 2. Property test
 
-The test is in `modifiers.rs` and adds no crate. A test-local generator uses a fixed seed and does not read a clock or a global generator. It emits random sets, one exact duplicate, and one set with both levels absent, so the comparison falls through to the canonical key. Each set has at most four modifiers, and every permutation of such a set is totaled. Every ordering keeps the same applied modifiers and the same total. The oracle, computed independently of `total`, is the best bonus per type plus the worst penalty per type plus every untyped penalty, after condition grouping (Player Core p.400). Frightened and sickened use `-rank`, and the status rewrite happens before the group key. One `ScriptedDice` is built and left unused.
+The test is in `modifiers.rs` and adds no crate. A test-local generator uses a fixed seed and does not read a clock or a global generator. It emits random sets, one unconditioned untyped exact duplicate, and one set with both levels absent, so the comparison falls through to the canonical key. Each set has at most four modifiers, and every permutation of such a set is totaled. Every ordering keeps the same applied modifiers and the same total. The oracle, computed independently of `total`, is the best bonus per type plus the worst penalty per type plus every untyped penalty, after condition grouping and the R-01 duplicate-key collapse (one entry per source id, statistic, type, bonus or penalty, condition id). Frightened and sickened use `-rank`, and the status rewrite happens before the group key. One `ScriptedDice` is built and left unused.
 
 ## Risks / Trade-offs
 

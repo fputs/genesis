@@ -132,7 +132,7 @@ Stacking SHALL keep the highest bonus or worst penalty, then the lowest sequence
 
 ### Requirement: A property test checks every ordering
 
-A property test SHALL add no crate and SHALL NOT read a clock. It SHALL emit random sets, one exact duplicate, and one set with both levels absent so the canonical key decides. Every permutation of a set of at most four SHALL be totaled. Every ordering SHALL keep the same applied modifiers and the same total. Each statistic total SHALL equal the best bonus per type plus the worst penalty per type plus every untyped penalty, after condition grouping. The same seed SHALL yield the same sets.
+It SHALL add no crate and SHALL NOT read a clock. It SHALL emit random sets, one unconditioned untyped exact duplicate, and one set with both levels absent so the canonical key decides. Every permutation of at most four SHALL be totaled. Each statistic total SHALL equal the best bonus per type plus the worst penalty per type plus every untyped penalty, after condition grouping and the R-01 duplicate-key collapse (one entry per source id, statistic, type, bonus or penalty, condition id).
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -140,8 +140,8 @@ A property test SHALL add no crate and SHALL NOT read a clock. It SHALL emit ran
 
 #### Scenario: Permuted sets match the stacking oracle
 
-- **GIVEN** one fixed seed whose generated sets include one exact duplicate and one set with both levels absent, and each set has at most four modifiers
+- **GIVEN** one fixed seed whose generated sets include one unconditioned untyped exact duplicate and one set with both levels absent, and each set has at most four modifiers
 - **WHEN** every permutation of each set is totaled, and the same seed is used again
 - **THEN** every ordering of a set keeps the same applied modifiers and the same total
-- **AND** each statistic total equals the best bonus per type plus the worst penalty per type plus every untyped penalty, after condition grouping
+- **AND** each statistic total equals the best bonus per type plus the worst penalty per type plus every untyped penalty, after condition grouping and the R-01 duplicate-key collapse (one entry per source id, statistic, type, bonus or penalty, condition id)
 - **AND** the second run generates the same sets
