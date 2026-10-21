@@ -363,10 +363,10 @@ Within a duplicate key the kept modifier SHALL follow a total order: higher leve
 
 #### Scenario: The lower condition id wins an equal value
 
-- **GIVEN** source 9 on the attack roll, two circumstance bonuses of +2, both level 2, rank 1, and sequence 5, with condition ids 8 and 3
+- **GIVEN** source 9 on the attack roll, two circumstance bonuses of +2, both level 2, rank 1, and sequence 5, with condition ids 8 and 4
 - **WHEN** they are totaled with either modifier first
 - **THEN** one modifier is applied
-- **AND** its condition id is 3
+- **AND** its condition id is 4
 - **AND** the attack-roll total is +2 in either order
 
 #### Scenario: A three-way tie is the same in all six orders
