@@ -8,6 +8,7 @@
 
 - [x] 2.1 Append the coding-constitution sentence inside the `context: |` block of `openspec/config.yaml`, after the existing paragraph and at the same indentation, and verify that line is present
 - [x] 2.2 Add `tasks:` under `rules:` at the same level as `specs:`, with the single item that every implementation task list ends with the AGENTS.md proof commands and archiving the change, and verify no other line changed
+- [x] 2.3 Add a MODIFIED delta at `specs/project-foundation/spec.md` that copies the `Agent guide` requirement and says root `AGENTS.md` is the coding constitution, and verify `npx @fission-ai/openspec@1.14.3 validate add-coding-constitution --strict` passes
 
 ## 3. Proof and archive
 

@@ -11,6 +11,7 @@
 - Put the constitution in root `AGENTS.md`, verbatim, with the section 2 commands in a fenced code block.
 - Record two additions in `openspec/config.yaml`: the constitution sentence in `context`, and a `tasks` rule beside `specs`.
 - Specify that behavior as ADDED requirements on `coding-constitution`.
+- Modify the `project-foundation` agent-guide requirement in this change's delta so it names `AGENTS.md` as the coding constitution. The main spec is synced at archive.
 
 **Non-Goals:**
 
@@ -35,7 +36,7 @@ The context sentence is one indented line after the existing paragraph. `tasks:`
 
 ## Risks / Trade-offs
 
-- [The `project-foundation` spec still calls `AGENTS.md` a short pointer] → This change does not edit that spec. A later amendment can update it. Until then, root `AGENTS.md` is the constitution.
+- [The main `project-foundation` spec still calls `AGENTS.md` a short pointer until archive] → This change carries a MODIFIED delta. `openspec archive` syncs `openspec/specs/project-foundation/spec.md` after merge. Do not edit that main spec in this pull request.
 - [Archive is not in this pull request] → The last task stays open until Evan merges, then `openspec archive add-coding-constitution --yes` runs.
 
 ## Migration Plan
