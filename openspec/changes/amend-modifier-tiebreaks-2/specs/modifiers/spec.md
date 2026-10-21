@@ -2,9 +2,47 @@
 
 ## MODIFIED Requirements
 
+### Requirement: Condition groups ignore the source key
+
+The group key SHALL be (condition, statistic, bonus or penalty, type), not the source key, after frightened and sickened are rewritten to status. Different types SHALL stack. Unequal condition ids, including a present id against none, SHALL NOT share a source key. A group SHALL keep the worst penalty or the highest bonus. Frightened and sickened use the highest condition value (−value, Player Core p.442, Rules 2455). Otherwise the larger modifier wins, our ruling, not Rules 2455.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
+
+#### Scenario: A same condition keeps the worse penalty in both orders
+
+- **GIVEN** condition 10 on the attack roll, a circumstance penalty of -1 from source 1 at sequence 5 and rank 1, and a circumstance penalty of -4 from source 2 at sequence 5 and rank 1
+- **WHEN** they are totaled with either modifier first
+- **THEN** the circumstance penalty is -4 in both orders
+- **AND** the total is -4 in both orders
+
+#### Scenario: An older higher condition value beats a newer lower one
+
+- **GIVEN** frightened 3 at sequence 1 and frightened 1 at sequence 2 on the same statistic, the attack roll
+- **WHEN** they are totaled with either modifier first
+- **THEN** the status penalty is -3 in both orders
+- **AND** the total is -3 in both orders
+
+#### Scenario: Frightened 1, 3, and 2 give -3 in all six orders
+
+- **GIVEN** on the attack roll, frightened 1 from source 1 at sequence 1, frightened 3 from source 2 at sequence 2, and frightened 2 from source 3 at sequence 3
+- **WHEN** they are totaled in all 6 orders
+- **THEN** every result applies one status penalty of -3
+- **AND** that penalty has sequence 2
+- **AND** every total is -3
+
+#### Scenario: Removing frightened 2 leaves frightened 1
+
+- **GIVEN** frightened 2 from source 1 and frightened 1 from source 2, on the attack roll
+- **WHEN** the frightened 2 entry is removed and the remaining list is totaled
+- **THEN** the status penalty is -1
+- **AND** the total is -1
+- **AND** frightened 1 is applied
+
 ### Requirement: Condition-group ties break on rank, sequence, and source id
 
-After the worst penalty or the highest bonus, the order SHALL be the highest rank, then the newest sequence, then the lowest source id. Those SHALL be engineering tiebreaks with no rules effect. After a tied source id, the earlier type SHALL win: circumstance, item, status, untyped, an engineering tiebreak with no RAW basis. The higher level SHALL then win, and a level SHALL beat none. The canonical duplicate-key comparison SHALL decide. This order SHALL be a total order over distinct modifiers.
+After the worst penalty or the highest bonus, the order SHALL be the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect. The higher level SHALL then win, and a level SHALL beat none. The canonical duplicate-key comparison SHALL decide. This order SHALL be a total order over distinct modifiers.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values; context only, the value step is RAW)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
@@ -23,11 +61,11 @@ After the worst penalty or the highest bonus, the order SHALL be the highest ran
 
 - **GIVEN** condition 10 on the attack roll, a circumstance penalty of -2 and a status penalty of -2, both from source 1 at sequence 5 and rank 1, with no level, plus an unconditioned status penalty of -3 from source 2 at sequence 1
 - **WHEN** they are totaled in all 6 orders
-- **THEN** every attack-roll total is -5
-- **AND** every result applies the circumstance penalty of -2
-- **AND** every result applies the status penalty of -3
+- **THEN** the circumstance penalty of -2 applies alone in its type in every order
+- **AND** the status penalty of -3 beats the status penalty of -2 in every order
+- **AND** every result applies the circumstance penalty of -2 and the status penalty of -3
 - **AND** no result applies the status penalty of -2
-- **AND** the type tiebreak is recorded as rule, same-type stacking and redundant conditions name no order among circumstance, item, status, and untyped once the value, rank, sequence, and source id match; why not, they are silent when the types differ; substitute, the earlier type in that order wins; intent, every input order reports the same modifier and the same total
+- **AND** every attack-roll total is -5
 
 #### Scenario: A same-type tie keeps the higher level
 
@@ -38,14 +76,14 @@ After the worst penalty or the highest bonus, the order SHALL be the highest ran
 - **AND** the level 1 penalty is not applied
 - **AND** the total is -2 in both orders
 
-#### Scenario: A circumstance and item tie totals -3 in every order
+#### Scenario: A circumstance and item tie totals -5 in every order
 
 - **GIVEN** on the attack roll, a circumstance penalty of -2 and an item penalty of -2, both from source 1 at sequence 5, condition 10, and rank 1, with no level, plus a circumstance penalty of -3 from source 9 at sequence 1 with no condition
 - **WHEN** they are totaled in all 6 orders
-- **THEN** every attack-roll total is -3
-- **AND** every result applies one modifier, the circumstance penalty of -3 from source 9 at sequence 1
+- **THEN** every attack-roll total is -5
+- **AND** every result applies the item penalty of -2 from source 1 and condition 10
+- **AND** every result applies the circumstance penalty of -3 from source 9
 - **AND** no result applies the circumstance penalty of -2
-- **AND** no result applies the item penalty of -2
 
 #### Scenario: A frightened level tie keeps level 3
 

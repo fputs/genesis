@@ -8,9 +8,9 @@
 
 **Goals:**
 
-- After equal source ids, compare earlier type, then higher level, then the canonical duplicate-key comparison.
-- Make the condition-group comparison a total order over distinct modifiers.
-- Lock the repro at -5, the higher-level case, and a seeded property test.
+- Group on (condition, statistic, bonus or penalty, type) after the frightened and sickened rewrite to status.
+- After equal source ids, compare higher level, then the canonical duplicate-key comparison.
+- Make that comparison a total order over distinct modifiers.
 
 **Non-Goals:**
 
@@ -21,21 +21,15 @@
 
 ## Decisions
 
-### 1. Steps after an equal source id
+### 1. Group key, then the tie
 
-`condition_prefers` keeps its prefix: grouped value, then highest rank, a rank over none, then newest sequence, then lowest source id. A different source id still returns there.
+Rewrite frightened and sickened penalties to status before grouping. Rank 0 still contributes nothing. The group key is then (condition, statistic, bonus or penalty, type). Different types do not share a group, so they stack (Player Core p.400). There is no type tiebreak.
 
-When the source ids are equal, it continues:
+`condition_prefers` keeps grouped value, then highest rank, a rank over none, then newest sequence, then lowest source id. When the source ids are equal it continues with the higher level, a level over none, then `key_prefers`. Equal modifiers keep the incumbent.
 
-1. Earlier type, in the order circumstance, item, status, untyped. This is an engineering tiebreak with no RAW basis. Designer review is pending. An untyped bonus cannot be constructed, so untyped applies to penalties.
-2. Higher level. A level beats none.
-3. `key_prefers`, the canonical duplicate-key comparison. It runs after type, because it does not look at type. Equal modifiers keep the incumbent.
+Circumstance -2 and status -2 are different groups. Circumstance -2 applies alone. Status -3 beats status -2. Every order applies those two and totals -5. Item -2 and circumstance -3 are different types, so both apply, and circumstance -2 loses to circumstance -3. Every order totals -5. Same type at level 1 and level 4 keeps level 4. Two frightened status penalties at rank 2 keep level 3, and the rewrite sets the value to -2.
 
-The repro keeps circumstance -2 over status -2, then stacks the unconditioned status -3. Every order totals -5 and applies those two modifiers. Same type at level 1 and level 4 keeps level 4 and totals -2. Circumstance -2 and item -2 in one group keep the circumstance -2, and stacking then drops it for an unconditioned circumstance -3 from source 9. Every order applies that modifier and totals -3. Two frightened status -1 penalties at rank 2, same source and sequence, keep level 3. The rewrite sets the value to -2. Every order applies that level-3 modifier and totals -2. The applied modifier is part of the result, not only the total.
-
-Alternative considered: keep the incumbent when the source id ties. Rejected. The two orders total -5 and -3.
-
-Alternative considered: compare level before type. Rejected. The stated order is type, then level.
+Alternative considered: break a cross-type group with a type order. Rejected. Different types stack. The order dependence was the shared group, not a missing tiebreak.
 
 ### 2. Property test
 
@@ -43,6 +37,6 @@ The test is in `modifiers.rs` and adds no crate. A test-local generator uses a f
 
 ## Risks / Trade-offs
 
-- [The designer rejects the type order] → The requirement labels it an engineering tiebreak with no RAW basis, and this change does not write the rulings log. A different order is a spec amendment before implementation.
-- [A frightened type tie looks unchanged] → The winner is rewritten to status `-rank`. The repro uses condition 10, which is not rewritten.
+- [Grouping sees the pre-rewrite type] → Frightened and sickened become status before the key is formed, so a frightened circumstance penalty joins the status group.
+- [The designer rulings file is still the pre-amendment copy] → Amendment 2 is copied in this change and is not edited by the implementation.
 - [`key_prefers` sees the raw value] → For frightened and sickened the grouped value is `-rank`. A raw-value difference after the other steps tie still picks one modifier, and the rewrite then sets `-rank`.
