@@ -65,6 +65,20 @@ pub struct SourceId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConditionId(pub u32);
 
+impl ConditionId {
+    /// Frightened. A penalty with this id and a rank becomes one status penalty of `-rank`.
+    /// A bonus with this id keeps the type and value the caller declared.
+    ///
+    /// Player Core, Frightened.
+    pub const FRIGHTENED: Self = Self(2);
+
+    /// Sickened. A penalty with this id and a rank becomes one status penalty of `-rank`.
+    /// A bonus with this id keeps the type and value the caller declared.
+    ///
+    /// Player Core, Sickened.
+    pub const SICKENED: Self = Self(3);
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Condition {
     id: ConditionId,
@@ -278,9 +292,9 @@ fn collapse_conditions(modifiers: &[Modifier]) -> Result<Vec<Modifier>, Modifier
 /// A condition with no rank is kept once, and that tie uses the same newer sequence.
 ///
 /// Rank is the condition's number, so frightened 2 beats frightened 1 even though -1 is
-/// algebraically greater than -2. Frightened and sickened then contribute one status penalty
-/// equal to the negation of that rank. Any other ranked condition keeps its declared type
-/// and value. Value does not break a same-rank tie.
+/// algebraically greater than -2. A frightened or sickened penalty then contributes one
+/// status penalty equal to the negation of that rank. A bonus with those ids, and any other
+/// ranked condition, keeps its declared type and value. Value does not break a same-rank tie.
 fn keep_condition(group: &[Modifier]) -> Result<Option<Modifier>, ModifierError> {
     let Some(mut best) = group.first().copied() else {
         return Ok(None);
@@ -309,12 +323,13 @@ fn apply_ranked_penalty(mut modifier: Modifier) -> Result<Option<Modifier>, Modi
     let Some(rank) = modifier.rank() else {
         return Ok(Some(modifier));
     };
-    // Only frightened and sickened become a status penalty of -rank. Other ranked
-    // conditions keep the type and value the caller declared.
-    let valued = modifier
-        .condition
-        .is_some_and(|condition| condition.id == FRIGHTENED || condition.id == SICKENED);
-    if !valued {
+    // Only a frightened or sickened penalty becomes a status penalty of -rank.
+    // A bonus tagged with those ids keeps its declared type and value. Any other
+    // ranked condition, including rank 0, keeps the type and value the caller declared.
+    let valued = modifier.condition.is_some_and(|condition| {
+        condition.id == ConditionId::FRIGHTENED || condition.id == ConditionId::SICKENED
+    });
+    if !valued || modifier.penalty_type().is_none() {
         return Ok(Some(modifier));
     }
     // Rank 0 has ended, so frightened or sickened contributes nothing.
@@ -329,8 +344,8 @@ fn apply_ranked_penalty(mut modifier: Modifier) -> Result<Option<Modifier>, Modi
 
 /// One source contributes once: higher level or rank, otherwise the greater sequence.
 ///
-/// Value is not a tie-break. Rules 2266 keeps the newer effect when level and rank are equal,
-/// so a newer untyped −5 replaces an older untyped −2 from the same source.
+/// A greater sequence still wins when its value is lower. Rules 2266. An equal sequence has
+/// no newer effect, so the higher value wins and the two input orders total the same.
 fn collapse_sources(modifiers: &[Modifier]) -> Vec<Modifier> {
     let mut kept: Vec<Modifier> = Vec::new();
     for modifier in modifiers.iter().copied() {
@@ -366,7 +381,11 @@ fn source_prefers(candidate: Modifier, current: Modifier) -> bool {
         (None, Some(_)) => return false,
         _ => {}
     }
-    candidate.sequence > current.sequence
+    if candidate.sequence != current.sequence {
+        return candidate.sequence > current.sequence;
+    }
+    // Equal sequence: keep the higher value so input order cannot change the total.
+    candidate.value > current.value
 }
 
 struct Buckets {
@@ -506,10 +525,6 @@ const UNCONSCIOUS_AC_SOURCE: SourceId = SourceId(6);
 const UNCONSCIOUS_PERCEPTION_SOURCE: SourceId = SourceId(7);
 
 const OFF_GUARD: ConditionId = ConditionId(1);
-/// Frightened's rank becomes one status penalty of `-rank`. Player Core, Frightened.
-const FRIGHTENED: ConditionId = ConditionId(2);
-/// Sickened's rank becomes one status penalty of `-rank`. Player Core, Sickened.
-const SICKENED: ConditionId = ConditionId(3);
 
 /// Cover granted to Armor Class.
 ///
@@ -859,10 +874,10 @@ mod tests {
     #[test]
     fn frightened_2_and_sickened_1_equal_minus_2() {
         let dice = script();
-        let frightened =
-            penalty(PenaltyType::Status, -2, 1, 1, None).with_condition(FRIGHTENED, Some(2));
-        let sickened =
-            penalty(PenaltyType::Status, -1, 2, 2, None).with_condition(SICKENED, Some(1));
+        let frightened = penalty(PenaltyType::Status, -2, 1, 1, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let sickened = penalty(PenaltyType::Status, -1, 2, 2, None)
+            .with_condition(ConditionId::SICKENED, Some(1));
         let stacked = summed(&[frightened, sickened]);
         assert_eq!(stacked.get(), -2);
         assert!(stacked.applied().iter().any(|modifier| {
@@ -1034,15 +1049,43 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
+    /// Player Core, "Duplicate Effects".
+    ///
+    /// An equal sequence has no newer effect, so the higher value wins in either order.
+    #[test]
+    fn an_equal_sequence_keeps_the_higher_value() {
+        let dice = script();
+        let low_bonus = bonus(BonusType::Circumstance, 1, 1, 4, None);
+        let high_bonus = bonus(BonusType::Circumstance, 4, 1, 4, None);
+        for modifiers in [[low_bonus, high_bonus], [high_bonus, low_bonus]] {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].value(), 4);
+            assert_eq!(stacked.get(), 4);
+        }
+        let higher_penalty = penalty(PenaltyType::Untyped, -1, 2, 7, None);
+        let lower_penalty = penalty(PenaltyType::Untyped, -8, 2, 7, None);
+        for modifiers in [
+            [higher_penalty, lower_penalty],
+            [lower_penalty, higher_penalty],
+        ] {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].value(), -1);
+            assert_eq!(stacked.get(), -1);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
     /// Player Core, "Redundant Conditions With Values".
     /// Player Core, Frightened.
     #[test]
     fn a_repeated_condition_keeps_its_highest_rank() {
         let dice = script();
-        let frightened_1 =
-            penalty(PenaltyType::Status, -1, 1, 1, None).with_condition(FRIGHTENED, Some(1));
-        let frightened_2 =
-            penalty(PenaltyType::Status, -2, 2, 2, None).with_condition(FRIGHTENED, Some(2));
+        let frightened_1 = penalty(PenaltyType::Status, -1, 1, 1, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(1));
+        let frightened_2 = penalty(PenaltyType::Status, -2, 2, 2, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
         let stacked = summed(&[frightened_1, frightened_2]);
         let status: Vec<_> = stacked
             .applied()
@@ -1062,10 +1105,10 @@ mod tests {
     #[test]
     fn a_same_rank_condition_keeps_the_newer_sequence() {
         let dice = script();
-        let older =
-            penalty(PenaltyType::Status, -9, 1, 1, None).with_condition(FRIGHTENED, Some(2));
-        let newer =
-            penalty(PenaltyType::Status, -1, 2, 9, None).with_condition(FRIGHTENED, Some(2));
+        let older = penalty(PenaltyType::Status, -9, 1, 1, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        let newer = penalty(PenaltyType::Status, -1, 2, 9, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
         for modifiers in [[older, newer], [newer, older]] {
             let stacked = summed(&modifiers);
             let status: Vec<_> = stacked
@@ -1100,6 +1143,44 @@ mod tests {
         assert_eq!(kept.value(), -1);
         assert_eq!(kept.rank(), Some(2));
         assert_eq!(stacked.get(), -1);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Frightened.
+    ///
+    /// The rank rewrite applies to penalties. A status bonus tagged frightened stays +2.
+    #[test]
+    fn a_frightened_bonus_keeps_its_declared_value() {
+        let dice = script();
+        let modifier = bonus(BonusType::Status, 2, 1, 1, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let stacked = summed(&[modifier]);
+        assert_eq!(stacked.applied().len(), 1);
+        let kept = stacked.applied()[0];
+        assert_eq!(kept.bonus_type(), Some(BonusType::Status));
+        assert_eq!(kept.penalty_type(), None);
+        assert_eq!(kept.value(), 2);
+        assert_eq!(kept.rank(), Some(3));
+        assert_eq!(stacked.get(), 2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Frightened.
+    ///
+    /// A frightened circumstance penalty of -7 at rank 3 becomes one status penalty of -3.
+    #[test]
+    fn a_frightened_circumstance_penalty_becomes_status_minus_rank() {
+        let dice = script();
+        let modifier = penalty(PenaltyType::Circumstance, -7, 1, 1, None)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        let stacked = summed(&[modifier]);
+        assert_eq!(stacked.applied().len(), 1);
+        let kept = stacked.applied()[0];
+        assert_eq!(kept.penalty_type(), Some(PenaltyType::Status));
+        assert_eq!(kept.bonus_type(), None);
+        assert_eq!(kept.value(), -3);
+        assert_eq!(kept.rank(), Some(3));
+        assert_eq!(stacked.get(), -3);
         assert_eq!(dice.remaining(), 1);
     }
 
