@@ -4,13 +4,12 @@
 
 ### Requirement: Validation rejects impossible statistics
 
-Validation of a CharacterBuild SHALL reject Hit Points of 0 or less, a negative Speed, and a Speed that is not a multiple of 5, each as a typed error. Speed 0 SHALL be accepted. A rejected build SHALL NOT be derived. Folding contributions SHALL use those same checks and SHALL return a FoldError instead of a Creature when they fail. Current Hit Points on the damage path and the heal path SHALL stay from 0 through the maximum, and an overflow on either path SHALL return a typed error.
+Validation of a CharacterBuild SHALL reject Hit Points of 0 or less and a negative Speed. Speed 0 and a non-multiple of 5, such as 7, SHALL be accepted. add-grid-movement owns DEV-21. This change keeps only Speed >= 0. A rejected build SHALL NOT be derived. Folding SHALL apply those checks and SHALL return a FoldError instead of a Creature. Current Hit Points on the damage path and the heal path SHALL stay from 0 through the maximum, and an overflow SHALL return a typed error.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, creatures are not reduced below 0 Hit Points)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2320 (Player Core pg. 410, Healing)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2346 (Player Core pg. 420, Speed is at least 0)
-**Source**: validation (DEV-21). https://2e.aonprd.com/Rules.aspx?ID=2347 (Player Core pg. 420, Speed). Player Core has no explicit multiple-of-5 rule.
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2356 (Player Core pg. 421, 5-ft squares)
+**Source**: docs/designer/rules-deviations.md DEV-21, owned by add-grid-movement. This change keeps only Speed >= 0.
 
 #### Scenario: Zero Hit Points is rejected
 
@@ -36,11 +35,11 @@ Validation of a CharacterBuild SHALL reject Hit Points of 0 or less, a negative 
 - **WHEN** the build is validated and derived
 - **THEN** the Creature's Speed is 0
 
-#### Scenario: Speed 7 is rejected at load
+#### Scenario: Speed 7 is accepted at load
 
 - **GIVEN** inputs with 12 Hit Points and Speed 7
-- **WHEN** the build is validated
-- **THEN** validation returns the non-multiple-of-5 Speed error and does not derive a Creature
+- **WHEN** the build is validated and derived
+- **THEN** the Creature's Speed is 7
 
 #### Scenario: A folded zero Hit Points is rejected
 
@@ -62,12 +61,11 @@ Validation of a CharacterBuild SHALL reject Hit Points of 0 or less, a negative 
 - **WHEN** they are folded
 - **THEN** the Creature's Speed is 0
 
-#### Scenario: A folded Speed 7 is rejected
+#### Scenario: A folded Speed 7 is accepted
 
 - **GIVEN** contributions whose Hit Points sum to 12, whose Speed sums to 7, and whose other numbers can be stored
 - **WHEN** they are folded
-- **THEN** the result is a FoldError for a statistic the template would reject
-- **AND** the result is not a Creature
+- **THEN** the Creature's Speed is 7
 
 #### Scenario: Damage and healing keep current Hit Points in range
 
