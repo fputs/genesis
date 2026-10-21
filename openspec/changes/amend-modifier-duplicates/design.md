@@ -29,7 +29,7 @@
 1. Split the slice into bonuses and penalties. A bonus and a penalty never share a condition group.
 2. Within each side, group frightened and sickened by `(ConditionId, Statistic)`, not by `ConditionId` alone. Other conditions also group per statistic. The highest rank wins. The same rank, or no rank, keeps the greater sequence. Value does not decide this step. Frightened and sickened penalties then become one status penalty of `-rank`. A bonus tagged with either id keeps its declared type and value. Rank 0 still contributes nothing, as it does today.
 3. Collapse by the key (source id, statistic, type, bonus or penalty). The type is the type after step 2, so a frightened circumstance penalty joins the status-penalty key. The comparison below is the whole order.
-4. Stack types per statistic. Two statistics do not share a highest bonus or a worst penalty. `finish` keeps its canonical sort so the reported list does not follow input order.
+4. Stack types per statistic. Two statistics do not share a highest bonus or a worst penalty. `finish` keeps its canonical sort so the reported list does not follow input order. A test that puts two statistics in one list asserts each statistic's total from the applied modifiers. It does not assert one sum of both.
 
 Alternative considered: collapse by source before the frightened rewrite. Rejected. A status penalty and a frightened penalty from one source would then keep the pre-rewrite type and could both survive as status penalties.
 

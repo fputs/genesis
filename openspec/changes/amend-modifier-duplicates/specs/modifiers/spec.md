@@ -137,15 +137,16 @@ Each modifier SHALL carry a source id, a sequence number, and its statistic. Onl
 - **WHEN** they are totaled with either modifier first
 - **THEN** the status bonus of +2 is applied
 - **AND** the status penalty of -1 is applied
-- **AND** both totals are +1
+- **AND** the attack-roll total is +1 in either order
 
 #### Scenario: One source on two statistics both apply
 
 - **GIVEN** source 7 at sequence 5, with a status bonus of +2 to the attack roll and a circumstance penalty of -1 to Armor Class
 - **WHEN** they are resolved together with either modifier first
 - **THEN** the attack-roll status bonus of +2 is applied
+- **AND** the attack-roll total is +2
 - **AND** the Armor Class circumstance penalty of -1 is applied
-- **AND** both totals are +1
+- **AND** the Armor Class total is -1
 
 ## ADDED Requirements
 
@@ -158,19 +159,19 @@ Within a duplicate key the kept modifier SHALL follow a total order that ignores
 
 #### Scenario: An equal sequence keeps the higher bonus
 
-- **GIVEN** source 1, circumstance bonuses of +1 and +4, both at sequence 4, with no level
+- **GIVEN** source 1 on the attack roll, circumstance bonuses of +1 and +4, both at sequence 4, with no level
 - **WHEN** they are totaled with either modifier first
 - **THEN** one bonus is applied
 - **AND** that bonus is +4
-- **AND** both totals are +4
+- **AND** the attack-roll total is +4 in either order
 
 #### Scenario: An equal sequence keeps the worse penalty
 
-- **GIVEN** source 2, untyped penalties of -1 and -8, both at sequence 7, with no level
+- **GIVEN** source 2 on the attack roll, untyped penalties of -1 and -8, both at sequence 7, with no level
 - **WHEN** they are totaled with either modifier first
 - **THEN** one penalty is applied
 - **AND** that penalty is -8
-- **AND** both totals are -8
+- **AND** the attack-roll total is -8 in either order
 
 #### Scenario: The lower condition id wins an equal value
 
@@ -178,7 +179,7 @@ Within a duplicate key the kept modifier SHALL follow a total order that ignores
 - **WHEN** they are totaled with either modifier first
 - **THEN** one modifier is applied
 - **AND** its condition id is 3
-- **AND** both totals are +2
+- **AND** the attack-roll total is +2 in either order
 
 #### Scenario: A three-way tie is the same in all six orders
 
@@ -191,7 +192,7 @@ Within a duplicate key the kept modifier SHALL follow a total order that ignores
 
 ### Requirement: Resolution ignores input order
 
-The same modifiers SHALL produce the same total and the same applied modifiers in every input order. Modifiers that differ in type, or in bonus versus penalty, SHALL both apply, including equal values from one source at one sequence.
+The same modifiers SHALL produce the same total and the same applied modifiers in every input order. Modifiers that differ in type, or in bonus versus penalty, SHALL both apply, including equal values from one source at one sequence. Each reported total SHALL belong to one statistic and SHALL NOT add another statistic.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
@@ -200,7 +201,7 @@ The same modifiers SHALL produce the same total and the same applied modifiers i
 
 - **GIVEN** source 7 on the attack roll at sequence 5, with a status bonus of +2 and a circumstance bonus of +2, plus source 8 circumstance bonus of +3 at sequence 5
 - **WHEN** the three modifiers are totaled in every order
-- **THEN** every total is +5
+- **THEN** every attack-roll total is +5
 - **AND** every result applies the status bonus of +2
 - **AND** every result applies the circumstance bonus of +3
 - **AND** no result applies the circumstance bonus of +2
@@ -219,7 +220,7 @@ Frightened and sickened grouping SHALL key on (condition, statistic), not the co
 - **WHEN** they are totaled with either modifier first
 - **THEN** the status bonus of +2 is applied
 - **AND** the status penalty of -1 is applied
-- **AND** both totals are +1
+- **AND** the attack-roll total is +1 in either order
 
 #### Scenario: Frightened 2 on attack and Armor Class both survive
 
