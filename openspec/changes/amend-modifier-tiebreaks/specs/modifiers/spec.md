@@ -286,7 +286,7 @@ Condition modifiers SHALL group by (condition, statistic), not by source key, af
 
 After the worst penalty or the highest bonus, the order SHALL be the highest rank, then the newest sequence, then the lowest source id. Those three SHALL be engineering tiebreaks with no rules effect.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (context only; the value step is RAW, the rank/sequence/source-id tiebreaks are engineering, see R-01 clarification in docs/designer/rules-rulings.md)
 
 #### Scenario: Two frightened penalties report the lower source in both orders
 
