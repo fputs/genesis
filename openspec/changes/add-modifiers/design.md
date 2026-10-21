@@ -13,16 +13,17 @@
 - Same source id contributes one modifier before the sum. Same condition keeps its highest rank before the sum.
 - Separate totals for the attack roll, Armor Class, Perception, and damage.
 - The public fold cannot return a Creature that `try_new` would reject.
-- A non-positive damage total after modifiers or penalties deals 1, and that 1 is doubled on a critical hit.
+- Penalties on an attack that reduce damage to 0 or below deal 1, and that 1 is doubled on a critical hit (DEV-14).
 
 **Non-Goals:**
 
-- Proficiency bonuses. Baked attack bonuses and Armor Class already include them. They are not modifiers.
+- Proficiency bonuses (DEV-01). AC, attack, Perception, and DCs are baked numbers. There are no attributes or proficiency ranks, so proficiency is not a modifier type.
 - A second multiple attack penalty. Agile -4/-8 stays inside `multiple_attack_penalty`.
 - Computing range increments. The range scenario passes a synthetic untyped -2. Player Core pg. 403 is the citation, not a producer.
 - Shield bonuses. The shields change owns Raise a Shield. This change's Armor Class total does not read `shield_ac_bonus`.
-- Resistance, weakness, and immunity. Resistance can reduce damage to 0 (Player Core pg. 408, https://2e.aonprd.com/Rules.aspx?ID=2312). This change does not apply it.
+- Resistance, weakness, and immunity. Resistance has its own floor of 0 (Rules 2318, Player Core pg. 408, https://2e.aonprd.com/Rules.aspx?ID=2318). This change does not apply it.
 - The Speed floor of 5 feet. That applies when penalties reduce Speed, and Phase 1 has no Speed-penalty producer. Speed 0 remains a legal baked value.
+- Rejecting a Speed that is not a multiple of 5 (DEV-21). That check moves to add-grid-movement. This change keeps Speed greater than or equal to 0: a negative Speed is rejected, and Speed 0 is accepted.
 - Reflex saves, the Aid action, and a condition tracker with durations. Aid supplies only a circumstance modifier. This change does not prepare, roll, or resolve Aid. Frightened and sickened enter as ranks. Durations stay with encounter-core.
 - A new crate or a new dependency.
 
@@ -71,10 +72,10 @@ Alternative considered: store untyped bonuses in a bucket that sums. Rejected. R
 `total(modifiers)` returns `Result<i32, ModifierError>`:
 
 1. Modifiers that share a `ConditionId` collapse first. The kept condition has the highest rank. Frightened and sickened then become one status penalty equal to the negation of that rank, so frightened 2 is -2, not a second modifier of -1. A condition with no rank, such as off-guard, is kept once. Rank is the condition's own number. It is not the algebraic maximum of the penalty, which would keep frightened 1 over frightened 2.
-2. Modifiers that share a `SourceId` collapse next. The higher `level` wins. If level does not decide, the algebraically higher `value` wins, so -2 beats -5. If value also ties, the greater sequence number wins. This happens before any sum.
+2. Modifiers that share a `SourceId` collapse next. The higher level or rank wins. If level and rank do not decide, the newer effect wins, and newer means the greater sequence number. Value is not compared. An untyped penalty of -5 with sequence 9 beats an untyped penalty of -2 with sequence 1 from the same source. This happens before any sum. Rules 2266 (Player Core pg. 398) is the citation.
 3. For each of circumstance, item, and status, add the highest positive value and the lowest negative value. Both are kept when both exist. When different sources tie for that highest bonus or that worst penalty, the applied modifier is the one with the lowest sequence number. The result reports that modifier, not only the number. Add every remaining untyped penalty with `checked_add`. `None` is `ModifierError::Overflow`. Do not use saturating arithmetic.
 
-The same inputs produce the same total. Insertion order does not matter. Same-source ties still keep the greater sequence number. Different-source ties for one type's winning value keep the lowest sequence number.
+The same inputs produce the same total. Insertion order does not matter. Same-source duplicates keep the higher level or rank, otherwise the greater sequence number. Different-source ties for one type's winning value keep the lowest sequence number.
 
 `dc_from_total` is 10 plus that total, with the same checked add, and it does not clamp. A total of -6 yields DC 4.
 
@@ -84,7 +85,9 @@ Alternative considered: take the worse of a bonus and a penalty of one type. Rej
 
 ### 4. Phase 1 producers call the existing multiple attack penalty
 
-`attack_modifiers` calls `multiple_attack_penalty` and, when the result is not 0, inserts that value as one untyped penalty. It does not copy the -5/-10 or -4/-8 table. Prone inserts circumstance -2. An Aid result of +1, +2, or -1 inserts a circumstance modifier. An Aid result of 0 inserts nothing, because zero is rejected at construction. The Aid action is out of scope: these functions accept that circumstance modifier and do not prepare, roll, or resolve Aid.
+`attack_modifiers` takes the multiple attack penalty as a caller-supplied value and, when that value is not 0, inserts it as one untyped penalty. It does not copy the -5/-10 or -4/-8 table. Phase 1 passes the result of `multiple_attack_penalty` for an attack on the creature's turn. Prone inserts circumstance -2. An Aid result of +1, +2, or -1 inserts a circumstance modifier. An Aid result of 0 inserts nothing, because zero is rejected at construction. The Aid action is out of scope: these functions accept that circumstance modifier and do not prepare, roll, or resolve Aid.
+
+Seam for a later ready change (FIX-16). This change does not implement it. Because the penalty is an argument, a later change can pass the MAP frozen when an attack was readied. Reaction attacks and the Ready action stay out of this change.
 
 `ac_modifiers` inserts cover +1, +2, or +4 circumstance, off-guard -2 circumstance, and unconscious -4 status. It has no shield argument. `perception_modifiers` inserts unconscious -4 status only. Damage has no Phase 1 producer; callers pass modifiers into `damage_dealt`.
 
@@ -94,7 +97,7 @@ Attack-roll modifiers and Armor Class modifiers are different slices. The fold o
 
 ### 5. The public fold uses the template checks
 
-`try_new` still returns `TemplateError::NonPositiveHitPoints` when Hit Points are not at least 1, and `TemplateError::NegativeSpeed` when Speed is negative. Speed 0 stays valid.
+`try_new` still returns `TemplateError::NonPositiveHitPoints` when Hit Points are not at least 1, and `TemplateError::NegativeSpeed` when Speed is negative. Speed 0 stays valid. A Speed that is not a multiple of 5 is not rejected here. DEV-21 moves to add-grid-movement.
 
 After `fold_contributions` has summed a non-empty list, it applies those same two checks. Failure returns `FoldError::Statistics` and not a Creature. Overflow, an empty list, and a bad damage die stay the errors they already are. `derive` still builds from the validated base and does not call the fallible fold. Folding only that base still equals `derive`.
 
@@ -109,12 +112,12 @@ pub enum FoldError {
 
 ### 6. Damage floor, then critical doubling
 
-This is a documented deviation.
+This is DEV-14, our ruling. RAW does not state the order.
 
-- **Rule**: If penalties reduce damage to 0 or below, deal 1 (Player Core pg. 406, https://2e.aonprd.com/Rules.aspx?ID=2301). A critical hit rolls normally, then doubles the total (Player Core pg. 407, https://2e.aonprd.com/Rules.aspx?ID=2307).
-- **Why not**: Flooring after doubling would make the smallest critical hit 1. The sentence on page 406 is about penalties on the roll. Resistance, which can reduce damage to 0, is a different rule on page 408.
-- **Substitute**: Apply the penalty floor of 1 before critical doubling. The smallest critical hit deals 2.
-- **Intent**: A critical hit still doubles the damage the penalties left, including the 1 those penalties cannot erase.
+- **Rule**: Penalties on an attack that reduce damage to 0 or below still deal 1 (Rules 2302, Player Core pg. 406, https://2e.aonprd.com/Rules.aspx?ID=2302). A critical hit doubles the total (Rules 2307, Player Core pg. 407, https://2e.aonprd.com/Rules.aspx?ID=2307). RAW does not say whether that floor comes before or after doubling.
+- **Why not**: Flooring after doubling would make the smallest critical hit 1. Resistance has a separate floor of 0 (Rules 2318, Player Core pg. 408, https://2e.aonprd.com/Rules.aspx?ID=2318) and stays out of scope.
+- **Substitute**: DEV-14 applies the floor of 1 to penalties on an attack before critical doubling. The smallest critical hit deals 2.
+- **Intent**: A critical hit still doubles the damage those penalties left, including the 1 they cannot erase.
 
 ```rust
 pub enum HpError { Overflow }
@@ -125,24 +128,28 @@ pub fn apply_dice_damage(...) -> Result<(), HpError>;
 pub fn apply_healing(state: &mut CombatantState, creature: &Creature, amount: i32) -> Result<(), HpError>;
 ```
 
-`damage_dealt` folds `modifiers`, adds that total to `rolled_plus_baked` with `checked_add`, and on overflow returns `ModifierError::Overflow`. If the sum is 0 or below, it becomes 1. If `critical` is true, it then doubles with `checked_mul`. A rolled 4 and a penalty of -6 deal 1, or 2 on a critical hit. Resistance is not an argument.
+`damage_dealt` folds `modifiers`, adds that total to `rolled_plus_baked` with `checked_add`, and on overflow returns `ModifierError::Overflow`. When penalties on an attack bring the sum to 0 or below, it becomes 1. If `critical` is true, it then doubles with `checked_mul`. A rolled 4 and a penalty of -6 deal 1, or 2 on a critical hit. Resistance is not an argument.
 
 `apply_dice_damage` rolls, calls `damage_dealt` with `critical: false` unless the caller passes a critical hit, and subtracts the result from current Hit Points, floored at 0. On overflow it returns `HpError::Overflow` and leaves the state unchanged. It no longer turns a negative total into 0 damage.
 
-`apply_healing` adds a positive amount and caps at the creature's maximum. An add that does not fit returns `HpError::Overflow` and leaves the state unchanged. Current Hit Points on both paths stay in 0 through the maximum.
+`apply_healing` adds a positive amount and caps at the creature's maximum (Rules 2320, Player Core pg. 410, https://2e.aonprd.com/Rules.aspx?ID=2320). An add that does not fit returns `HpError::Overflow` and leaves the state unchanged. Current Hit Points on both paths stay in 0 through the maximum.
 
 The clamp-to-0 behavior lives in `apply_dice_damage` and in tests `a_negative_total_does_not_raise_hit_points`, `healing_past_i32_max_leaves_hit_points_unchanged`, and `damage_past_i32_floors_hit_points_at_0`. It is not a requirement in `openspec/specs/creature-template/spec.md`. The delta therefore adds "Penalties leave at least 1 damage" instead of modifying a header archive cannot find. Those three tests stay, and their assertions change to this rule. They are not deleted.
 
-Alternative considered: floor the doubled total, so a critical hit of a non-positive roll deals 1. Rejected. Designer sign-off on the floor-then-double order is still pending; the spec records the ruling anyway.
+Alternative considered: floor the doubled total, so a critical hit of a non-positive roll deals 1. Rejected. DEV-14 applies the floor before doubling. RAW does not state the order; this is our ruling.
 
-### 7. What "higher value" means
+### 7. Duplicate effects keep level or rank, then the newer effect
 
-For two modifiers of one source, level is compared first because duplicate effects name the higher level or rank (Player Core pg. 398). Value is next, and it is the signed number: -2 is higher than -5, so the harsher untyped penalty does not win just by being harsher. Sequence breaks a tie. Condition rank is a different number, the positive condition value, and it is applied in step 1 of the fold, not by this comparison.
+Rules 2266 (Player Core pg. 398, https://2e.aonprd.com/Rules.aspx?ID=2266): only one instance applies, using the higher level or rank, or the newer effect if those are equal. Newer means the greater sequence number. Value does not break the tie. The earlier step that kept the algebraically higher value, so an older -2 beat a newer -5, is removed. A newer -5 with sequence 9 wins over an older -2 with sequence 1 from the same source.
+
+Condition rank in step 1 is still the positive condition value for a repeated condition. It is applied before this comparison.
+
+Different sources that tie for one type's highest bonus or worst penalty still report the lowest sequence number. That is which tied winner is reported. It is not the duplicate-effects tie-break.
 
 ## Risks / Trade-offs
 
-- [A repeated harsher untyped penalty from the same source is discarded when its value is lower] → That is the higher-value rule above. The equal-value duplicate still counts once. Designer sign-off is pending.
-- [Negative damage totals that used to deal 0 now deal 1] → Required by page 406. The three existing tests change their assertions and keep their names.
+- [A newer penalty from the same source replaces an older one when level and rank are equal, even when its value is lower] → Rules 2266 keeps the newer effect. Value is not a tie-break. The equal-value duplicate still counts once.
+- [Penalties on an attack that used to deal 0 now deal 1, and a critical hit doubles that 1] → DEV-14. RAW does not state the order. The three existing tests change their assertions and keep their names.
 - [A folded creature with 0 Hit Points used to be returned] → It is now `FoldError::Statistics`. `derive` of a valid build does not change.
 - [`attack_check_total` grows a modifier allocation] → The signature stays, and the existing totals stay. A 0 penalty is omitted so construction does not fail.
 
@@ -152,7 +159,7 @@ This pull request adds only `openspec/changes/add-modifiers/`. The implementatio
 
 ## Open Questions
 
-None. The floor-before-doubling order and the algebraic higher-value comparison are decisions recorded above, with Designer sign-off still pending.
+None. DEV-14 records the floor-before-doubling order. Rules 2266 records the duplicate-effects tie-break: higher level or rank, then the greater sequence number.
 
 ## QA questions
 

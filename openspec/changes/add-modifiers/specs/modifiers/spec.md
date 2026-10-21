@@ -8,7 +8,7 @@ Folds circumstance, item, status, and untyped modifiers onto attack rolls, Armor
 
 ### Requirement: Bonus and penalty types
 
-A bonus SHALL be circumstance, item, or status. A penalty SHALL be circumstance, item, status, or untyped. Proficiency SHALL NOT be a modifier type. An item modifier SHALL be constructible under these rules, and Phase 1 SHALL produce none.
+A bonus SHALL be circumstance, item, or status. A penalty SHALL be circumstance, item, status, or untyped. Proficiency SHALL NOT be a modifier type, because AC, attack, Perception, and DCs are baked (DEV-01). An item modifier SHALL be constructible under these rules, and Phase 1 SHALL produce none.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -57,6 +57,13 @@ For one type, only the highest bonus and only the worst penalty SHALL apply. Whe
 - **WHEN** they are totaled
 - **THEN** both apply
 - **AND** the total is 0
+
+#### Scenario: Status +1 and status -2 total -1
+
+- **GIVEN** a status bonus of +1 and a status penalty of -2 from different sources
+- **WHEN** they are totaled
+- **THEN** both apply
+- **AND** the total is -1
 
 #### Scenario: Frightened 2 and sickened 1 equal -2
 
@@ -142,7 +149,7 @@ A bonus value SHALL be greater than 0 and a penalty value SHALL be less than 0. 
 
 ### Requirement: One effect and the highest condition rank
 
-Each modifier SHALL carry a source id and a sequence number. Modifiers that share a source id SHALL become one before any sum: the higher level wins, otherwise the higher value, otherwise the newer sequence number. A repeated condition SHALL keep only its highest rank before that sum. Frightened and sickened SHALL then contribute one status penalty equal to the negation of that rank. A condition with no rank SHALL apply only once.
+Each modifier SHALL carry a source id and a sequence number. Modifiers that share a source id SHALL become one before any sum: the higher level or rank wins, otherwise the newer sequence number, which is the greater one. Value SHALL NOT decide that tie. A repeated condition SHALL keep only its highest rank before that sum. Frightened and sickened SHALL then contribute one status penalty equal to the negation of that rank. A condition with no rank SHALL apply only once.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
@@ -170,11 +177,12 @@ Each modifier SHALL carry a source id and a sequence number. Modifiers that shar
 - **THEN** the kept modifier is the level 2 bonus of +1
 - **AND** the total is +1
 
-#### Scenario: A higher value beats a newer lower value
+#### Scenario: A newer lower value wins
 
 - **GIVEN** one source and no levels, an untyped penalty of -2 with sequence 1, and an untyped penalty of -5 with sequence 9
 - **WHEN** they are totaled
-- **THEN** the total is -2
+- **THEN** the kept modifier has sequence number 9
+- **AND** the total is -5
 
 #### Scenario: A repeated condition keeps its highest rank
 

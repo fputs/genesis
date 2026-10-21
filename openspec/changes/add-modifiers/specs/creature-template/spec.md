@@ -7,6 +7,7 @@
 Validation of a CharacterBuild SHALL reject Hit Points of 0 or less and SHALL reject a negative Speed, each as a typed error. Speed 0 SHALL be accepted. A rejected build SHALL NOT be derived. Folding contributions SHALL use those same checks and SHALL return a FoldError instead of a Creature when they fail. Current Hit Points on the damage path and the heal path SHALL stay from 0 through the maximum, and an overflow on either path SHALL return a typed error.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, creatures are not reduced below 0 Hit Points)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2320 (Player Core pg. 410, Healing)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2345 (Player Core pg. 420, Speed)
 
 #### Scenario: Zero Hit Points is rejected
@@ -71,21 +72,22 @@ Validation of a CharacterBuild SHALL reject Hit Points of 0 or less and SHALL re
 
 ### Requirement: Penalties leave at least 1 damage
 
-When modifiers or penalties reduce a damage total to 0 or below, the roll SHALL deal 1 damage. That floor SHALL apply only to modifiers and penalties, and SHALL be applied before critical doubling, so the smallest critical hit SHALL deal 2 damage. An overflowing total SHALL return a typed error and SHALL NOT change Hit Points. Resistance that reduces damage to 0 SHALL stay out of scope and SHALL NOT be applied.
+When penalties on an attack reduce a damage total to 0 or below, the roll SHALL deal 1 damage. That floor SHALL apply only to penalties on an attack and SHALL be applied before critical doubling, so the smallest critical hit SHALL deal 2 damage. RAW does not state that order; this change applies DEV-14. An overflowing total SHALL return a typed error and SHALL NOT change Hit Points. Resistance has a separate floor of 0, stays out of scope, and SHALL NOT be applied.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, penalties on an attack)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2307 (Player Core pg. 407, Doubling and Halving)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2312 (Player Core pg. 408, Immunity, Weakness, and Resistance)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2318 (Player Core pg. 408, resistance floor of 0)
+**Source**: DEV-14. RAW does not state whether the floor is before or after doubling; this change applies it first.
 
 #### Scenario: Penalties reduce damage to 1
 
-- **GIVEN** a rolled 4 and a penalty of -6
+- **GIVEN** penalties on an attack, a rolled 4, and a penalty of -6
 - **WHEN** the damage is resolved and the hit is not critical
 - **THEN** the damage dealt is 1
 
 #### Scenario: Minimum critical damage is 2
 
-- **GIVEN** a rolled 4 and a penalty of -6
+- **GIVEN** penalties on an attack, a rolled 4, and a penalty of -6
 - **WHEN** the hit is critical
 - **THEN** the damage dealt is 2
 
