@@ -110,4 +110,5 @@ When this change is applied, Genesis DevOps agent:
 
 1. Merge this spec pull request. It touches only `openspec/changes/add-pr-hygiene-checks/`, so it is openspec-only.
 2. Genesis DevOps agent applies this change on its own pull request. The body includes `OpenSpec-Change: add-pr-hygiene-checks`. The changelog bullet is added before the last commit. The last commit is `openspec archive add-pr-hygiene-checks --yes`, and that commit touches only the archive tree, `openspec/specs/**`, and the removed change directory.
-3. Rollback is deleting `.github/workflows/pr-hygiene.yml` and `scripts/pr-hygiene.mjs`. No data migration. `ci.yml` was not part of the change.
+3. The repo admin (Evan) makes `pr-hygiene` a required status check on `main`.
+4. Rollback is deleting `.github/workflows/pr-hygiene.yml` and `scripts/pr-hygiene.mjs`. No data migration. `ci.yml` was not part of the change.
