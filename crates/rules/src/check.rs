@@ -346,7 +346,7 @@ pub fn attack_check_total(
         3,
     );
     let folded = match total(&modifiers) {
-        Ok(total) => i64::from(total.get()),
+        Ok(total) => i64::from(total.get(Statistic::Attack)),
         // The terms are bounded, so this sum fits. A miss still returns the natural roll.
         Err(_) => return i32::from(natural),
     };

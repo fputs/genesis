@@ -260,19 +260,22 @@ impl Modifier {
     }
 }
 
-/// The modifiers that apply after duplicate effects, conditions, and same-type stacking, plus their sum.
+/// The modifiers that apply after duplicate effects, conditions, and same-type stacking.
 ///
-/// Player Core, Bonuses and Penalties.
+/// Each statistic has its own total. Player Core, Bonuses, Penalties, and Duplicate Effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModifierTotal {
-    value: i32,
+    totals: StatisticTotals,
     applied: Vec<Modifier>,
 }
 
 impl ModifierTotal {
-    /// The summed total. It is not clamped.
-    pub fn get(&self) -> i32 {
-        self.value
+    /// The total for `statistic`. Modifiers on another statistic are not included, and the
+    /// result is not clamped.
+    ///
+    /// Player Core, Duplicate Effects. Player Core, "Damage Rolls".
+    pub fn get(&self, statistic: Statistic) -> i32 {
+        self.totals.get(statistic)
     }
 
     /// The modifiers that were applied. A tied bonus or penalty is the one with the lowest sequence.
@@ -592,20 +595,71 @@ fn penalty_prefers(candidate: Modifier, current: Modifier) -> bool {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StatisticTotals {
+    attack: i32,
+    armor_class: i32,
+    perception: i32,
+    damage: i32,
+}
+
+impl StatisticTotals {
+    fn get(self, statistic: Statistic) -> i32 {
+        match statistic {
+            Statistic::Attack => self.attack,
+            Statistic::ArmorClass => self.armor_class,
+            Statistic::Perception => self.perception,
+            Statistic::Damage => self.damage,
+        }
+    }
+}
+
+struct StatisticWide {
+    attack: i64,
+    armor_class: i64,
+    perception: i64,
+    damage: i64,
+}
+
 fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
     // Canonical order so insertion order cannot change the reported list.
-    // The sum is i64 because bonuses sort before penalties: an i32 add of
+    // Each statistic is summed in i64 because bonuses sort before penalties: an i32 add of
     // circumstance i32::MAX and item +1 overflows before a later status -5
-    // brings the true total back into range.
+    // brings that statistic's total back into range. Another statistic is not in the sum.
     applied.sort_by_key(sort_key);
-    let mut wide = 0i64;
+    let mut wide = StatisticWide {
+        attack: 0,
+        armor_class: 0,
+        perception: 0,
+        damage: 0,
+    };
     for modifier in &applied {
-        wide = wide
-            .checked_add(i64::from(modifier.value))
-            .ok_or(ModifierError::Overflow)?;
+        add_statistic(&mut wide, modifier.statistic, modifier.value)?;
     }
-    let value = i32::try_from(wide).map_err(|_| ModifierError::Overflow)?;
-    Ok(ModifierTotal { value, applied })
+    let totals = StatisticTotals {
+        attack: i32::try_from(wide.attack).map_err(|_| ModifierError::Overflow)?,
+        armor_class: i32::try_from(wide.armor_class).map_err(|_| ModifierError::Overflow)?,
+        perception: i32::try_from(wide.perception).map_err(|_| ModifierError::Overflow)?,
+        damage: i32::try_from(wide.damage).map_err(|_| ModifierError::Overflow)?,
+    };
+    Ok(ModifierTotal { totals, applied })
+}
+
+fn add_statistic(
+    wide: &mut StatisticWide,
+    statistic: Statistic,
+    value: i32,
+) -> Result<(), ModifierError> {
+    let slot = match statistic {
+        Statistic::Attack => &mut wide.attack,
+        Statistic::ArmorClass => &mut wide.armor_class,
+        Statistic::Perception => &mut wide.perception,
+        Statistic::Damage => &mut wide.damage,
+    };
+    *slot = slot
+        .checked_add(i64::from(value))
+        .ok_or(ModifierError::Overflow)?;
+    Ok(())
 }
 
 fn sort_key(modifier: &Modifier) -> (u8, i32, u32, u32, u8) {
@@ -859,15 +913,7 @@ mod tests {
     }
 
     fn total_on(stacked: &ModifierTotal, statistic: Statistic) -> i32 {
-        let mut sum = 0i32;
-        for modifier in stacked.applied() {
-            if modifier.statistic() == statistic {
-                sum = sum
-                    .checked_add(modifier.value())
-                    .expect("statistic total fits");
-            }
-        }
-        sum
+        stacked.get(statistic)
     }
 
     fn orders_of_two(first: Modifier, second: Modifier) -> [[Modifier; 2]; 2] {
@@ -983,7 +1029,7 @@ mod tests {
             bonus(BonusType::Item, 2, 1, 1, None, Statistic::Attack),
             bonus(BonusType::Item, 1, 2, 2, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Item) && modifier.value() == 2
         }));
@@ -1036,7 +1082,7 @@ mod tests {
             bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack),
             bonus(BonusType::Circumstance, 1, 2, 2, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 2
         }));
@@ -1052,7 +1098,7 @@ mod tests {
             penalty(PenaltyType::Circumstance, -2, 2, 2, None, Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 2);
-        assert_eq!(stacked.get(), 0);
+        assert_eq!(stacked.get(Statistic::Attack), 0);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1065,7 +1111,7 @@ mod tests {
             penalty(PenaltyType::Status, -2, 2, 2, None, Statistic::Attack),
         ]);
         assert_eq!(stacked.applied().len(), 2);
-        assert_eq!(stacked.get(), -1);
+        assert_eq!(stacked.get(Statistic::Attack), -1);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1080,7 +1126,7 @@ mod tests {
         let sickened = penalty(PenaltyType::Status, -1, 2, 2, None, Statistic::Attack)
             .with_condition(ConditionId::SICKENED, Some(1));
         let stacked = summed(&[frightened, sickened]);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -2
         }));
@@ -1095,7 +1141,7 @@ mod tests {
             penalty(PenaltyType::Untyped, -2, 1, 1, None, Statistic::Attack),
             penalty(PenaltyType::Untyped, -3, 2, 2, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), -5);
+        assert_eq!(stacked.get(Statistic::Attack), -5);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1115,7 +1161,7 @@ mod tests {
             None,
             Statistic::Attack,
         ));
-        assert_eq!(summed(&modifiers).get(), -7);
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), -7);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1159,8 +1205,8 @@ mod tests {
         ];
         let mut reversed = modifiers;
         reversed.reverse();
-        assert_eq!(summed(&modifiers).get(), i32::MAX - 4);
-        assert_eq!(summed(&reversed).get(), i32::MAX - 4);
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), i32::MAX - 4);
+        assert_eq!(summed(&reversed).get(Statistic::Attack), i32::MAX - 4);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1191,7 +1237,7 @@ mod tests {
             .find(|modifier| modifier.bonus_type() == Some(BonusType::Circumstance))
             .expect("circumstance bonus");
         assert_eq!(applied.sequence(), 1);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1209,7 +1255,7 @@ mod tests {
             .find(|modifier| modifier.penalty_type() == Some(PenaltyType::Circumstance))
             .expect("circumstance penalty");
         assert_eq!(applied.sequence(), 3);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1223,7 +1269,7 @@ mod tests {
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].value(), -2);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1237,7 +1283,7 @@ mod tests {
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].sequence(), 4);
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1252,7 +1298,7 @@ mod tests {
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].level(), Some(2));
         assert_eq!(stacked.applied()[0].value(), 1);
-        assert_eq!(stacked.get(), 1);
+        assert_eq!(stacked.get(Statistic::Attack), 1);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1267,7 +1313,7 @@ mod tests {
         ]);
         assert_eq!(stacked.applied().len(), 1);
         assert_eq!(stacked.applied()[0].sequence(), 9);
-        assert_eq!(stacked.get(), -5);
+        assert_eq!(stacked.get(Statistic::Attack), -5);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1285,7 +1331,7 @@ mod tests {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].value(), 4);
-            assert_eq!(stacked.get(), 4);
+            assert_eq!(stacked.get(Statistic::Attack), 4);
         }
         let higher_penalty = penalty(PenaltyType::Untyped, -1, 2, 7, None, Statistic::Attack);
         let lower_penalty = penalty(PenaltyType::Untyped, -8, 2, 7, None, Statistic::Attack);
@@ -1296,7 +1342,7 @@ mod tests {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].value(), -8);
-            assert_eq!(stacked.get(), -8);
+            assert_eq!(stacked.get(Statistic::Attack), -8);
         }
         assert_eq!(dice.remaining(), 1);
     }
@@ -1320,7 +1366,7 @@ mod tests {
         assert_eq!(status[0].rank(), Some(2));
         assert_eq!(status[0].value(), -2);
         assert!(status[0].rank() != Some(1));
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1344,7 +1390,7 @@ mod tests {
             assert_eq!(status[0].sequence(), 9);
             assert_eq!(status[0].rank(), Some(2));
             assert_eq!(status[0].value(), -2);
-            assert_eq!(stacked.get(), -2);
+            assert_eq!(stacked.get(Statistic::Attack), -2);
         }
         assert_eq!(dice.remaining(), 1);
     }
@@ -1366,7 +1412,7 @@ mod tests {
         assert_eq!(kept.penalty_type(), Some(PenaltyType::Circumstance));
         assert_eq!(kept.value(), -1);
         assert_eq!(kept.rank(), Some(2));
-        assert_eq!(stacked.get(), -1);
+        assert_eq!(stacked.get(Statistic::Attack), -1);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1385,7 +1431,7 @@ mod tests {
         assert_eq!(kept.penalty_type(), None);
         assert_eq!(kept.value(), 2);
         assert_eq!(kept.rank(), Some(3));
-        assert_eq!(stacked.get(), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1404,7 +1450,7 @@ mod tests {
         assert_eq!(kept.bonus_type(), None);
         assert_eq!(kept.value(), -3);
         assert_eq!(kept.rank(), Some(3));
-        assert_eq!(stacked.get(), -3);
+        assert_eq!(stacked.get(Statistic::Attack), -3);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1425,7 +1471,7 @@ mod tests {
             .collect();
         assert_eq!(penalties.len(), 1);
         assert_eq!(penalties[0].value(), -2);
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::Attack), -2);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1438,8 +1484,8 @@ mod tests {
             penalty(PenaltyType::Untyped, -3, 2, 2, None, Statistic::Attack),
             penalty(PenaltyType::Untyped, -4, 3, 3, None, Statistic::Attack),
         ]);
-        assert_eq!(stacked.get(), -6);
-        assert!(stacked.get() < 0);
+        assert_eq!(stacked.get(Statistic::Attack), -6);
+        assert!(stacked.get(Statistic::Attack) < 0);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1474,7 +1520,7 @@ mod tests {
         let dice = script();
         let status = bonus(BonusType::Status, 1, 1, 1, None, Statistic::Attack);
         let circumstance = penalty(PenaltyType::Circumstance, -2, 2, 2, None, Statistic::Attack);
-        assert_eq!(summed(&[status, circumstance]).get(), -1);
+        assert_eq!(summed(&[status, circumstance]).get(Statistic::Attack), -1);
         assert_eq!(
             summed(&[circumstance, status]),
             summed(&[status, circumstance])
@@ -1491,8 +1537,8 @@ mod tests {
         let armor_class = ac_modifiers(None, true, false).expect("armor class");
         let attack_total = summed(&attack);
         let armor_total = summed(&armor_class);
-        assert_eq!(attack_total.get(), -2);
-        assert_eq!(armor_total.get(), -2);
+        assert_eq!(attack_total.get(Statistic::Attack), -2);
+        assert_eq!(armor_total.get(Statistic::ArmorClass), -2);
         assert!(attack_total.applied().iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -2
         }));
@@ -1526,7 +1572,7 @@ mod tests {
             None,
             Statistic::Attack,
         ));
-        assert_eq!(summed(&modifiers).get(), -11);
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), -11);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1545,7 +1591,7 @@ mod tests {
             None,
             Statistic::Attack,
         ));
-        assert_eq!(summed(&modifiers).get(), -6);
+        assert_eq!(summed(&modifiers).get(Statistic::Attack), -6);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1555,7 +1601,7 @@ mod tests {
         let dice = script();
         let modifiers = attack_modifiers(0, false, 1).expect("attack");
         let stacked = summed(&modifiers);
-        assert_eq!(stacked.get(), 1);
+        assert_eq!(stacked.get(Statistic::Attack), 1);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 1
         }));
@@ -1585,7 +1631,7 @@ mod tests {
             (Cover::Greater, 4),
         ] {
             let stacked = summed(&ac_modifiers(Some(cover), false, false).expect("armor class"));
-            assert_eq!(stacked.get(), expected);
+            assert_eq!(stacked.get(Statistic::ArmorClass), expected);
             assert!(stacked.applied().iter().any(|modifier| {
                 modifier.bonus_type() == Some(BonusType::Circumstance)
                     && modifier.value() == expected
@@ -1599,7 +1645,7 @@ mod tests {
     fn off_guard_is_minus_2_circumstance_to_armor_class() {
         let dice = script();
         let stacked = summed(&ac_modifiers(None, true, false).expect("armor class"));
-        assert_eq!(stacked.get(), -2);
+        assert_eq!(stacked.get(Statistic::ArmorClass), -2);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Circumstance)
                 && modifier.value() == -2
@@ -1616,8 +1662,8 @@ mod tests {
         let perception = perception_modifiers(true).expect("perception");
         let armor_total = summed(&armor_class);
         let perception_total = summed(&perception);
-        assert_eq!(armor_total.get(), -4);
-        assert_eq!(perception_total.get(), -4);
+        assert_eq!(armor_total.get(Statistic::ArmorClass), -4);
+        assert_eq!(perception_total.get(Statistic::Perception), -4);
         assert!(armor_total.applied().iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Status)
                 && modifier.value() == -4
@@ -1641,7 +1687,7 @@ mod tests {
         let shield_ac_bonus = 2;
         let modifiers = ac_modifiers(None, false, false).expect("armor class");
         let stacked = summed(&modifiers);
-        assert_eq!(stacked.get(), 0);
+        assert_eq!(stacked.get(Statistic::ArmorClass), 0);
         assert!(
             stacked
                 .applied()
@@ -1659,7 +1705,7 @@ mod tests {
             bonus(BonusType::Circumstance, 4, 1, 1, None, Statistic::Damage),
             bonus(BonusType::Circumstance, 1, 2, 2, None, Statistic::Damage),
         ]);
-        assert_eq!(stacked.get(), 4);
+        assert_eq!(stacked.get(Statistic::Damage), 4);
         assert!(stacked.applied().iter().any(|modifier| {
             modifier.bonus_type() == Some(BonusType::Circumstance) && modifier.value() == 4
         }));
@@ -1704,7 +1750,7 @@ mod tests {
             assert!(stacked.applied().iter().any(|modifier| {
                 modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -1
             }));
-            assert_eq!(stacked.get(), 1);
+            assert_eq!(stacked.get(Statistic::Attack), 1);
             assert_eq!(total_on(&stacked, Statistic::Attack), 1);
         }
         assert_eq!(dice.remaining(), 1);
@@ -1808,7 +1854,7 @@ mod tests {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].value(), 4);
-            assert_eq!(stacked.get(), 4);
+            assert_eq!(stacked.get(Statistic::Attack), 4);
             assert_eq!(total_on(&stacked, Statistic::Attack), 4);
         }
         assert_eq!(dice.remaining(), 1);
@@ -1827,7 +1873,7 @@ mod tests {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].value(), -8);
-            assert_eq!(stacked.get(), -8);
+            assert_eq!(stacked.get(Statistic::Attack), -8);
             assert_eq!(total_on(&stacked, Statistic::Attack), -8);
         }
         assert_eq!(dice.remaining(), 1);
@@ -1850,7 +1896,7 @@ mod tests {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(3)));
-            assert_eq!(stacked.get(), 2);
+            assert_eq!(stacked.get(Statistic::Attack), 2);
             assert_eq!(total_on(&stacked, Statistic::Attack), 2);
         }
         assert_eq!(dice.remaining(), 1);
@@ -1875,7 +1921,7 @@ mod tests {
                     .iter()
                     .all(|modifier| modifier.statistic() == Statistic::Attack)
             );
-            assert_eq!(stacked.get(), 5);
+            assert_eq!(stacked.get(Statistic::Attack), 5);
             assert_eq!(total_on(&stacked, Statistic::Attack), 5);
             assert!(stacked.applied().iter().any(|modifier| {
                 modifier.bonus_type() == Some(BonusType::Status) && modifier.value() == 2
@@ -1944,9 +1990,75 @@ mod tests {
             assert_eq!(stacked, first);
             assert_eq!(stacked.applied().len(), 1);
             assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(1)));
-            assert_eq!(stacked.get(), 2);
+            assert_eq!(stacked.get(Statistic::Attack), 2);
             assert_eq!(total_on(&stacked, Statistic::Attack), 2);
         }
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Duplicate Effects.
+    /// Player Core, "Damage Rolls".
+    ///
+    /// One source's circumstance +2 on each statistic stays on that statistic.
+    #[test]
+    fn one_source_on_four_statistics_does_not_total_8() {
+        let dice = script();
+        let modifiers = [
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack),
+            bonus(
+                BonusType::Circumstance,
+                2,
+                1,
+                1,
+                None,
+                Statistic::ArmorClass,
+            ),
+            bonus(
+                BonusType::Circumstance,
+                2,
+                1,
+                1,
+                None,
+                Statistic::Perception,
+            ),
+            bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Damage),
+        ];
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.applied().len(), 4);
+        assert_eq!(stacked.get(Statistic::Attack), 2);
+        assert_eq!(stacked.get(Statistic::ArmorClass), 2);
+        assert_eq!(stacked.get(Statistic::Perception), 2);
+        assert_eq!(stacked.get(Statistic::Damage), 2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Duplicate Effects.
+    ///
+    /// Two maximum bonuses on different statistics each fit. They are not one sum.
+    #[test]
+    fn two_max_values_on_different_statistics_do_not_overflow() {
+        let dice = script();
+        let stacked = total(&[
+            bonus(
+                BonusType::Circumstance,
+                i32::MAX,
+                1,
+                1,
+                None,
+                Statistic::Attack,
+            ),
+            bonus(
+                BonusType::Circumstance,
+                i32::MAX,
+                1,
+                2,
+                None,
+                Statistic::Damage,
+            ),
+        ])
+        .expect("each statistic fits");
+        assert_eq!(stacked.get(Statistic::Attack), i32::MAX);
+        assert_eq!(stacked.get(Statistic::Damage), i32::MAX);
         assert_eq!(dice.remaining(), 1);
     }
 }

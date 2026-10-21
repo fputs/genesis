@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::check::{CheckRoll, DegreeOfSuccess, resolve_check};
 use crate::dice::{Dice, Faces};
-use crate::modifiers::{Modifier, ModifierError, total};
+use crate::modifiers::{Modifier, ModifierError, Statistic, total};
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -489,7 +489,9 @@ pub enum HpError {
     Overflow,
 }
 
-/// Damage after modifiers. The result is never negative.
+/// Damage after modifiers on the damage statistic. The result is never negative.
+///
+/// A modifier on another statistic is not counted.
 ///
 /// The floor of 1 applies only when the total without penalties is at least 1 and the total
 /// with penalties is 0 or below (Rules 2302). That 1 is chosen before critical doubling, so
@@ -503,10 +505,11 @@ pub fn damage_dealt(
     modifiers: &[Modifier],
     critical: bool,
 ) -> Result<i32, ModifierError> {
-    let folded = total(modifiers)?;
+    let damage_modifiers = damage_modifiers(modifiers);
+    let folded = total(&damage_modifiers)?;
     let penalties = applied_penalty_total(folded.applied())?;
-    // Both terms are `i32`, so their sum fits in `i64`.
-    let with_penalties = i64::from(rolled_plus_baked) + i64::from(folded.get());
+    // Both terms are `i32`, so their sum fits in `i64`. Only damage-statistic modifiers count.
+    let with_penalties = i64::from(rolled_plus_baked) + i64::from(folded.get(Statistic::Damage));
     let without_penalties = with_penalties
         .checked_sub(penalties)
         .ok_or(ModifierError::Overflow)?;
@@ -522,6 +525,14 @@ pub fn damage_dealt(
     } else {
         Ok(dealt)
     }
+}
+
+fn damage_modifiers(modifiers: &[Modifier]) -> Vec<Modifier> {
+    modifiers
+        .iter()
+        .copied()
+        .filter(|modifier| modifier.statistic() == Statistic::Damage)
+        .collect()
 }
 
 /// Sum of the penalties that survived the fold. Bonuses are not included.
@@ -2010,5 +2021,45 @@ mod tests {
         assert_eq!(result, Err(HpError::Overflow));
         assert_eq!(state.hit_points, 9);
         assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, "Damage Rolls".
+    /// Player Core, Duplicate Effects.
+    ///
+    /// An attack-roll bonus is not a damage modifier.
+    #[test]
+    fn an_attack_circumstance_bonus_does_not_change_damage() {
+        let dice = ScriptedDice::new([8]);
+        let attack = crate::modifiers::Modifier::bonus(
+            crate::modifiers::BonusType::Circumstance,
+            3,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+            crate::modifiers::Statistic::Attack,
+        )
+        .expect("bonus");
+        assert_eq!(damage_dealt(5, &[attack], false).expect("damage"), 5);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Damage Rolls".
+    /// Player Core, Duplicate Effects.
+    ///
+    /// An Armor Class penalty is not a damage modifier.
+    #[test]
+    fn an_armor_class_status_penalty_does_not_change_damage() {
+        let dice = ScriptedDice::new([8]);
+        let armor_class = crate::modifiers::Modifier::penalty(
+            crate::modifiers::PenaltyType::Status,
+            -4,
+            crate::modifiers::SourceId(1),
+            1,
+            None,
+            crate::modifiers::Statistic::ArmorClass,
+        )
+        .expect("penalty");
+        assert_eq!(damage_dealt(5, &[armor_class], false).expect("damage"), 5);
+        assert_eq!(dice.remaining(), 1);
     }
 }
