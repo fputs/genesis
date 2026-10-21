@@ -81,7 +81,7 @@ On one statistic, for one type, only the highest bonus and only the worst penalt
 
 ### Requirement: One effect and the highest condition rank
 
-Each modifier SHALL carry a source id, a sequence number, and its statistic. The key (source id, statistic, type, bonus or penalty) SHALL become one before the sum and SHALL NOT group different conditions. Within a key, the higher level wins, then the higher rank, otherwise the newer (greater) sequence. Value SHALL NOT override that. A repeated condition on one statistic SHALL keep its highest rank, otherwise the newer (greater) sequence. A condition with no rank SHALL apply once per statistic.
+Each modifier SHALL carry a source id, a sequence number, and its statistic. The key (source id, statistic, type, bonus or penalty) SHALL become one before the sum and SHALL NOT group different conditions. Within a key, the higher level wins, then the higher rank, otherwise the newer (greater) sequence. Value SHALL NOT override that. A repeated condition on one statistic SHALL keep the highest value before rank or sequence. A condition with no rank SHALL apply once per statistic.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -240,7 +240,7 @@ Frightened and sickened grouping SHALL key on (condition, statistic) only, never
 
 ### Requirement: Condition groups ignore the source key
 
-Condition modifiers SHALL group by (condition, statistic) only, never by source key, after the bonus and penalty split. Unequal condition ids, including a present id against none, SHALL NOT share a source key. Within a group the highest rank SHALL apply. When ranks tie, the newer sequence SHALL apply. When rank and sequence also tie, the worse penalty or the higher bonus SHALL apply. An exact tie SHALL break on the lower source id.
+Condition modifiers SHALL group by (condition, statistic) only, never by source key, after the bonus and penalty split. Unequal condition ids, including a present id against none, SHALL NOT share a source key. Within a group the order SHALL be the worst penalty or the higher bonus, the highest value, then the highest rank, then the newest sequence, then the lowest source id. Only that value comparison SHALL have a rules effect. Rank, sequence, and source id SHALL be engineering tiebreaks.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -260,6 +260,13 @@ Condition modifiers SHALL group by (condition, statistic) only, never by source 
 - **AND** its source id is 1 in both orders
 - **AND** its value is -2, the negation of rank 2
 - **AND** the attack-roll total is -2 in both orders
+
+#### Scenario: An older higher condition value beats a newer lower one
+
+- **GIVEN** frightened 3 at sequence 1 and frightened 1 at sequence 2 on the same statistic, the attack roll
+- **WHEN** they are totaled with either modifier first
+- **THEN** the status penalty is -3 in both orders
+- **AND** the total is -3 in both orders
 
 ### Requirement: Comparisons end on the lower source id
 

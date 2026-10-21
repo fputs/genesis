@@ -20,8 +20,8 @@ On that branch, `total` splits bonuses from penalties, groups conditions by `(Co
 
 - A new crate, a new dependency, or a new field on `Modifier`.
 - Filling `ConditionSlot` or writing `CombatantState`.
-- A row in `docs/designer/rules-deviations.md`. The source-id step is an engineering tiebreak, not a deviation.
-- Editing ruling R-01's rules effect. Level, rank, sequence, and the worse equal-sequence penalty stay.
+- A row in `docs/designer/rules-deviations.md`. Rank, sequence, and source id inside a condition group are engineering tiebreaks, not a deviation.
+- Rewriting ruling R-01. This change copies the designer's R-01 clarification into `docs/designer/rules-rulings.md` as written. Level, rank, and sequence inside a duplicate key stay.
 - Changing the multiple-attack-penalty table, Aid, shield bonuses, or the damage floor.
 
 ## Decisions
@@ -36,22 +36,24 @@ On that branch, `total` splits bonuses from penalties, groups conditions by `(Co
 4. Stack types per statistic. The highest bonus and the worst penalty are chosen across the groups from step 2. Two statistics do not share a bucket. Untyped penalties all stay.
 5. `finish` sorts the reported list with a total order, then checked-adds the sum.
 
-The value compared in step 2 for frightened and sickened penalties is the rewritten `-rank`, so two rank-2 penalties are an exact tie even when the caller passed `-1`. Condition 10 is not rewritten, so circumstance `-4` beats circumstance `-1` at the same rank and sequence.
+The value compared in step 2 is the penalty or bonus that stacking will use. Frightened and sickened penalties use the rewritten `-rank`, so frightened 3 is `-3` and two rank-2 penalties are an exact tie even when the caller passed `-1`. Condition 10 is not rewritten, so circumstance `-4` beats circumstance `-1`.
 
 Alternative considered: collapse the source key before condition grouping. Rejected. That is the PR #30 defect. Sickened 1 at level 5 replaces frightened 3 at level 1, and the total becomes `-1`.
 
-Alternative considered: let level win inside a condition group. Rejected. Redundant Conditions (Rules 2455) keeps the highest condition value. Frightened 3 beats frightened 1 even at a lower level. A different condition is a different group, so sickened's level does not enter frightened's comparison.
+Alternative considered: let level win inside a condition group. Rejected. Redundant Conditions (Rules 2455) keeps the highest condition value. A different condition is a different group, so sickened's level does not enter frightened's comparison.
 
 ### 2. Three comparisons, one last step
 
 Each comparison returns the candidate when the first difference says so. The last step of each is the lower source id. Rule: Duplicate Effects and same-type stacking name no further instance once the bonus or penalty is chosen. Why not: they are silent when those match. Substitute: the lower source id wins. Intent: every input order reports the same modifier and the same total. This step does not change a total the rules already chose. It is not a deviation.
 
-Condition group, after the split:
+Condition group, after the split. Only step 1 has a rules effect (Redundant Conditions, Rules 2455, Player Core pg. 442). Steps 2, 3, and 4 are engineering tiebreaks with no rules effect:
 
-1. Higher rank. A rank beats none.
-2. Greater sequence. Newer is the greater sequence. This still beats a milder or worse declared value, so `a_same_rank_condition_keeps_the_newer_sequence` stays.
-3. Value. A bonus keeps the greater value. A penalty keeps the more negative value. For frightened and sickened this is `-rank`.
-4. Lower source id.
+1. Highest value. A penalty keeps the more negative value. A bonus keeps the greater value. For frightened and sickened this is `-rank`. Frightened 3 at sequence 1 beats frightened 1 at sequence 2, and the total is `-3`.
+2. Highest rank. A rank beats none. This fires only when the values tie.
+3. Newest sequence. Newer is the greater sequence. `a_same_rank_condition_keeps_the_newer_sequence` stays because both ranks rewrite to `-2`, so the values tie and sequence 9 wins. It does not compare the declared `-9`.
+4. Lowest source id.
+
+Alternative considered: highest rank, then newest sequence, then value. Rejected by the designer review of #34. That order lets a newer frightened 1 beat an older frightened 3.
 
 Same-type stacking, per statistic:
 
@@ -92,6 +94,7 @@ Alternative considered: store conditions inside `total` and delete the lesser on
 - [Same-source frightened 3 and sickened 1 used to follow the higher level] → The total is the worse status penalty, `-3`, then `-2` after frightened drops to 2. Do not delete `frightened_2_and_sickened_1_equal_minus_2`.
 - [Different condition ids no longer share a duplicate key] → Stacking's condition-id step must keep condition 3 and condition 1 in the existing tie tests. Assert through `total`, not through a private key helper.
 - [Frightened rank 2 rewrites `-1` to `-2` before the source tie] → `two_frightened_penalties_report_the_lower_source_in_both_orders` expects value `-2` and source 1. It does not expect the declared `-1`.
+- [Condition 9 circumstance `-4` at rank 1 and circumstance `-1` at rank 2] → Value is first, so the kept penalty is `-4` and the rank is 1. The type stays circumstance. In `a_ranked_penalty_keeps_its_declared_type`, change the value, rank, and total assertions. Do not delete the test.
 - [A sort key that ignores condition id] → Two untyped penalties that share a source and differ only by condition would make `applied` follow input order, and the permutation test would fail.
 
 ## Migration Plan
