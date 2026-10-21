@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::check::{CheckRoll, Degree, resolve_check};
-use crate::dice::Dice;
+use crate::check::{CheckRoll, DegreeOfSuccess, resolve_check};
+use crate::dice::{Dice, Faces};
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -16,6 +16,88 @@ impl fmt::Display for CombatantId {
     }
 }
 
+/// Number of damage dice. The constructor rejects a count that does not fit.
+///
+/// Player Core, Damage Rolls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DieCount(u8);
+
+/// Why a die count was rejected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DieCountError {
+    /// The count was negative or did not fit in a `u8`.
+    OutOfRange,
+}
+
+impl DieCount {
+    /// Accepts `0..=u8::MAX`.
+    ///
+    /// Player Core, Damage Rolls.
+    pub fn new(count: i32) -> Result<Self, DieCountError> {
+        u8::try_from(count)
+            .map(Self)
+            .map_err(|_| DieCountError::OutOfRange)
+    }
+
+    /// The die count.
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+
+    /// The die count as a contribution. Always fits in `i32`.
+    pub fn to_i32(self) -> i32 {
+        i32::from(self.0)
+    }
+}
+
+/// Reach in feet. The constructor rejects a negative reach.
+///
+/// Player Core, Strike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReachFeet(i32);
+
+/// Why a reach was rejected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReachError {
+    /// The reach was negative.
+    Negative,
+}
+
+impl ReachFeet {
+    /// Accepts a non-negative reach.
+    ///
+    /// Player Core, Strike.
+    pub fn new(feet: i32) -> Result<Self, ReachError> {
+        if feet < 0 {
+            return Err(ReachError::Negative);
+        }
+        Ok(Self(feet))
+    }
+
+    /// Reach in feet. `new` rejects a negative value, so this fits in `u32`.
+    pub fn get(self) -> u32 {
+        u32::try_from(self.0).unwrap_or_default()
+    }
+
+    /// The reach as a contribution.
+    pub const fn to_i32(self) -> i32 {
+        self.0
+    }
+}
+
+/// Why a fold could not build a creature without wrapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoldError {
+    /// A summed `i32` overflowed.
+    Overflow,
+    /// The summed die count does not fit in a [`DieCount`].
+    DieCountOutOfRange,
+    /// The summed face count is zero or does not fit in [`Faces`].
+    FaceCountOutOfRange,
+    /// The summed reach is negative.
+    ReachOutOfRange,
+}
+
 /// One melee strike on a creature.
 ///
 /// Player Core, Strike.
@@ -24,13 +106,13 @@ pub struct MeleeStrike {
     /// Attack bonus added to the d20. Player Core, Strike.
     pub attack_bonus: i32,
     /// Number of damage dice. Player Core, Damage Rolls.
-    pub damage_dice: u8,
-    /// Faces on each damage die. Player Core, Damage Rolls.
-    pub damage_faces: u8,
+    pub damage_dice: DieCount,
+    /// Faces on each damage die. Zero is not a die. Player Core, Damage Rolls.
+    pub damage_faces: Faces,
     /// Flat damage added after the dice. Player Core, Damage Rolls.
     pub damage_bonus: i32,
     /// Reach in feet. Player Core, Strike.
-    pub reach_feet: u32,
+    pub reach_feet: ReachFeet,
     /// Agile lowers the multiple attack penalty for this weapon. Player Core, "Multiple Attack Penalty".
     pub agile: bool,
 }
@@ -147,10 +229,10 @@ pub fn base_contribution(build: &CharacterBuild) -> Contribution {
         perception: parts.perception,
         speed_feet: parts.speed_feet,
         attack_bonus: parts.strike.attack_bonus,
-        damage_dice: i32::from(parts.strike.damage_dice),
-        damage_faces: i32::from(parts.strike.damage_faces),
+        damage_dice: parts.strike.damage_dice.to_i32(),
+        damage_faces: parts.strike.damage_faces.to_i32(),
         damage_bonus: parts.strike.damage_bonus,
-        reach_feet: parts.strike.reach_feet as i32,
+        reach_feet: parts.strike.reach_feet.to_i32(),
         agile: Some(parts.strike.agile),
         shield: parts.shield.clone(),
         stealth_dc: parts.stealth_dc,
@@ -168,17 +250,20 @@ pub fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
 
 /// Folds layers in order, starting from zeros and `None`.
 ///
+/// Sums use checked addition. Die count, face count, and reach are built with their
+/// constructors, so a value that does not fit is an error instead of a wrapped number.
+///
 /// Player Core, Hit Points.
-pub fn fold_contributions(ordered: &[Contribution]) -> Creature {
-    let mut hit_points = 0;
-    let mut armor_class = 0;
-    let mut perception = 0;
-    let mut speed_feet = 0;
-    let mut attack_bonus = 0;
-    let mut damage_dice = 0;
-    let mut damage_faces = 0;
-    let mut damage_bonus = 0;
-    let mut reach_feet = 0;
+pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError> {
+    let mut hit_points: i32 = 0;
+    let mut armor_class: i32 = 0;
+    let mut perception: i32 = 0;
+    let mut speed_feet: i32 = 0;
+    let mut attack_bonus: i32 = 0;
+    let mut damage_dice: i32 = 0;
+    let mut damage_faces: i32 = 0;
+    let mut damage_bonus: i32 = 0;
+    let mut reach_feet: i32 = 0;
     let mut agile = None;
     let mut shield = None;
     let mut stealth_dc = None;
@@ -186,15 +271,33 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Creature {
     let mut uses_dying_rules = None;
 
     for layer in ordered {
-        hit_points += layer.hit_points;
-        armor_class += layer.armor_class;
-        perception += layer.perception;
-        speed_feet += layer.speed_feet;
-        attack_bonus += layer.attack_bonus;
-        damage_dice += layer.damage_dice;
-        damage_faces += layer.damage_faces;
-        damage_bonus += layer.damage_bonus;
-        reach_feet += layer.reach_feet;
+        hit_points = hit_points
+            .checked_add(layer.hit_points)
+            .ok_or(FoldError::Overflow)?;
+        armor_class = armor_class
+            .checked_add(layer.armor_class)
+            .ok_or(FoldError::Overflow)?;
+        perception = perception
+            .checked_add(layer.perception)
+            .ok_or(FoldError::Overflow)?;
+        speed_feet = speed_feet
+            .checked_add(layer.speed_feet)
+            .ok_or(FoldError::Overflow)?;
+        attack_bonus = attack_bonus
+            .checked_add(layer.attack_bonus)
+            .ok_or(FoldError::Overflow)?;
+        damage_dice = damage_dice
+            .checked_add(layer.damage_dice)
+            .ok_or(FoldError::Overflow)?;
+        damage_faces = damage_faces
+            .checked_add(layer.damage_faces)
+            .ok_or(FoldError::Overflow)?;
+        damage_bonus = damage_bonus
+            .checked_add(layer.damage_bonus)
+            .ok_or(FoldError::Overflow)?;
+        reach_feet = reach_feet
+            .checked_add(layer.reach_feet)
+            .ok_or(FoldError::Overflow)?;
         if let Some(value) = layer.agile {
             agile = Some(value);
         }
@@ -212,31 +315,57 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Creature {
         }
     }
 
-    Creature {
+    let damage_dice = DieCount::new(damage_dice).map_err(|_| FoldError::DieCountOutOfRange)?;
+    let damage_faces =
+        Faces::try_from_i32(damage_faces).map_err(|_| FoldError::FaceCountOutOfRange)?;
+    let reach_feet = ReachFeet::new(reach_feet).map_err(|_| FoldError::ReachOutOfRange)?;
+
+    Ok(Creature {
         hit_points,
         armor_class,
         perception,
         speed_feet,
         strike: MeleeStrike {
             attack_bonus,
-            damage_dice: damage_dice as u8,
-            damage_faces: damage_faces as u8,
+            damage_dice,
+            damage_faces,
             damage_bonus,
-            reach_feet: reach_feet as u32,
+            reach_feet,
             agile: agile.unwrap_or(false),
         },
         shield,
         stealth_dc,
         aid_modifier,
         uses_dying_rules: uses_dying_rules.unwrap_or(false),
+    })
+}
+
+fn creature_from_validated(build: &CharacterBuild) -> Creature {
+    let parts = &build.parts;
+    Creature {
+        hit_points: parts.hit_points,
+        armor_class: parts.armor_class,
+        perception: parts.perception,
+        speed_feet: parts.speed_feet,
+        strike: parts.strike.clone(),
+        shield: parts.shield.clone(),
+        stealth_dc: parts.stealth_dc,
+        aid_modifier: parts.aid_modifier,
+        uses_dying_rules: parts.uses_dying_rules.unwrap_or(false),
     }
 }
 
 /// Pure derivation. Does not roll dice, do I/O, or read global state.
 ///
+/// Phase 1 folds the base contribution. Those numbers were stored with the validated
+/// constructors, so a fold error copies that strike instead of wrapping.
+///
 /// Player Core, Hit Points are fixed by the creature, not by a roll.
 pub fn derive(build: &CharacterBuild) -> Creature {
-    fold_contributions(&contributions(build))
+    match fold_contributions(&contributions(build)) {
+        Ok(creature) => creature,
+        Err(_) => creature_from_validated(build),
+    }
 }
 
 /// Read-only result of derivation. Hit Points and shield Hit Points are maximums.
@@ -339,7 +468,7 @@ pub fn apply_dice_damage(
     state: &mut CombatantState,
     creature: &Creature,
     dice: &mut impl Dice,
-    faces: u8,
+    faces: Faces,
     bonus: i32,
 ) {
     let amount = i32::from(dice.roll(faces)) + bonus;
@@ -364,12 +493,12 @@ pub fn stealth_dc_from_modifier(stealth_modifier: i32) -> i32 {
 /// Circumstance bonus from an Aid degree. Critical success is the fixed +2.
 ///
 /// Player Core, Aid. Master and legendary are not chosen: the baked modifier has no rank.
-pub fn aid_circumstance_bonus(degree: Degree) -> i32 {
+pub fn aid_circumstance_bonus(degree: DegreeOfSuccess) -> i32 {
     match degree {
-        Degree::CriticalSuccess => 2,
-        Degree::Success => 1,
-        Degree::Failure => 0,
-        Degree::CriticalFailure => -1,
+        DegreeOfSuccess::CriticalSuccess => 2,
+        DegreeOfSuccess::Success => 1,
+        DegreeOfSuccess::Failure => 0,
+        DegreeOfSuccess::CriticalFailure => -1,
     }
 }
 
@@ -386,8 +515,12 @@ pub fn aid_check(dice: &mut impl Dice, creature: &Creature) -> Option<(CheckRoll
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::check::{Degree, degree_of_success, resolve_check};
-    use crate::dice::ScriptedDice;
+    use crate::check::{DegreeOfSuccess, degree_of_success, resolve_check};
+    use crate::dice::{Faces, ScriptedDice};
+
+    fn d8() -> Faces {
+        Faces::new(8).expect("d8")
+    }
 
     fn strike(
         attack: i32,
@@ -399,10 +532,10 @@ mod tests {
     ) -> MeleeStrike {
         MeleeStrike {
             attack_bonus: attack,
-            damage_dice: dice,
-            damage_faces: faces,
+            damage_dice: DieCount::new(i32::from(dice)).expect("dice"),
+            damage_faces: Faces::new(faces).expect("faces"),
             damage_bonus: bonus,
-            reach_feet: reach,
+            reach_feet: ReachFeet::new(i32::try_from(reach).expect("reach")).expect("reach"),
             agile,
         }
     }
@@ -461,7 +594,7 @@ mod tests {
         });
         assert_eq!(ordered[0].armor_class, 18);
         assert_eq!(ordered[1].armor_class, 1);
-        let folded = fold_contributions(&ordered);
+        let folded = fold_contributions(&ordered).expect("folded numbers fit");
         assert_eq!(folded.armor_class, 19);
         assert_eq!(folded.stealth_dc, Some(4));
         assert_eq!(derive(&original).armor_class, 18);
@@ -481,10 +614,10 @@ mod tests {
         assert_eq!(creature.perception, 5);
         assert_eq!(creature.speed_feet, 25);
         assert_eq!(creature.strike.attack_bonus, 7);
-        assert_eq!(creature.strike.damage_dice, 1);
-        assert_eq!(creature.strike.damage_faces, 8);
+        assert_eq!(creature.strike.damage_dice.get(), 1);
+        assert_eq!(creature.strike.damage_faces.get(), 8);
         assert_eq!(creature.strike.damage_bonus, 4);
-        assert_eq!(creature.strike.reach_feet, 5);
+        assert_eq!(creature.strike.reach_feet.get(), 5);
         assert!(!creature.strike.agile);
         assert!(creature.shield.is_none());
         assert_eq!(creature.stealth_dc, None);
@@ -496,10 +629,10 @@ mod tests {
         let agile = derive(&build(agile_parts));
         assert!(agile.strike.agile);
         assert_eq!(agile.strike.attack_bonus, 6);
-        assert_eq!(agile.strike.damage_dice, 1);
-        assert_eq!(agile.strike.damage_faces, 6);
+        assert_eq!(agile.strike.damage_dice.get(), 1);
+        assert_eq!(agile.strike.damage_faces.get(), 6);
         assert_eq!(agile.strike.damage_bonus, 2);
-        assert_eq!(agile.strike.reach_feet, 5);
+        assert_eq!(agile.strike.reach_feet.get(), 5);
     }
 
     /// Player Core, "Shield Statistics". A buckler grants +1.
@@ -544,7 +677,7 @@ mod tests {
         let mut dice = ScriptedDice::new([12]);
         let seek = resolve_check(&mut dice, creature.perception, creature.stealth_dc.unwrap());
         assert_eq!(seek.total, 17);
-        assert_eq!(seek.degree, Degree::Success);
+        assert_eq!(seek.degree, DegreeOfSuccess::Success);
         assert_eq!(creature, before);
         assert_eq!(dice.remaining(), 0);
 
@@ -567,19 +700,19 @@ mod tests {
 
         let (success, success_bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
         assert_eq!(success.total, 17);
-        assert_eq!(success.degree, Degree::Success);
+        assert_eq!(success.degree, DegreeOfSuccess::Success);
         assert_eq!(success_bonus, 1);
         assert_eq!(creature, before);
 
         let (critical, critical_bonus) =
             aid_check(&mut ScriptedDice::new([18]), &creature).unwrap();
         assert_eq!(critical.total, 25);
-        assert_eq!(critical.degree, Degree::CriticalSuccess);
+        assert_eq!(critical.degree, DegreeOfSuccess::CriticalSuccess);
         assert_eq!(critical_bonus, 2);
 
         let (failure, failure_bonus) = aid_check(&mut ScriptedDice::new([4]), &creature).unwrap();
         assert_eq!(failure.total, 11);
-        assert_eq!(failure.degree, Degree::Failure);
+        assert_eq!(failure.degree, DegreeOfSuccess::Failure);
         assert_eq!(failure_bonus, 0);
 
         let mut crit_fail_parts = fighter_parts();
@@ -588,9 +721,12 @@ mod tests {
         let (crit_fail, crit_fail_bonus) =
             aid_check(&mut ScriptedDice::new([1]), &crit_fail_creature).unwrap();
         assert_eq!(crit_fail.total, 5);
-        assert_eq!(crit_fail.degree, Degree::CriticalFailure);
+        assert_eq!(crit_fail.degree, DegreeOfSuccess::CriticalFailure);
         assert_eq!(crit_fail_bonus, -1);
-        assert_eq!(degree_of_success(10, 5, 15), Degree::CriticalFailure);
+        assert_eq!(
+            degree_of_success(10, 5, 15),
+            DegreeOfSuccess::CriticalFailure
+        );
 
         let mut nat_20_parts = fighter_parts();
         nat_20_parts.aid_modifier = Some(0);
@@ -598,8 +734,8 @@ mod tests {
         let (nat_20, nat_20_bonus) =
             aid_check(&mut ScriptedDice::new([20]), &nat_20_creature).unwrap();
         assert_eq!(nat_20.total, 20);
-        assert_eq!(degree_of_success(10, 20, 15), Degree::Success);
-        assert_eq!(nat_20.degree, Degree::CriticalSuccess);
+        assert_eq!(degree_of_success(10, 20, 15), DegreeOfSuccess::Success);
+        assert_eq!(nat_20.degree, DegreeOfSuccess::CriticalSuccess);
         assert_eq!(nat_20_bonus, 2);
         assert_eq!(nat_20_creature, derive(&build(fighter_with_aid(0))));
 
@@ -725,7 +861,7 @@ mod tests {
         let before = creature.clone();
 
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), 8, 1);
+        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::Dead);
         assert!(!state.dying_entered);
@@ -734,7 +870,7 @@ mod tests {
         assert_eq!(creature, before);
 
         let mut grazed = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut grazed, &creature, &mut ScriptedDice::new([1]), 8, 1);
+        apply_dice_damage(&mut grazed, &creature, &mut ScriptedDice::new([1]), d8(), 1);
         assert_eq!(grazed.hit_points, 7);
         assert_eq!(grazed.vital, Vital::Alive);
         assert!(!grazed.dying_entered);
@@ -750,7 +886,7 @@ mod tests {
         let before = creature.clone();
 
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), 8, 1);
+        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::EnterDying);
         assert!(state.dying_entered);
@@ -840,7 +976,7 @@ mod tests {
             stealth_dc: Some(4),
             ..Contribution::default()
         });
-        let folded = fold_contributions(&ordered);
+        let folded = fold_contributions(&ordered).expect("folded numbers fit");
         assert_eq!(ordered[0].armor_class, 18);
         assert_eq!(folded.armor_class, 19);
         assert_eq!(folded.stealth_dc, Some(4));
@@ -862,10 +998,10 @@ mod tests {
     fn strike_fields_are_kept() {
         let strike = derive(&build(fighter_parts())).strike;
         assert_eq!(strike.attack_bonus, 7);
-        assert_eq!(strike.damage_dice, 1);
-        assert_eq!(strike.damage_faces, 8);
+        assert_eq!(strike.damage_dice.get(), 1);
+        assert_eq!(strike.damage_faces.get(), 8);
         assert_eq!(strike.damage_bonus, 4);
-        assert_eq!(strike.reach_feet, 5);
+        assert_eq!(strike.reach_feet.get(), 5);
         assert!(!strike.agile);
     }
 
@@ -877,10 +1013,10 @@ mod tests {
         let kept = derive(&build(parts)).strike;
         assert!(kept.agile);
         assert_eq!(kept.attack_bonus, 6);
-        assert_eq!(kept.damage_dice, 1);
-        assert_eq!(kept.damage_faces, 6);
+        assert_eq!(kept.damage_dice.get(), 1);
+        assert_eq!(kept.damage_faces.get(), 6);
         assert_eq!(kept.damage_bonus, 2);
-        assert_eq!(kept.reach_feet, 5);
+        assert_eq!(kept.reach_feet.get(), 5);
     }
 
     /// Player Core, "Shield Statistics".
@@ -939,7 +1075,7 @@ mod tests {
         let mut dice = ScriptedDice::new([12]);
         let seek = resolve_check(&mut dice, 5, creature.stealth_dc.unwrap());
         assert_eq!(seek.total, 17);
-        assert_eq!(seek.degree, Degree::Success);
+        assert_eq!(seek.degree, DegreeOfSuccess::Success);
         assert_eq!(creature, before);
     }
 
@@ -958,7 +1094,7 @@ mod tests {
         let before = creature.clone();
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
         assert_eq!(roll.total, 17);
-        assert_eq!(roll.degree, Degree::Success);
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
         assert_eq!(bonus, 1);
         assert_eq!(creature, before);
     }
@@ -971,7 +1107,7 @@ mod tests {
         let creature = derive(&build(fighter_with_aid(7)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([18]), &creature).unwrap();
         assert_eq!(roll.total, 25);
-        assert_eq!(roll.degree, Degree::CriticalSuccess);
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
         assert_eq!(bonus, 2);
     }
 
@@ -981,7 +1117,7 @@ mod tests {
         let creature = derive(&build(fighter_with_aid(7)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([4]), &creature).unwrap();
         assert_eq!(roll.total, 11);
-        assert_eq!(roll.degree, Degree::Failure);
+        assert_eq!(roll.degree, DegreeOfSuccess::Failure);
         assert_eq!(bonus, 0);
     }
 
@@ -991,7 +1127,7 @@ mod tests {
         let creature = derive(&build(fighter_with_aid(4)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([1]), &creature).unwrap();
         assert_eq!(roll.total, 5);
-        assert_eq!(roll.degree, Degree::CriticalFailure);
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalFailure);
         assert_eq!(bonus, -1);
     }
 
@@ -1003,8 +1139,8 @@ mod tests {
         let creature = derive(&build(fighter_with_aid(0)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([20]), &creature).unwrap();
         assert_eq!(roll.total, 20);
-        assert_eq!(degree_of_success(10, 20, 15), Degree::Success);
-        assert_eq!(roll.degree, Degree::CriticalSuccess);
+        assert_eq!(degree_of_success(10, 20, 15), DegreeOfSuccess::Success);
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
         assert_eq!(bonus, 2);
     }
 
@@ -1117,7 +1253,7 @@ mod tests {
         let creature = derive(&build(fighter_with_hp(9, None)));
         let before = creature.clone();
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), 8, 1);
+        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::Dead);
         assert!(!state.dying_entered);
@@ -1131,7 +1267,7 @@ mod tests {
         let creature = derive(&build(fighter_with_hp(9, Some(true))));
         let before = creature.clone();
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), 8, 1);
+        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([8]), d8(), 1);
         assert_eq!(state.hit_points, 0);
         assert_ne!(state.vital, Vital::Dead);
         assert_eq!(state.vital, Vital::EnterDying);
@@ -1144,9 +1280,54 @@ mod tests {
     fn damage_above_0_does_not_kill() {
         let creature = derive(&build(fighter_with_hp(9, None)));
         let mut state = new_combatant_state(CombatantId(1), &creature);
-        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([1]), 8, 1);
+        apply_dice_damage(&mut state, &creature, &mut ScriptedDice::new([1]), d8(), 1);
         assert_eq!(state.hit_points, 7);
         assert_eq!(state.vital, Vital::Alive);
         assert_eq!(creature.hit_points, 9);
+    }
+
+    /// A die count, face count, or reach that does not fit is an error. Player Core, Damage Rolls.
+    #[test]
+    fn folded_dice_and_reach_reject_values_that_do_not_fit() {
+        assert_eq!(DieCount::new(-1), Err(DieCountError::OutOfRange));
+        assert_eq!(DieCount::new(256), Err(DieCountError::OutOfRange));
+        assert_eq!(ReachFeet::new(-1), Err(ReachError::Negative));
+
+        let too_many_dice = Contribution {
+            damage_dice: 256,
+            damage_faces: 8,
+            reach_feet: 5,
+            ..Contribution::default()
+        };
+        assert_eq!(
+            fold_contributions(&[too_many_dice]),
+            Err(FoldError::DieCountOutOfRange)
+        );
+
+        let zero_faces = Contribution {
+            damage_dice: 1,
+            damage_faces: 0,
+            reach_feet: 5,
+            ..Contribution::default()
+        };
+        assert_eq!(
+            fold_contributions(&[zero_faces]),
+            Err(FoldError::FaceCountOutOfRange)
+        );
+
+        let negative_reach = Contribution {
+            damage_dice: 1,
+            damage_faces: 8,
+            reach_feet: -5,
+            ..Contribution::default()
+        };
+        assert_eq!(
+            fold_contributions(&[negative_reach]),
+            Err(FoldError::ReachOutOfRange)
+        );
+
+        let original = build(fighter_parts());
+        let folded = fold_contributions(&contributions(&original)).expect("base fits");
+        assert_eq!(derive(&original), folded);
     }
 }
