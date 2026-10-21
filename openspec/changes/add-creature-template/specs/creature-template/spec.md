@@ -2,53 +2,96 @@
 
 ## Purpose
 
-Stores baked creature numbers for Phase 1, including one melee strike and whether a creature that reaches 0 Hit Points dies or gains dying.
+Builds a character by composition: immutable inputs derive a read-only creature, and combat keeps its own state.
 
 ## ADDED Requirements
 
-### Requirement: Baked statistics stay as authored
+### Requirement: CharacterBuild holds immutable inputs
 
-A template SHALL store Hit Points, Armor Class, the Perception modifier, and Speed in feet as the authored numbers. Loading a template SHALL NOT recompute those numbers from level or from how many creatures are in the roster.
+A CharacterBuild SHALL be the immutable inputs for one character. Phase 1 inputs SHALL be the baked stat block plus stealth DC, Aid modifier, shield, and uses_dying_rules. The build SHALL be able to gain ancestry, class, feat, attribute, and proficiency later as further sources. Derivation and combat SHALL NOT modify the build.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2285 (Player Core pg. 401, a DC is 10 plus the modifier)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2285 (Player Core pg. 401, DC from a modifier)
+
+#### Scenario: The build is unchanged by derive
+
+- **GIVEN** a CharacterBuild with 20 Hit Points, Armor Class 18, Perception +5, and Speed 25
+- **WHEN** derive is called
+- **THEN** the build still compares equal to its value from before the call
+
+#### Scenario: Combat does not write the build
+
+- **GIVEN** that build, its derived Creature, and a CombatantState for CombatantId(0)
+- **WHEN** the state's current Hit Points change
+- **THEN** the CharacterBuild still compares equal to its original value
+
+### Requirement: derive is pure and deterministic
+
+derive SHALL be a pure function of the CharacterBuild. It SHALL NOT roll Dice, perform I/O, or read global state. Two calls on one build SHALL return equal Creatures. A clone of that build, and any other build that compares equal to it, SHALL derive an equal Creature.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points are fixed by the creature, not by a roll)
+
+#### Scenario: Calling derive twice matches
+
+- **GIVEN** one CharacterBuild and a scripted d20 holding 8
+- **WHEN** derive is called twice
+- **THEN** the two Creatures are equal and the scripted 8 is still unused
+
+#### Scenario: A clone and an equal build match
+
+- **GIVEN** a CharacterBuild, a clone of it, and a second build with the same inputs so the two compare equal
+- **WHEN** derive is called on each
+- **THEN** all three Creatures are equal
+
+### Requirement: Derivation folds ordered contributions
+
+derive SHALL fold an ordered list of contributions taken from the CharacterBuild. Phase 1 SHALL supply only the base contribution, which carries the authored statistics. A later contribution's numbers SHALL be applied after the base, in list order. Callers SHALL still call derive with only the build.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points are authored on the creature, then later sources add to them)
+
+#### Scenario: Phase 1 folds only the base
+
+- **GIVEN** a Phase 1 CharacterBuild with Armor Class 18
+- **WHEN** derive is called with that build alone
+- **THEN** the contribution list is the base only and the Creature's Armor Class is 18
+
+#### Scenario: A later contribution is folded after the base
+
+- **GIVEN** an ordered list whose base contribution has Armor Class 18 and whose next contribution adds +1 Armor Class
+- **WHEN** those contributions are folded
+- **THEN** Armor Class is 19, the base was applied first, and derive's caller still passes only a CharacterBuild
+
+### Requirement: Derived statistics and one melee strike
+
+derive SHALL put the authored Hit Points, Armor Class, Perception modifier, and Speed in feet on the Creature, and SHALL include exactly one melee strike. The strike SHALL record attack bonus, damage dice, die faces, damage bonus, reach in feet, and an agile flag. Those numbers SHALL NOT be recomputed from level or from roster size.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points)
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, agile)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2345 (Player Core pg. 420, Speed)
 
 #### Scenario: Authored numbers are kept
 
-- **GIVEN** a template with 20 Hit Points, Armor Class 18, Perception modifier +5, and Speed 25
-- **WHEN** the template is loaded
-- **THEN** those four numbers are 20, 18, +5, and 25
-
-#### Scenario: A one-creature roster does not change the numbers
-
-- **GIVEN** that same template as the only creature in a roster
-- **WHEN** the template is loaded
-- **THEN** Hit Points, Armor Class, Perception modifier, and Speed are unchanged
-
-### Requirement: One melee strike
-
-A template SHALL include exactly one melee strike. That strike SHALL record an attack bonus, a damage dice count, die faces, a damage bonus, reach in feet, and whether the weapon is agile.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, agile)
+- **GIVEN** a build with 20 Hit Points, Armor Class 18, Perception modifier +5, and Speed 25
+- **WHEN** derive is called
+- **THEN** the Creature has those four numbers
 
 #### Scenario: Strike fields are kept
 
 - **GIVEN** a melee strike with attack bonus +7, damage 1d8+4, reach 5 feet, and agile false
-- **WHEN** the template is loaded
-- **THEN** the strike has attack bonus +7, 1 die of 8 faces, bonus +4, reach 5, and agile false
+- **WHEN** derive is called
+- **THEN** the Creature's strike has attack bonus +7, 1 die of 8 faces, bonus +4, reach 5, and agile false
 
 #### Scenario: The agile flag is kept
 
 - **GIVEN** a melee strike with agile true, attack bonus +6, damage 1d6+2, and reach 5 feet
-- **WHEN** the template is loaded
+- **WHEN** derive is called
 - **THEN** the agile flag is true and the other strike numbers are unchanged
 
 ### Requirement: Shield bonus is stored per shield
 
-An optional shield SHALL store hardness, Hit Points, broken threshold, and that shield's own AC bonus. The AC bonus SHALL remain the stored value for that shield. The template SHALL NOT replace it with a flat +2.
+An optional shield on the build SHALL carry hardness, Hit Points, broken threshold, and that shield's own AC bonus through derive onto the Creature. The AC bonus SHALL remain the stored value. derive SHALL NOT replace it with a flat +2. Shield Hit Points on the Creature SHALL be the maximum, not a runtime value.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2181 (Player Core pg. 274, Shield Statistics)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, a buckler grants +1)
@@ -56,24 +99,24 @@ An optional shield SHALL store hardness, Hit Points, broken threshold, and that 
 #### Scenario: A buckler bonus stays +1
 
 - **GIVEN** a shield with hardness 3, Hit Points 8, broken threshold 4, and AC bonus +1
-- **WHEN** the template is loaded
-- **THEN** those four shield numbers are 3, 8, 4, and +1
+- **WHEN** derive is called
+- **THEN** the Creature's shield numbers are 3, 8, 4, and +1
 
 #### Scenario: A second shield keeps its own bonus
 
-- **GIVEN** another template whose shield has hardness 5, Hit Points 20, broken threshold 10, and AC bonus +2
-- **WHEN** that template is loaded
-- **THEN** the AC bonus is +2 and the first shield's AC bonus is still +1
+- **GIVEN** another build whose shield has hardness 5, Hit Points 20, broken threshold 10, and AC bonus +2
+- **WHEN** derive is called on each build
+- **THEN** the bonuses are +1 and +2
 
 #### Scenario: No shield is omitted
 
-- **GIVEN** a template with no shield
-- **WHEN** the template is loaded
-- **THEN** it has no shield numbers and no AC bonus is invented
+- **GIVEN** a build with no shield
+- **WHEN** derive is called
+- **THEN** the Creature has no shield and no AC bonus is invented
 
 ### Requirement: Optional stealth DC
 
-An optional stealth DC SHALL equal 10 plus the creature's Stealth modifier. A Seek check against that creature SHALL use this DC. Omitting the field SHALL store no Stealth DC.
+An optional stealth DC SHALL equal 10 plus the creature's Stealth modifier. derive SHALL copy that DC onto the Creature. A Seek check SHALL use the Creature's DC and SHALL NOT change the Creature. Omitting the field SHALL leave no Stealth DC.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2301 (Player Core pg. 417, Seek)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2285 (Player Core pg. 401, DC = 10 + modifier)
@@ -81,24 +124,24 @@ An optional stealth DC SHALL equal 10 plus the creature's Stealth modifier. A Se
 #### Scenario: Stealth modifier plus 10
 
 - **GIVEN** a Stealth modifier of +7
-- **WHEN** the stealth DC is baked
-- **THEN** stealth_dc is 17
+- **WHEN** the stealth DC is placed on the build and derive is called
+- **THEN** the Creature's stealth DC is 17
 
-#### Scenario: Seek uses the baked DC
+#### Scenario: Seek uses the derived DC
 
-- **GIVEN** a creature with stealth_dc 17 and a seeker with Perception modifier +5 and a scripted natural 12
-- **WHEN** the Seek check is resolved against that stealth DC
-- **THEN** the total is 17 and the degree is success
+- **GIVEN** a Creature with stealth DC 17, Perception modifier +5, and a scripted natural 12
+- **WHEN** the Seek check is resolved against that DC
+- **THEN** the total is 17, the degree is success, and the Creature is unchanged
 
 #### Scenario: Omitted stealth DC stores nothing
 
-- **GIVEN** a template that omits stealth_dc
-- **WHEN** the template is loaded
-- **THEN** no Stealth DC is stored
+- **GIVEN** a build that omits stealth DC
+- **WHEN** derive is called
+- **THEN** the Creature has no Stealth DC
 
 ### Requirement: Aid modifier against DC 15
 
-When an Aid modifier is baked, an Aid check SHALL add that modifier to a d20 and compare the total with DC 15. Success SHALL grant a +1 circumstance bonus. Failure SHALL grant 0. Critical failure SHALL grant a -1 circumstance penalty. Critical success SHALL grant a +2 circumstance bonus.
+When an Aid modifier is on the build, derive SHALL copy it onto the Creature. An Aid check SHALL add that modifier to a d20 against DC 15 and SHALL NOT change the Creature. Success SHALL grant +1 circumstance. Failure SHALL grant 0. Critical failure SHALL grant -1 circumstance. Critical success SHALL grant +2 circumstance. The build SHALL NOT store a prepared-to-help flag.
 
 **Rule**: Player Core Aid gives +2 circumstance on a critical success, +3 at master, and +4 at legendary. https://2e.aonprd.com/Actions.aspx?ID=2292
 **Why**: The baked modifier has no proficiency rank, so master and legendary cannot be chosen.
@@ -111,7 +154,7 @@ When an Aid modifier is baked, an Aid check SHALL add that modifier to a d20 and
 
 - **GIVEN** an aid modifier of +7 and a scripted natural 10
 - **WHEN** the Aid check is resolved against DC 15
-- **THEN** the total is 17, the degree is success, and the circumstance bonus is +1
+- **THEN** the total is 17, the degree is success, the circumstance bonus is +1, and the Creature is unchanged
 
 #### Scenario: Critical success grants +2
 
@@ -137,99 +180,100 @@ When an Aid modifier is baked, an Aid check SHALL add that modifier to a d20 and
 - **WHEN** the Aid check is resolved against DC 15
 - **THEN** the numeric total 20 is a success, the natural 20 makes it a critical success, and the circumstance bonus is +2
 
-### Requirement: Plain data and CombatantId
+#### Scenario: No prepared flag is required
 
-Templates SHALL be plain data with no fixed party size. A roster of one creature and a roster of more than four creatures SHALL both be valid. Each creature SHALL be identified by a CombatantId holding a u32, and that id SHALL NOT be limited to a four-slot party index.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2421 (Player Core, Encounter Mode)
-
-#### Scenario: One creature is a valid roster
-
-- **GIVEN** one template identified by CombatantId(0)
-- **WHEN** the roster is accepted
-- **THEN** the roster length is 1 and the id is 0
-
-#### Scenario: More than four creatures is a valid roster
-
-- **GIVEN** six templates identified by CombatantId(0) through CombatantId(5)
-- **WHEN** the roster is accepted
-- **THEN** the roster length is 6
-
-#### Scenario: A large id is valid
-
-- **GIVEN** a template identified by CombatantId(4000000000)
-- **WHEN** the id is read
-- **THEN** the id value is 4000000000
+- **GIVEN** a build with aid modifier +6 and no prepared-to-help value
+- **WHEN** derive is called
+- **THEN** the Creature has aid modifier +6 and does not record a prepared-to-help state
 
 ### Requirement: Validation rejects impossible statistics
 
-Validation SHALL reject a template whose Hit Points are 0 or less. Validation SHALL reject a template whose Speed is negative. Speed 0 SHALL be accepted.
+Validation of a CharacterBuild SHALL reject Hit Points of 0 or less and SHALL reject a negative Speed. Speed 0 SHALL be accepted. A rejected build SHALL NOT be derived.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, creatures are not reduced below 0 Hit Points)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2345 (Player Core pg. 420, Speed)
 
 #### Scenario: Zero Hit Points is rejected
 
-- **GIVEN** a template whose other numbers are valid and whose Hit Points are 0
-- **WHEN** the template is validated
+- **GIVEN** inputs whose other numbers are valid and whose Hit Points are 0
+- **WHEN** the build is validated
 - **THEN** validation rejects it
 
 #### Scenario: Negative Hit Points are rejected
 
-- **GIVEN** a template whose Hit Points are -1
-- **WHEN** the template is validated
+- **GIVEN** inputs whose Hit Points are -1
+- **WHEN** the build is validated
 - **THEN** validation rejects it
 
 #### Scenario: Negative Speed is rejected
 
-- **GIVEN** a template whose Speed is -5 and whose Hit Points are 12
-- **WHEN** the template is validated
+- **GIVEN** inputs whose Speed is -5 and whose Hit Points are 12
+- **WHEN** the build is validated
 - **THEN** validation rejects it
 
 #### Scenario: Speed zero is accepted
 
-- **GIVEN** a template with 12 Hit Points and Speed 0
-- **WHEN** the template is validated
-- **THEN** validation accepts it and the stored Speed is 0
+- **GIVEN** inputs with 12 Hit Points and Speed 0
+- **WHEN** the build is validated and derived
+- **THEN** the Creature's Speed is 0
 
-### Requirement: Aid preparation is not stored
+### Requirement: CombatantState is separate from the creature
 
-The template SHALL NOT store whether the creature has prepared to Aid. That prepared state belongs to the later Aid change. A template SHALL be valid without any prepared-to-help flag.
+Current Hit Points, temporary Hit Points, conditions, dying, wounded, shield Hit Points, raised shield, actions, and the reaction SHALL live on CombatantState. That state SHALL be keyed by CombatantId(u32) and SHALL be initialized from a Creature. Fresh states for the same Creature and CombatantId SHALL be equal. Mutating a state SHALL leave the Creature and the CharacterBuild unchanged. A roster SHALL have no fixed size, and an id SHALL NOT be limited to four slots.
 
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid requires preparing to help)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2421 (Player Core, Encounter Mode)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 
-#### Scenario: No prepared flag is required
+#### Scenario: Fresh states from one creature match
 
-- **GIVEN** a template with aid modifier +6 and no prepared-to-help value
-- **WHEN** the template is loaded
-- **THEN** it is valid and it does not record a prepared-to-help state
+- **GIVEN** one Creature and CombatantId(7)
+- **WHEN** two CombatantStates are initialized from that pair
+- **THEN** the two states are equal, current Hit Points equal the Creature's Hit Points, temporary Hit Points are 0, and the shield is not raised
+
+#### Scenario: Mutating state leaves the creature unchanged
+
+- **GIVEN** a Creature with 20 Hit Points and a CombatantState initialized from it
+- **WHEN** the state's current Hit Points become 12
+- **THEN** the Creature still has 20 Hit Points and compares equal to its value from before the change
+
+#### Scenario: Two ids can share one creature
+
+- **GIVEN** one Creature
+- **WHEN** states are created for CombatantId(0) and CombatantId(4000000000)
+- **THEN** both states exist, their ids are those values, and the Creature is unchanged
+
+#### Scenario: More than four states are valid
+
+- **GIVEN** one Creature
+- **WHEN** six states are created with CombatantId(0) through CombatantId(5)
+- **THEN** the roster length is 6
 
 ### Requirement: uses_dying_rules defaults to death at 0 Hit Points
 
-A template SHALL store uses_dying_rules as a bool. When the caller omits it, the value SHALL be false. A creature with uses_dying_rules false that reaches 0 Hit Points SHALL be dead and SHALL NOT gain dying. A creature with uses_dying_rules true that reaches 0 Hit Points SHALL gain dying as encounter-core specifies and SHALL NOT be dead only because it reached 0 Hit Points. This capability SHALL NOT specify how the dying value changes.
+uses_dying_rules SHALL be a build input and SHALL default to false when omitted. derive SHALL copy it onto the Creature and SHALL NOT roll Dice. At 0 current Hit Points, a false flag SHALL mark that CombatantState dead with no dying. A true flag SHALL record that dying applies, as encounter-core specifies, and SHALL NOT mark the state dead only for reaching 0. The Creature SHALL stay unchanged. This capability SHALL NOT set the dying value.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 
 #### Scenario: Omitting the flag defaults to false
 
-- **GIVEN** a template that does not set uses_dying_rules
-- **WHEN** the template is loaded
-- **THEN** uses_dying_rules is false
+- **GIVEN** a build that does not set uses_dying_rules
+- **WHEN** derive is called
+- **THEN** the Creature's uses_dying_rules is false
 
-#### Scenario: Without the flag, 0 Hit Points is death
+#### Scenario: Without the flag, 0 Hit Points is death on the state
 
-- **GIVEN** a creature with 9 Hit Points, uses_dying_rules false, and a scripted d8 of 8 for damage 1d8+1
-- **WHEN** that damage is applied
-- **THEN** the creature has 0 Hit Points, is dead, and has no dying condition
+- **GIVEN** a Creature with 9 Hit Points and uses_dying_rules false, a state at 9 current Hit Points, and a scripted d8 of 8 for damage 1d8+1
+- **WHEN** that damage is applied to the state
+- **THEN** the state has 0 current Hit Points, is dead, and has no dying condition, and the Creature still has 9 Hit Points
 
-#### Scenario: With the flag, 0 Hit Points enters dying
+#### Scenario: With the flag, 0 Hit Points enters dying on the state
 
-- **GIVEN** a creature with 9 Hit Points, uses_dying_rules true, and a scripted d8 of 8 for damage 1d8+1
-- **WHEN** that damage is applied
-- **THEN** the creature has 0 Hit Points, is not dead, and gains dying as encounter-core specifies
+- **GIVEN** a Creature with 9 Hit Points and uses_dying_rules true, a state at 9 current Hit Points, and a scripted d8 of 8 for damage 1d8+1
+- **WHEN** that damage is applied to the state
+- **THEN** the state has 0 current Hit Points, is not dead, and gains dying as encounter-core specifies, and the Creature is unchanged
 
-#### Scenario: Damage that leaves Hit Points above 0 does not kill
+#### Scenario: Damage above 0 does not kill
 
-- **GIVEN** a creature with 9 Hit Points, uses_dying_rules false, and a scripted d8 of 1 for damage 1d8+1
-- **WHEN** that damage is applied
-- **THEN** the creature has 7 Hit Points and is not dead
+- **GIVEN** a Creature with 9 Hit Points and uses_dying_rules false, a state at 9 current Hit Points, and a scripted d8 of 1 for damage 1d8+1
+- **WHEN** that damage is applied to the state
+- **THEN** the state has 7 current Hit Points and is not dead, and the Creature still has 9 Hit Points
