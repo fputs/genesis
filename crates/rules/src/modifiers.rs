@@ -106,12 +106,43 @@ enum ModifierKind {
     Penalty(PenaltyType),
 }
 
+/// Where a modifier came from. Caller ids and reserved rules do not compare equal.
+///
+/// A caller builds a [`SourceId`]. The multiple attack penalty and the other producers in
+/// this module use a reserved variant, so no `SourceId` a caller can construct names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum ModifierSource {
+    Caller(SourceId),
+    MultipleAttackPenalty,
+    Prone,
+    Aid,
+    Cover,
+    OffGuard,
+    UnconsciousArmorClass,
+    UnconsciousPerception,
+}
+
+impl ModifierSource {
+    fn caller_id(self) -> Option<SourceId> {
+        match self {
+            Self::Caller(id) => Some(id),
+            Self::MultipleAttackPenalty
+            | Self::Prone
+            | Self::Aid
+            | Self::Cover
+            | Self::OffGuard
+            | Self::UnconsciousArmorClass
+            | Self::UnconsciousPerception => None,
+        }
+    }
+}
+
 /// One bonus or penalty. The value is greater than 0 for a bonus and less than 0 for a penalty.
 ///
 /// Player Core, Bonuses and Penalties.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Modifier {
-    source: SourceId,
+    source: ModifierSource,
     sequence: u32,
     level: Option<u32>,
     condition: Option<Condition>,
@@ -131,6 +162,24 @@ impl Modifier {
         ty: BonusType,
         value: i32,
         source: SourceId,
+        sequence: u32,
+        level: Option<u32>,
+        statistic: Statistic,
+    ) -> Result<Self, ModifierError> {
+        Self::bonus_from(
+            ty,
+            value,
+            ModifierSource::Caller(source),
+            sequence,
+            level,
+            statistic,
+        )
+    }
+
+    fn bonus_from(
+        ty: BonusType,
+        value: i32,
+        source: ModifierSource,
         sequence: u32,
         level: Option<u32>,
         statistic: Statistic,
@@ -162,6 +211,24 @@ impl Modifier {
         ty: PenaltyType,
         value: i32,
         source: SourceId,
+        sequence: u32,
+        level: Option<u32>,
+        statistic: Statistic,
+    ) -> Result<Self, ModifierError> {
+        Self::penalty_from(
+            ty,
+            value,
+            ModifierSource::Caller(source),
+            sequence,
+            level,
+            statistic,
+        )
+    }
+
+    fn penalty_from(
+        ty: PenaltyType,
+        value: i32,
+        source: ModifierSource,
         sequence: u32,
         level: Option<u32>,
         statistic: Statistic,
@@ -217,9 +284,13 @@ impl Modifier {
         self.level
     }
 
-    /// The effect this modifier came from.
-    pub fn source(self) -> SourceId {
-        self.source
+    /// The caller-supplied effect id, when this modifier has one.
+    ///
+    /// Reserved producers, including the multiple attack penalty, have no caller id.
+    ///
+    /// Player Core, Duplicate Effects. Player Core, "Multiple Attack Penalty".
+    pub fn source(self) -> Option<SourceId> {
+        self.source.caller_id()
     }
 
     /// The statistic this modifier applies to.
@@ -662,14 +733,29 @@ fn add_statistic(
     Ok(())
 }
 
-fn sort_key(modifier: &Modifier) -> (u8, i32, u32, u32, u8) {
+fn sort_key(modifier: &Modifier) -> (u8, i32, u32, u8, u32, u8) {
+    let (source_kind, source_id) = source_ord(modifier.source);
     (
         kind_ord(modifier.kind),
         modifier.value,
         modifier.sequence,
-        modifier.source.0,
+        source_kind,
+        source_id,
         statistic_ord(modifier.statistic),
     )
+}
+
+fn source_ord(source: ModifierSource) -> (u8, u32) {
+    match source {
+        ModifierSource::Caller(id) => (0, id.0),
+        ModifierSource::MultipleAttackPenalty => (1, 0),
+        ModifierSource::Prone => (2, 0),
+        ModifierSource::Aid => (3, 0),
+        ModifierSource::Cover => (4, 0),
+        ModifierSource::OffGuard => (5, 0),
+        ModifierSource::UnconsciousArmorClass => (6, 0),
+        ModifierSource::UnconsciousPerception => (7, 0),
+    }
 }
 
 fn statistic_ord(statistic: Statistic) -> u8 {
@@ -692,14 +778,6 @@ fn kind_ord(kind: ModifierKind) -> u8 {
         ModifierKind::Penalty(PenaltyType::Untyped) => 6,
     }
 }
-
-const MAP_SOURCE: SourceId = SourceId(1);
-const PRONE_SOURCE: SourceId = SourceId(2);
-const AID_SOURCE: SourceId = SourceId(3);
-const COVER_SOURCE: SourceId = SourceId(4);
-const OFF_GUARD_SOURCE: SourceId = SourceId(5);
-const UNCONSCIOUS_AC_SOURCE: SourceId = SourceId(6);
-const UNCONSCIOUS_PERCEPTION_SOURCE: SourceId = SourceId(7);
 
 const OFF_GUARD: ConditionId = ConditionId(1);
 
@@ -742,18 +820,23 @@ pub fn attack_modifiers(
     aid_circumstance: i32,
 ) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
-    push_untyped(&mut modifiers, multiple_attack_penalty, MAP_SOURCE, 1)?;
+    push_untyped(
+        &mut modifiers,
+        multiple_attack_penalty,
+        ModifierSource::MultipleAttackPenalty,
+        1,
+    )?;
     if prone {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Circumstance,
             -2,
-            PRONE_SOURCE,
+            ModifierSource::Prone,
             2,
             None,
             Statistic::Attack,
         )?);
     }
-    push_circumstance(&mut modifiers, aid_circumstance, AID_SOURCE, 3)?;
+    push_circumstance(&mut modifiers, aid_circumstance, ModifierSource::Aid, 3)?;
     Ok(modifiers)
 }
 
@@ -767,10 +850,10 @@ pub fn ac_modifiers(
 ) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if let Some(cover) = cover {
-        modifiers.push(Modifier::bonus(
+        modifiers.push(Modifier::bonus_from(
             BonusType::Circumstance,
             cover.bonus(),
-            COVER_SOURCE,
+            ModifierSource::Cover,
             4,
             None,
             Statistic::ArmorClass,
@@ -778,10 +861,10 @@ pub fn ac_modifiers(
     }
     if off_guard {
         modifiers.push(
-            Modifier::penalty(
+            Modifier::penalty_from(
                 PenaltyType::Circumstance,
                 -2,
-                OFF_GUARD_SOURCE,
+                ModifierSource::OffGuard,
                 5,
                 None,
                 Statistic::ArmorClass,
@@ -790,10 +873,10 @@ pub fn ac_modifiers(
         );
     }
     if unconscious {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Status,
             -4,
-            UNCONSCIOUS_AC_SOURCE,
+            ModifierSource::UnconsciousArmorClass,
             6,
             None,
             Statistic::ArmorClass,
@@ -808,10 +891,10 @@ pub fn ac_modifiers(
 pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if unconscious {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Status,
             -4,
-            UNCONSCIOUS_PERCEPTION_SOURCE,
+            ModifierSource::UnconsciousPerception,
             7,
             None,
             Statistic::Perception,
@@ -823,7 +906,7 @@ pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, Modifier
 fn push_untyped(
     modifiers: &mut Vec<Modifier>,
     value: i32,
-    source: SourceId,
+    source: ModifierSource,
     sequence: u32,
 ) -> Result<(), ModifierError> {
     if value == 0 {
@@ -832,7 +915,7 @@ fn push_untyped(
     if value > 0 {
         return Err(ModifierError::UntypedBonus);
     }
-    modifiers.push(Modifier::penalty(
+    modifiers.push(Modifier::penalty_from(
         PenaltyType::Untyped,
         value,
         source,
@@ -846,14 +929,14 @@ fn push_untyped(
 fn push_circumstance(
     modifiers: &mut Vec<Modifier>,
     value: i32,
-    source: SourceId,
+    source: ModifierSource,
     sequence: u32,
 ) -> Result<(), ModifierError> {
     if value == 0 {
         return Ok(());
     }
     if value > 0 {
-        modifiers.push(Modifier::bonus(
+        modifiers.push(Modifier::bonus_from(
             BonusType::Circumstance,
             value,
             source,
@@ -862,7 +945,7 @@ fn push_circumstance(
             Statistic::Attack,
         )?);
     } else {
-        modifiers.push(Modifier::penalty(
+        modifiers.push(Modifier::penalty_from(
             PenaltyType::Circumstance,
             value,
             source,
@@ -1162,6 +1245,36 @@ mod tests {
             Statistic::Attack,
         ));
         assert_eq!(summed(&modifiers).get(Statistic::Attack), -7);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, Penalties.
+    ///
+    /// Source 1 is a caller id. It cannot name the multiple attack penalty, so the newer
+    /// untyped penalty stacks with it instead of replacing it.
+    #[test]
+    fn an_untyped_penalty_from_source_1_stacks_with_map() {
+        let dice = script();
+        let map = second_non_agile_map();
+        assert_eq!(map, -5);
+        let mut modifiers = attack_modifiers(map, false, 0).expect("attack");
+        let caller = penalty(PenaltyType::Untyped, -2, 1, 9, None, Statistic::Attack);
+        assert_eq!(caller.source(), Some(SourceId(1)));
+        assert!(
+            modifiers
+                .iter()
+                .all(|modifier| modifier.source() != Some(SourceId(1)))
+        );
+        modifiers.push(caller);
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Attack), -7);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped) && modifier.value() == -5
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Untyped) && modifier.value() == -2
+        }));
         assert_eq!(dice.remaining(), 1);
     }
 
