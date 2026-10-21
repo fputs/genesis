@@ -83,3 +83,5 @@ Archiving moves the change under `openspec/changes/archive/` and updates `opensp
 Code in this repository is under the MIT License. See [`LICENSE`](LICENSE). Copyright (c) 2026 Evan Burkey.
 
 Pathfinder rules content implemented in the engine is used under the ORC License. See [`NOTICE-ORC.md`](NOTICE-ORC.md).
+
+Contributors follow the licensing requirements in [`docs/architect/licensing.md`](docs/architect/licensing.md).
