@@ -24,4 +24,4 @@
 ## 5. Acceptance
 
 - [x] 5.1 Run `cargo test --workspace` after the workspace exists and verify it passes with 0 tests
-- [ ] 5.2 Confirm GitHub Actions is green on the implementation pull request
+- [x] 5.2 Confirm GitHub Actions is green on the implementation pull request

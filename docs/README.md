@@ -8,5 +8,6 @@ Design docs and decisions, one folder per role. OpenSpec specs live in openspec/
   - [PF2e citations](designer/pf2e-citations.md)
 - [visual](visual/)
 - [qa](qa/)
+  - [Test plan](qa/test-plan.md)
 - [producer](producer/)
 - [audio](audio/)
