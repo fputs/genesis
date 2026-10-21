@@ -31,7 +31,11 @@ crates/rules/src/lib.rs          mod combatant; pub use the items below
 crates/rules/src/combatant.rs    CharacterBuild, derive, Creature, CombatantState
 ```
 
-`combatant.rs` calls `crate::check::{resolve_check, Degree, CheckRoll}` and `crate::dice::Dice` only from Aid and from applying damage to a state. `derive` does not call them.
+`combatant.rs` calls `crate::check::{resolve_check, DegreeOfSuccess, CheckRoll}` and `crate::dice::Dice` only from Aid and from applying damage to a state. `derive` does not call them.
+
+### Purity
+
+`crates/rules` gains no dependencies, and `Cargo.toml` stays otherwise unchanged. `combatant.rs` does not read a clock, a file, the network, or a global, and it does not use `Cell`, `RefCell`, `Mutex`, or `unsafe`. `derive` takes `&CharacterBuild` and returns a `Creature`. Rolls go through an injected `Dice` on `aid_check` and `apply_dice_damage` only. No function takes `&mut CharacterBuild` or `&mut Creature`. `lib.rs` keeps `#![forbid(unsafe_code)]`.
 
 ### Public types and signatures
 
@@ -158,7 +162,7 @@ pub fn apply_dice_damage(
 );
 
 pub fn stealth_dc_from_modifier(stealth_modifier: i32) -> i32;
-pub fn aid_circumstance_bonus(degree: Degree) -> i32;
+pub fn aid_circumstance_bonus(degree: DegreeOfSuccess) -> i32;
 pub fn aid_check(dice: &mut impl Dice, creature: &Creature) -> Option<(CheckRoll, i32)>;
 ```
 

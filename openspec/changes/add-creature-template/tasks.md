@@ -20,4 +20,51 @@
 
 ## 3. Crate surface
 
-- [ ] 3.1 Re-export `CharacterBuild`, `Creature`, `CombatantState`, `CombatantId`, `Contribution`, `MeleeStrike`, `ShieldTemplate`, and the public functions from `crates/rules/src/lib.rs`. Verify `cargo test -p rules` passes and `baked_statistics_stay_as_authored` still cites the Player Core section
+- [ ] 3.1 Re-export `CharacterBuild`, `Creature`, `CombatantState`, `CombatantId`, `Contribution`, `MeleeStrike`, `ShieldTemplate`, and the public functions from `crates/rules/src/lib.rs`. Leave `#![forbid(unsafe_code)]` in place. Give every new public item a `///` comment, citing the Player Core section when the item states a rule. Verify `cargo test -p rules` passes and `baked_statistics_stay_as_authored` still cites the Player Core section
+
+## 4. One test per scenario
+
+- [ ] 4.1 Add one `#[cfg(test)]` test for every scenario below that sections 1–2 do not already name. The name is the scenario title in snake_case, with a leading plus written as `plus` and a leading minus written as `minus`. Each test comment cites the Player Core section on that requirement. A scenario that rolls uses `ScriptedDice` with that scenario's values. A scenario that does not roll still builds a `ScriptedDice` and asserts it is unused. The ported v1 test stays; it does not replace these tests. Satisfy each name once:
+  - `the_build_is_unchanged_by_derive`
+  - `combat_does_not_write_the_build`
+  - `calling_derive_twice_matches`
+  - `a_clone_and_an_equal_build_match`
+  - `phase_1_folds_only_the_base`
+  - `a_later_contribution_is_folded_after_the_base`
+  - `authored_numbers_are_kept`
+  - `strike_fields_are_kept`
+  - `the_agile_flag_is_kept`
+  - `a_buckler_bonus_stays_plus_1`
+  - `a_second_shield_keeps_its_own_bonus`
+  - `no_shield_is_omitted`
+  - `stealth_modifier_plus_10`
+  - `seek_uses_the_derived_dc`
+  - `omitted_stealth_dc_stores_nothing`
+  - `success_grants_plus_1`
+  - `critical_success_grants_plus_2`
+  - `failure_grants_0`
+  - `critical_failure_grants_minus_1`
+  - `a_natural_20_uses_the_fixed_critical_bonus`
+  - `no_prepared_flag_is_required`
+  - `zero_hit_points_is_rejected`
+  - `negative_hit_points_are_rejected`
+  - `negative_speed_is_rejected`
+  - `speed_zero_is_accepted`
+  - `fresh_states_from_one_creature_match`
+  - `mutating_state_leaves_the_creature_unchanged`
+  - `two_ids_can_share_one_creature`
+  - `more_than_four_states_are_valid`
+  - `omitting_the_flag_defaults_to_false`
+  - `without_the_flag_0_hit_points_is_death_on_the_state`
+  - `with_the_flag_0_hit_points_enters_dying_on_the_state`
+  - `damage_above_0_does_not_kill`
+
+## 5. Proof and archive
+
+- [ ] 5.1 Run the AGENTS.md proof commands and verify each exits 0. Add no crate dependency; `crates/rules/Cargo.toml` stays dependency-free.
+  - `cargo fmt --all --check`
+  - `cargo clippy --workspace --all-targets -- -D warnings`
+  - `cargo build --workspace`
+  - `cargo test --workspace`
+  - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
+- [ ] 5.2 Archive this change with `openspec archive add-creature-template --yes` and verify it moves under `openspec/changes/archive/`
