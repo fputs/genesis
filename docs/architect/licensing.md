@@ -14,7 +14,7 @@ Primary sources named in the research:
 
 Source code is under the MIT License in `LICENSE`. The `rules` crate manifest sets `license = "MIT"`.
 
-Source-code paths are `crates/`, `scripts/`, and `.github/workflows/`. The research quotes the AxE: no license is granted under the ORC to specific software code, and the source code can stay closed. There is no ORC copyleft on code.
+Source-code paths are `crates/`, `scripts/`, and `.github/workflows/`. The AxE states: "No license is granted under the ORC to specific software code." The research report's conclusion, which is not license text, is that the source code can stay closed and that there is no copyleft on code.
 
 Check: `LICENSE` is the MIT license, `crates/rules/Cargo.toml` contains `license = "MIT"`, and those three trees contain no ORC grant of the code itself.
 
