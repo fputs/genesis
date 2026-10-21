@@ -517,12 +517,15 @@ pub fn damage_dealt(
 }
 
 /// Sum of the penalties that survived the fold. Bonuses are not included.
-fn applied_penalty_total(applied: &[Modifier]) -> Result<i32, ModifierError> {
-    let mut sum = 0i32;
+///
+/// The sum is `i64` so a penalty total below `i32::MIN` is still negative when bonuses
+/// bring the folded total back into range.
+fn applied_penalty_total(applied: &[Modifier]) -> Result<i64, ModifierError> {
+    let mut sum = 0i64;
     for modifier in applied {
         if modifier.penalty_type().is_some() {
             sum = sum
-                .checked_add(modifier.value())
+                .checked_add(i64::from(modifier.value()))
                 .ok_or(ModifierError::Overflow)?;
         }
     }
@@ -1822,6 +1825,68 @@ mod tests {
             damage_dealt(0, &[], false).expect("damage")
         );
         assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Rules 2302. A baked 1d4-5 with no penalty modifier is not the penalty floor.
+    ///
+    /// A scripted 1 and a bonus of -5 deal -4, not 1, and current Hit Points stay 9.
+    #[test]
+    fn a_baked_1d4_minus_5_without_a_penalty_is_not_floored() {
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut dice,
+            Faces::new(4).expect("d4"),
+            -5,
+            &[],
+            false,
+        )
+        .expect("the sum fits");
+        assert_eq!(damage_dealt(-4, &[], false).expect("damage"), -4);
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(state.vital, Vital::Alive);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, "Damage Rolls".
+    ///
+    /// `1 + i32::MIN` fits and is not a penalty, so it is not floored to 1. Doubling that
+    /// sum does not fit, which is [`ModifierError::Overflow`], and Hit Points stay unchanged.
+    #[test]
+    fn an_extreme_negative_bonus_does_not_overflow_silently() {
+        let sum = 1i32.checked_add(i32::MIN).expect("1 + i32::MIN fits");
+        assert_eq!(damage_dealt(sum, &[], false).expect("damage"), sum);
+        assert_eq!(damage_dealt(sum, &[], true), Err(ModifierError::Overflow));
+
+        let creature = derive(&build(fighter_with_hp(9, None)));
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        let mut dice = ScriptedDice::new([1]);
+        apply_dice_damage(&mut state, &creature, &mut dice, d8(), i32::MIN, &[], false)
+            .expect("the sum fits");
+        assert_eq!(state.hit_points, 9);
+        assert_eq!(state.vital, Vital::Alive);
+        assert_eq!(dice.remaining(), 0);
+
+        let mut critical = new_combatant_state(CombatantId(1), &creature);
+        let mut critical_dice = ScriptedDice::new([1]);
+        assert_eq!(
+            apply_dice_damage(
+                &mut critical,
+                &creature,
+                &mut critical_dice,
+                d8(),
+                i32::MIN,
+                &[],
+                true,
+            ),
+            Err(HpError::Overflow)
+        );
+        assert_eq!(critical.hit_points, 9);
+        assert_eq!(critical.vital, Vital::Alive);
+        assert_eq!(critical_dice.remaining(), 0);
     }
 
     /// Player Core, "Damage Rolls".
