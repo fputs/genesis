@@ -19,6 +19,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** An `OpenSpec-Change` line fails unless it is the prefix, one space, and one kebab id. A dated archive folder name is not an id. Invalid ids log the whole remainder with non-printable characters and backslashes escaped as `\uXXXX`, and both spec-drift jobs share one pull request concurrency group. ([#33](https://github.com/fputs/genesis/pull/33))
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
 
 ### Fixed
