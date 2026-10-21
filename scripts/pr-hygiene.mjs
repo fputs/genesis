@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CHANGE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const UNRELEASED = "## [Unreleased]";
+const DATED_ARCHIVE = /^(\d{4})-(\d{2})-(\d{2})-(.+)$/;
 
 // Failure lines are the spec's whole contract for a red log. Keep them stable.
 const MISSING_BULLET = "implementation PR missing CHANGELOG bullet";
@@ -37,12 +37,12 @@ function evaluate() {
   const root = process.env.PR_HYGIENE_ROOT || defaultRoot();
   const baseSha = requiredSha("PR_HYGIENE_BASE_SHA", payload.pull_request?.base?.sha, "base");
   const headSha = requiredSha("PR_HYGIENE_HEAD_SHA", payload.pull_request?.head?.sha, "head");
-  const body = resolveBody(payload);
 
   // The other side of every pull request diff is the merge-base, not the event
   // base sha. A commit that landed on main after the branch point is not this
   // pull request's change. The checkout HEAD may be a runner merge commit, so
   // archive-last reads the event head and that commit's first parent.
+  // Archive-last does not read the pull request body.
   const mergeBaseSha = requireMergeBase(root, baseSha, headSha);
   const parentSha = requireParent(root, headSha);
   const paths = changedPaths(root, mergeBaseSha, headSha);
@@ -51,8 +51,8 @@ function evaluate() {
   if (missingBullet(root, mergeBaseSha, headSha, paths)) {
     failures.push(MISSING_BULLET);
   }
-  const removed = removedChangeIds(root, mergeBaseSha, headSha, changeReferences(body));
-  if (archiveNotLast(root, headSha, parentSha, removed)) {
+  const removed = removedChangeIds(root, mergeBaseSha, headSha);
+  if (archiveNotLast(root, mergeBaseSha, headSha, parentSha, removed)) {
     failures.push(ARCHIVE_NOT_LAST);
   }
   return failures;
@@ -101,16 +101,13 @@ function requiredSha(envName, fallback, label) {
   throw new Error(`pr-hygiene: ${label} sha is required`);
 }
 
-function resolveBody(payload) {
-  if (process.env.PR_HYGIENE_BODY !== undefined) {
-    return process.env.PR_HYGIENE_BODY;
-  }
-  const body = payload.pull_request?.body;
-  return typeof body === "string" ? body : "";
-}
-
 function gitResult(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  // Git's missing-path phrases follow the locale. C keeps the English matchers.
+  const result = spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C" },
+  });
   if (result.error) {
     throw new Error(`pr-hygiene: ${result.error.message}`);
   }
@@ -193,29 +190,24 @@ function isCodePath(path) {
   );
 }
 
-function isDocsPath(path) {
-  return path === "AGENTS.md" || path === "CHANGELOG.md" || path.startsWith("docs/");
-}
-
 function isExemptPath(path) {
   return (
+    path.startsWith("docs/") ||
+    path.startsWith("openspec/") ||
     path.startsWith(".cursor/") ||
+    path === "AGENTS.md" ||
+    path === "CHANGELOG.md" ||
     path === "README.md" ||
     path === "Cargo.lock" ||
     path === "rust-toolchain.toml"
   );
 }
 
-function isExemptDiff(paths) {
-  return (
-    paths.every(isDocsPath) ||
-    paths.every((path) => path.startsWith("openspec/")) ||
-    paths.every(isExemptPath)
-  );
-}
-
 function needsBullet(paths) {
-  return paths.some(isCodePath) && !isExemptDiff(paths);
+  if (paths.length === 0 || paths.every(isExemptPath)) {
+    return false;
+  }
+  return paths.some(isCodePath) || paths.some((path) => path.startsWith("scripts/"));
 }
 
 function missingBullet(root, mergeBaseSha, headSha, paths) {
@@ -227,22 +219,21 @@ function missingBullet(root, mergeBaseSha, headSha, paths) {
     return true;
   }
   const baseLog = readChangelog(root, mergeBaseSha);
-  const baseBullets =
-    baseLog.missing || !baseLog.sawHeading ? new Set() : baseLog.bullets;
-  for (const bullet of headLog.bullets) {
-    if (!baseBullets.has(bullet)) {
-      return false;
-    }
+  const baseEmpty = baseLog.missing || !baseLog.sawHeading;
+  const baseTexts = baseEmpty ? new Set() : new Set(baseLog.all);
+  const baseCount = baseEmpty ? 0 : baseLog.unreleased.length;
+  if (headLog.unreleased.length <= baseCount) {
+    return true;
   }
-  return true;
+  return !headLog.unreleased.some((text) => !baseTexts.has(text));
 }
 
 function readChangelog(root, sha) {
   const blob = blobAt(root, sha, "CHANGELOG.md");
   if (blob.missing) {
-    return { missing: true, sawHeading: false, bullets: new Set() };
+    return { missing: true, sawHeading: false, unreleased: [], all: [] };
   }
-  return { missing: false, ...unreleasedBullets(blob.text) };
+  return { missing: false, ...parseChangelog(blob.text) };
 }
 
 function blobAt(root, sha, filePath) {
@@ -257,62 +248,98 @@ function blobAt(root, sha, filePath) {
   throw new Error(`pr-hygiene: ${detail.trim() || "git show failed"}`);
 }
 
-function unreleasedBullets(text) {
-  let inSection = false;
+function parseChangelog(text) {
+  let fenced = false;
+  let inUnreleased = false;
   let sawHeading = false;
-  const bullets = new Set();
+  const unreleased = [];
+  const all = [];
   for (const raw of text.split("\n")) {
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     const trimmed = line.trim();
-    if (!inSection) {
-      if (trimmed === UNRELEASED) {
-        inSection = true;
-        sawHeading = true;
-      }
+    if (isFence(trimmed)) {
+      fenced = !fenced;
       continue;
     }
-    if (trimmed.startsWith("## ")) {
-      break;
-    }
-    if (isListItem(trimmed)) {
-      bullets.add(trimmed);
-    }
-  }
-  return { sawHeading, bullets };
-}
-
-function isListItem(trimmed) {
-  return /^[-*+] \S/.test(trimmed) || /^\d+[.)] \S/.test(trimmed);
-}
-
-function changeReferences(body) {
-  const ids = [];
-  const seen = new Set();
-  for (const line of body.split("\n")) {
-    let text = line;
-    if (text.endsWith("\r")) {
-      text = text.slice(0, -1);
-    }
-    const match = /^OpenSpec-Change: ([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(text.trim());
-    if (!match || !CHANGE_ID.test(match[1]) || seen.has(match[1])) {
+    if (fenced) {
       continue;
     }
-    seen.add(match[1]);
-    ids.push(match[1]);
+    if (!sawHeading && trimmed === UNRELEASED) {
+      inUnreleased = true;
+      sawHeading = true;
+      continue;
+    }
+    if (inUnreleased && trimmed.startsWith("## ")) {
+      inUnreleased = false;
+      continue;
+    }
+    const item = bulletText(trimmed);
+    if (item === null) {
+      continue;
+    }
+    all.push(item);
+    if (inUnreleased) {
+      unreleased.push(item);
+    }
   }
-  return ids;
+  return { sawHeading, unreleased, all };
 }
 
-function removedChangeIds(root, mergeBaseSha, headSha, ids) {
+function isFence(trimmed) {
+  return /^`{3,}$/.test(trimmed);
+}
+
+function bulletText(trimmed) {
+  const match = /^([-*+]|\d+[.)])\s+(\S.*)$/.exec(trimmed);
+  return match ? match[2].trim() : null;
+}
+
+function removedChangeIds(root, mergeBaseSha, headSha) {
+  const onHead = new Set(activeChangeIdsAt(root, headSha));
   const removed = [];
-  for (const id of ids) {
-    const onBase = treeExists(root, mergeBaseSha, `openspec/changes/${id}`);
-    const onHead = treeExists(root, headSha, `openspec/changes/${id}`);
-    if (onBase && !onHead) {
+  for (const id of activeChangeIdsAt(root, mergeBaseSha)) {
+    if (!onHead.has(id)) {
       removed.push(id);
     }
   }
+  removed.sort();
   return removed;
+}
+
+function activeChangeIdsAt(root, sha) {
+  return childTrees(root, sha, "openspec/changes").filter((name) => name !== "archive");
+}
+
+function childTrees(root, sha, dirPath) {
+  if (!treeExists(root, sha, dirPath)) {
+    return [];
+  }
+  const result = gitResult(root, ["ls-tree", "-z", `${sha}:${dirPath}`]);
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || "git ls-tree failed").trim();
+    throw new Error(`pr-hygiene: ${detail}`);
+  }
+  const names = [];
+  for (const field of (result.stdout ?? "").split("\0")) {
+    if (field === "") {
+      continue;
+    }
+    const tab = field.indexOf("\t");
+    if (tab === -1) {
+      throw new Error("pr-hygiene: ls-tree record could not be parsed");
+    }
+    const meta = field.slice(0, tab);
+    const name = field.slice(tab + 1);
+    const type = meta.split(" ")[1];
+    if (type !== "tree") {
+      continue;
+    }
+    if (!name || name.includes("/") || name.includes("\n")) {
+      throw new Error("pr-hygiene: ls-tree record could not be parsed");
+    }
+    names.push(name);
+  }
+  return names;
 }
 
 function treeExists(root, sha, dirPath) {
@@ -327,41 +354,69 @@ function treeExists(root, sha, dirPath) {
   throw new Error(`pr-hygiene: ${detail.trim() || "git cat-file failed"}`);
 }
 
-function archiveNotLast(root, headSha, parentSha, removedIds) {
+function archiveNotLast(root, mergeBaseSha, headSha, parentSha, removedIds) {
   if (removedIds.length === 0) {
     return false;
   }
-  const message = commitMessage(root, headSha);
+  if (commitSubject(root, headSha) !== expectedSubject(removedIds)) {
+    return true;
+  }
   const paths = changedPaths(root, parentSha, headSha);
-  const messageOk = removedIds.every((id) => archivesId(message, id));
-  const pathsOk = paths.every((path) => isAllowedArchivePath(path, removedIds));
-  return !messageOk || !pathsOk;
+  if (!paths.every((path) => isAllowedArchivePath(path, removedIds))) {
+    return true;
+  }
+  for (const id of removedIds) {
+    if (!headCommitDeletes(root, parentSha, headSha, id)) {
+      return true;
+    }
+    if (!archiveSatisfied(root, mergeBaseSha, parentSha, headSha, id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
-function commitMessage(root, sha) {
-  const result = gitResult(root, ["log", "-1", "--format=%B", sha]);
+function expectedSubject(ids) {
+  return ids
+    .slice()
+    .sort()
+    .map((id) => `openspec archive ${id} --yes`)
+    .join(" && ");
+}
+
+function commitSubject(root, sha) {
+  const result = gitResult(root, ["log", "-1", "--format=%s", sha]);
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "git log failed").trim();
     throw new Error(`pr-hygiene: ${detail}`);
   }
-  return result.stdout ?? "";
+  return (result.stdout ?? "").trim();
 }
 
-function archivesId(message, id) {
-  const needle = `openspec archive ${id}`;
-  let from = 0;
-  while (from < message.length) {
-    const at = message.indexOf(needle, from);
-    if (at === -1) {
-      return false;
-    }
-    const next = message[at + needle.length];
-    if (next === undefined || /\s/.test(next)) {
+function headCommitDeletes(root, parentSha, headSha, id) {
+  const dir = `openspec/changes/${id}`;
+  return treeExists(root, parentSha, dir) && !treeExists(root, headSha, dir);
+}
+
+function archiveSatisfied(root, mergeBaseSha, parentSha, headSha, id) {
+  const names = childTrees(root, headSha, "openspec/changes/archive").filter(
+    (name) => datedRemainder(name) === id,
+  );
+  if (names.length === 0) {
+    return false;
+  }
+  return names.some((name) => {
+    const dir = `openspec/changes/archive/${name}`;
+    if (treeExists(root, mergeBaseSha, dir)) {
       return true;
     }
-    from = at + 1;
-  }
-  return false;
+    return !treeExists(root, parentSha, dir) && treeExists(root, headSha, dir);
+  });
+}
+
+function datedRemainder(name) {
+  const match = DATED_ARCHIVE.exec(name);
+  return match ? match[4] : null;
 }
 
 function isAllowedArchivePath(filePath, ids) {

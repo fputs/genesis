@@ -7,24 +7,43 @@ The spec-drift-check capability fails CI when OpenSpec validation fails, when an
 
 ### Requirement: Spec-drift job
 
-The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on push and pull_request events targeting `main`. The job SHALL invoke `scripts/spec-drift-check.mjs`. That script SHALL have no npm dependencies: it only needs Node, which the pinned OpenSpec CLI already requires, so the three checks stay testable with `node --test` and no new package.
+The repository SHALL run a `spec-drift` job in `.github/workflows/ci.yml` on the same push and pull_request events as the Cargo job. Those triggers SHALL stay unchanged, with no `edited` type. That job SHALL still invoke `scripts/spec-drift-check.mjs`. `.github/workflows/spec-drift-edited.yml` SHALL run only that script on pull_request `edited`. The script SHALL have no npm dependencies. A code-path pull request that drops every `OpenSpec-Change` line on `edited` SHALL fail that re-run.
 
 #### Scenario: Job triggers match the Cargo workflow
 
-- **GIVEN** `.github/workflows/ci.yml`
+- **GIVEN** `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml`
 - **WHEN** the workflow triggers are read
-- **THEN** the `spec-drift` job runs on push and pull_request to `main`
-- **AND** it invokes `scripts/spec-drift-check.mjs`
+- **THEN** `ci.yml` still runs the Cargo job and the `spec-drift` job on push and pull_request to `main`, with no `edited` type and no skip `if`
+- **AND** the `spec-drift` job in `ci.yml` still invokes `scripts/spec-drift-check.mjs`
+- **AND** `.github/workflows/spec-drift-edited.yml` runs only that script on pull_request `edited` targeting `main`
+
+#### Scenario: Dropping the change line on edit fails
+
+- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
+- **AND** `openspec/changes/add-dice-and-checks/` exists
+- **AND** the body line `OpenSpec-Change: add-dice-and-checks` made the `spec-drift` job pass
+- **WHEN** the pull request is `edited` and the body has no `OpenSpec-Change` line
+- **THEN** `.github/workflows/spec-drift-edited.yml` runs
+- **AND** the check fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
 
 ### Requirement: Cargo job remains
 
-The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`.
+The workflow SHALL keep the existing job that runs `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, and `cargo test --workspace`. `.github/workflows/ci.yml` SHALL keep its current triggers and SHALL NOT skip that job. A body edit SHALL NOT replace a failed Cargo check. `.github/workflows/spec-drift-edited.yml` SHALL run a job named `spec-drift` on pull_request `edited`.
 
 #### Scenario: Cargo steps stay
 
 - **GIVEN** `.github/workflows/ci.yml` after this change is applied
 - **WHEN** the Cargo job is read
 - **THEN** it still runs fmt check, clippy with warnings denied, workspace build, and workspace test
+
+#### Scenario: Editing the body does not replace a failed Cargo check
+
+- **GIVEN** a pull_request to `main` whose Cargo job has failed
+- **WHEN** the pull request body is edited
+- **THEN** `.github/workflows/ci.yml` does not run for that `edited` event
+- **AND** the failed Cargo check stays failed
+- **AND** only `.github/workflows/spec-drift-edited.yml` runs
 
 ### Requirement: Pinned OpenSpec CLI
 
@@ -360,7 +379,7 @@ A changed path is a code path when it is exactly `Cargo.toml`, `Cargo.lock`, or 
 
 ### Requirement: Change reference line
 
-A change reference SHALL be one body line that, after removing one trailing carriage return and trimming leading and trailing whitespace, is `OpenSpec-Change: ` plus a change id. A change id SHALL match one or more groups of `a-z` and `0-9` separated by single hyphens, and SHALL NOT start or end with a hyphen. Any other line SHALL NOT be a change reference. Lines inside fences count the same as other lines. This SHALL be the AGENTS.md `OpenSpec-Change: <id>` line.
+A change reference SHALL be one trimmed body line, after one trailing carriage return is removed, of `OpenSpec-Change:` plus one token. A token of `a-z` and `0-9` groups separated by single hyphens, not starting or ending with a hyphen, SHALL be the id. Any other token SHALL fail, SHALL NOT be skipped or case-folded, and the log SHALL include `spec-drift: invalid change id <token>`. Extra words SHALL NOT be a reference. Fenced lines SHALL count the same. This SHALL be the AGENTS.md line.
 
 #### Scenario: A trimmed line is a reference
 
@@ -380,6 +399,29 @@ A change reference SHALL be one body line that, after removing one trailing carr
 - **THEN** the job fails
 - **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
 - **AND** the log does not include `spec-drift: unknown change`
+- **AND** the log does not include `spec-drift: invalid change id`
+
+#### Scenario: An uppercase id is not skipped
+
+- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
+- **AND** the only body line is `OpenSpec-Change: Add-Foo`
+- **AND** `openspec/changes/add-foo/` exists
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id Add-Foo`
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+- **AND** the line is not accepted as `add-foo`
+
+#### Scenario: A valid id does not hide an invalid token
+
+- **GIVEN** a pull_request to `main` that changes `Cargo.toml`
+- **AND** the body contains `OpenSpec-Change: add-dice-and-checks` and `OpenSpec-Change: Add-Foo`
+- **AND** `openspec/changes/add-dice-and-checks/` exists
+- **AND** validation exits zero
+- **AND** the completed-change check passes
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id Add-Foo`
 
 ### Requirement: Existing change id
 
@@ -469,7 +511,7 @@ When a code-path pull request has one or more change references, the reference c
 
 ### Requirement: Docs-only and openspec-only pull requests
 
-When the diff has no code path, the reference check SHALL pass and SHALL ignore the body. A docs-only diff and an openspec-only diff are this case. The job SHALL NOT fail those pull requests for a missing line. AGENTS.md still requires the line on the pull request body; this check only withholds the CI failure.
+When the diff has no code path, a missing reference SHALL pass, and a lowercase kebab-case id that names no change SHALL pass. An `OpenSpec-Change:` line whose single token is not that grammar SHALL fail on every pull request, including docs-only and openspec-only. A missing line SHALL NOT fail a docs-only or openspec-only pull request.
 
 #### Scenario: Docs-only pull request passes without a reference
 
@@ -523,6 +565,16 @@ When the diff has no code path, the reference check SHALL pass and SHALL ignore 
 - **AND** the completed-change check passes
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job passes
+
+#### Scenario: docs-only PR with OpenSpec-Change: Add-Foo fails
+
+- **GIVEN** a pull_request to `main` whose diff is `docs/architect/decisions.md`
+- **AND** the body line is `OpenSpec-Change: Add-Foo`
+- **AND** `openspec/changes/add-foo/` exists
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id Add-Foo`
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
 
 ### Requirement: Push skips the reference check
 
@@ -596,3 +648,57 @@ The repository SHALL contain table-driven tests that build one temporary git rep
 - **WHEN** a table case runs
 - **THEN** the test builds a temporary git repository for that case
 - **AND** asserts the script's exit status and failure lines
+
+### Requirement: Edited spec-drift workflow
+
+`.github/workflows/spec-drift-edited.yml` SHALL run only `scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`. Its only job SHALL be named exactly `spec-drift`. It SHALL set `permissions: contents: read`. Concurrency SHALL use group `spec-drift-edited-${{ github.event.pull_request.number }}` and `cancel-in-progress: true`, so an older passing run cannot become the latest result.
+
+#### Scenario: The edited workflow reuses the spec-drift job name
+
+- **GIVEN** `.github/workflows/spec-drift-edited.yml`
+- **WHEN** its lines are checked
+- **THEN** it runs on pull_request `edited` targeting `main`
+- **AND** its only job is named `spec-drift`
+- **AND** that job runs `scripts/spec-drift-check.mjs`
+- **AND** permissions are `contents: read`
+- **AND** the concurrency group is `spec-drift-edited-${{ github.event.pull_request.number }}`
+- **AND** `cancel-in-progress` is true
+
+### Requirement: Git locale is C
+
+Every `git` subprocess started by `scripts/spec-drift-check.mjs` SHALL have `LC_ALL=C`, so git error text does not follow the runner locale.
+
+#### Scenario: Git diff runs with LC_ALL=C
+
+- **GIVEN** the parent process has `LC_ALL=fr_FR.UTF-8`
+- **AND** a stand-in `git` records the environment of `git diff`
+- **WHEN** the `spec-drift` job computes changed paths
+- **THEN** that git child is started with `LC_ALL=C`
+
+### Requirement: Invalid change line
+
+An empty line `OpenSpec-Change:` and a spaceless line `OpenSpec-Change:Add` SHALL both be invalid on any pull request. Each SHALL fail. The log SHALL include `spec-drift: invalid change id`. Neither SHALL be ignored or treated only as a missing reference.
+
+#### Scenario: An empty or spaceless change line is invalid
+
+- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
+- **AND** the body contains a line `OpenSpec-Change:` and a line `OpenSpec-Change:Add`
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id`
+- **AND** the log includes `spec-drift: invalid change id Add`
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+
+### Requirement: Scripts are not a code path
+
+A path under `scripts/` SHALL NOT be a spec-drift code path. A pull request whose changed paths are only under `scripts/` SHALL NOT fail for a missing `OpenSpec-Change` line. That pull request SHALL still need a new Unreleased changelog bullet.
+
+#### Scenario: A scripts-only pull request is not a code path
+
+- **GIVEN** a pull_request to `main` whose only diff is `scripts/note.mjs`
+- **AND** the body has no change reference
+- **AND** validation exits zero
+- **AND** no active change is fully checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`

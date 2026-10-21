@@ -11,6 +11,7 @@ const DATED_ARCHIVE = /^(\d{4})-(\d{2})-(\d{2})-(.+)$/;
 // Failure lines are the spec's whole contract for a red log. Keep them stable.
 const VALIDATE_FAILED = "spec-drift: validate failed";
 const MISSING_REFERENCE = "spec-drift: code change missing OpenSpec-Change";
+const REFERENCE_PREFIX = "OpenSpec-Change:";
 
 function main() {
   const root = process.env.SPEC_DRIFT_ROOT || defaultRoot();
@@ -127,7 +128,8 @@ function activeChangeIds(root) {
       ids.push(name);
     }
   }
-  ids.sort((left, right) => left.localeCompare(right));
+  // localeCompare follows the process locale, so the failure list would change between runners.
+  ids.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   return ids;
 }
 
@@ -164,14 +166,16 @@ function referenceFailures(root, body, baseSha) {
     throw new Error("pull request base sha is required for the code-path diff");
   }
   const paths = changedPaths(root, baseSha);
+  const { ids, invalidTokens } = changeReferences(body);
+  // An invalid token is a mistake on every pull request, including docs-only.
+  // It must not also be reported as a missing reference.
+  const failures = invalidTokens.map((token) => invalidChangeId(token));
   if (!paths.some(isCodePath)) {
-    return [];
+    return failures;
   }
-  const ids = changeReferences(body);
-  if (ids.length === 0) {
+  if (invalidTokens.length === 0 && ids.length === 0) {
     return [MISSING_REFERENCE];
   }
-  const failures = [];
   for (const id of ids) {
     if (!changeExists(root, id)) {
       failures.push(`spec-drift: unknown change ${id}`);
@@ -180,11 +184,20 @@ function referenceFailures(root, body, baseSha) {
   return failures;
 }
 
+function invalidChangeId(token) {
+  if (token.length === 0) {
+    return "spec-drift: invalid change id";
+  }
+  // A raw tab or other space is invisible in the log and looks like a normal id.
+  const shown = /\s/.test(token) ? JSON.stringify(token) : token;
+  return `spec-drift: invalid change id ${shown}`;
+}
+
 function changedPaths(root, baseSha) {
   const result = spawnSync(
     "git",
     ["diff", "-z", "--name-status", "--find-renames", baseSha, "HEAD"],
-    { cwd: root, encoding: "utf8" },
+    { cwd: root, encoding: "utf8", env: gitEnv() },
   );
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "git diff failed").trim();
@@ -231,22 +244,69 @@ function isCodePath(path) {
   );
 }
 
+function gitEnv() {
+  // Git's own error text follows the process locale. The C locale keeps it stable.
+  return { ...process.env, LC_ALL: "C" };
+}
+
 function changeReferences(body) {
   const ids = [];
   const seen = new Set();
+  const invalidTokens = [];
+  const invalidSeen = new Set();
   for (const line of body.split("\n")) {
     let text = line;
     if (text.endsWith("\r")) {
       text = text.slice(0, -1);
     }
-    const match = /^OpenSpec-Change: ([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(text.trim());
-    if (!match || !CHANGE_ID.test(match[1]) || seen.has(match[1])) {
+    text = text.trim();
+    if (!text.startsWith(REFERENCE_PREFIX)) {
       continue;
     }
-    seen.add(match[1]);
-    ids.push(match[1]);
+    const parsed = singleToken(text.slice(REFERENCE_PREFIX.length));
+    if (parsed === null) {
+      continue;
+    }
+    // Exactly one ASCII space (U+0020) is required. A tab, a kebab-case token
+    // jammed against the colon, or extra spaces are still an invalid id.
+    if (!parsed.spaced || !CHANGE_ID.test(parsed.token)) {
+      if (!invalidSeen.has(parsed.token)) {
+        invalidSeen.add(parsed.token);
+        invalidTokens.push(parsed.token);
+      }
+      continue;
+    }
+    if (!seen.has(parsed.token)) {
+      seen.add(parsed.token);
+      ids.push(parsed.token);
+    }
   }
-  return ids;
+  return { ids, invalidTokens };
+}
+
+// A reference is the prefix, exactly one ASCII space (U+0020), and one token.
+// Null means two or more words, which is not a reference. A token that starts
+// with whitespace (tab, NBSP, em space) is one invalid id, not a skipped line.
+// The raw remainder is kept so that whitespace is still there to show.
+function singleToken(rest) {
+  if (rest.charCodeAt(0) === 0x20 && rest.charCodeAt(1) !== 0x20) {
+    const token = rest.slice(1);
+    if (token.length === 0) {
+      return { token: "", spaced: false };
+    }
+    if (countWords(token) >= 2) {
+      return null;
+    }
+    if (/^\S+$/.test(token)) {
+      return { token, spaced: true };
+    }
+    return { token, spaced: false };
+  }
+  return { token: rest, spaced: false };
+}
+
+function countWords(token) {
+  return token.split(/\s+/).filter((word) => word.length > 0).length;
 }
 
 function changeExists(root, id) {
