@@ -3184,8 +3184,43 @@ mod tests {
         let mut frightened_ranks = [0usize; 3];
         let mut sickened_ranks = [0usize; 3];
         let mut built = 0usize;
+        let mut circumstance_pairs = 0usize;
+        let mut item_pairs = 0usize;
+        let mut status_pairs = 0usize;
+        let mut untyped_pairs = 0usize;
+        let mut bonus_pairs = 0usize;
+        let mut sickened_sets = 0usize;
         for set in &sets {
             assert!(set.len() <= 4);
+            if two_on_one_statistic(set, |modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Circumstance)
+            }) {
+                circumstance_pairs += 1;
+            }
+            if two_on_one_statistic(set, |modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Item)
+            }) {
+                item_pairs += 1;
+            }
+            if two_on_one_statistic(set, |modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Status)
+            }) {
+                status_pairs += 1;
+            }
+            if two_on_one_statistic(set, |modifier| {
+                modifier.penalty_type() == Some(PenaltyType::Untyped)
+            }) {
+                untyped_pairs += 1;
+            }
+            if two_on_one_statistic(set, |modifier| modifier.bonus_type().is_some()) {
+                bonus_pairs += 1;
+            }
+            if set
+                .iter()
+                .any(|modifier| modifier.condition_id() == Some(ConditionId::SICKENED))
+            {
+                sickened_sets += 1;
+            }
             for modifier in set {
                 built += 1;
                 assert_ne!(modifier.value(), 0);
@@ -3211,6 +3246,24 @@ mod tests {
                     sickened_ranks[rank as usize] += 1;
                 }
             }
+        }
+        assert!(reserved >= 1);
+        assert!(frightened_ranks.iter().all(|count| *count >= 1));
+        assert!(sickened_ranks.iter().all(|count| *count >= 1));
+        let set_count = sets.len();
+        println!(
+            "property-test seed=0x0D1A_7E5B sets={set_count} modifiers={built} reserved={reserved} frightened_ranks={frightened_ranks:?} sickened_ranks={sickened_ranks:?} pairs circumstance={circumstance_pairs} item={item_pairs} status={status_pairs} untyped={untyped_pairs} bonus={bonus_pairs} sickened_sets={sickened_sets}"
+        );
+        assert!(
+            circumstance_pairs >= 50,
+            "circumstance penalty pairs {circumstance_pairs}"
+        );
+        assert!(item_pairs >= 50, "item penalty pairs {item_pairs}");
+        assert!(status_pairs >= 50, "status penalty pairs {status_pairs}");
+        assert!(untyped_pairs >= 50, "untyped penalty pairs {untyped_pairs}");
+        assert!(bonus_pairs >= 50, "bonus pairs {bonus_pairs}");
+        assert!(sickened_sets >= 50, "sickened sets {sickened_sets}");
+        for set in &sets {
             let mut modifiers = set.clone();
             let first = summed(&modifiers);
             for_each_order(&mut modifiers, &mut |order| {
@@ -3226,14 +3279,30 @@ mod tests {
                 }
             });
         }
-        assert!(reserved >= 1);
-        assert!(frightened_ranks.iter().all(|count| *count >= 1));
-        assert!(sickened_ranks.iter().all(|count| *count >= 1));
-        let set_count = sets.len();
-        println!(
-            "property-test seed=0x0D1A_7E5B sets={set_count} modifiers={built} reserved={reserved} frightened_ranks={frightened_ranks:?} sickened_ranks={sickened_ranks:?}"
-        );
         assert_eq!(dice.remaining(), 1);
+    }
+
+    fn two_on_one_statistic(set: &[Modifier], matches: impl Fn(Modifier) -> bool) -> bool {
+        let mut attack = 0usize;
+        let mut armor_class = 0usize;
+        let mut perception = 0usize;
+        let mut damage = 0usize;
+        for modifier in set.iter().copied() {
+            if !matches(modifier) {
+                continue;
+            }
+            let count = match modifier.statistic() {
+                Statistic::Attack => &mut attack,
+                Statistic::ArmorClass => &mut armor_class,
+                Statistic::Perception => &mut perception,
+                Statistic::Damage => &mut damage,
+            };
+            *count += 1;
+            if *count >= 2 {
+                return true;
+            }
+        }
+        false
     }
 
     fn generated_sets(seed: u64) -> Vec<Vec<Modifier>> {
@@ -3243,7 +3312,9 @@ mod tests {
             both_levels_absent_set(),
             conditioned_exact_duplicates(),
         ];
-        for _ in 0..1_000 {
+        // Item, circumstance, and untyped pairs are uncommon in a set of at most four.
+        // Keep drawing from this seed so each same-type pair count can clear 50.
+        for _ in 0..16_000 {
             let count = rng.below(5) as usize;
             sets.push((0..count).map(|_| random_modifier(&mut rng)).collect());
         }
@@ -3784,7 +3855,8 @@ mod tests {
         }
 
         fn below(&mut self, bound: u64) -> u64 {
-            self.next() % bound
+            // The low bits of this multiplier repeat on a short period, so `% bound` barely mixes.
+            (self.next() >> 33) % bound
         }
     }
 }
