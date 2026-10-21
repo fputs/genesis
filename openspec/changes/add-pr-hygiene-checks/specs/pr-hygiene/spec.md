@@ -169,7 +169,7 @@ An implementation pull request SHALL be a diff that includes a spec-drift code p
 
 ### Requirement: Unreleased changelog bullet
 
-An implementation pull request that is not exempt SHALL add at least one bullet under `## [Unreleased]` in `CHANGELOG.md`. Otherwise the job SHALL fail and the log SHALL include `implementation PR missing CHANGELOG bullet`.
+An implementation pull request that is not exempt SHALL add at least one bullet under `## [Unreleased]` in `CHANGELOG.md`. Otherwise the job SHALL fail and the log SHALL include `implementation PR missing CHANGELOG bullet`. A missing `CHANGELOG.md`, or a missing `## [Unreleased]` heading, on the head SHALL fail an implementation pull request the same way.
 
 #### Scenario: An added Unreleased bullet passes
 
@@ -201,9 +201,16 @@ An implementation pull request that is not exempt SHALL add at least one bullet 
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job passes
 
+#### Scenario: A missing head changelog fails
+
+- **GIVEN** an implementation pull request whose head has no `CHANGELOG.md`, or whose `CHANGELOG.md` has no `## [Unreleased]` heading
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
 ### Requirement: Changelog bullet shape
 
-A bullet SHALL be a trimmed line inside `## [Unreleased]`, before the next `## ` heading, that is a markdown list item with text. Added means the head section has such a line the base section does not.
+A bullet SHALL be a trimmed line inside `## [Unreleased]`, before the next `## ` heading, that is a markdown list item with text. Added means the head section has such a line the base section does not. A missing `CHANGELOG.md`, or a missing `## [Unreleased]` heading, on the base SHALL leave the base bullet set empty.
 
 #### Scenario: An unchanged existing bullet fails
 
@@ -212,6 +219,14 @@ A bullet SHALL be a trimmed line inside `## [Unreleased]`, before the next `## `
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
 - **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A missing base changelog leaves no bullets
+
+- **GIVEN** an implementation pull request whose base has no `CHANGELOG.md`, or whose base `CHANGELOG.md` has no `## [Unreleased]` heading
+- **AND** the head `## [Unreleased]` section has a list item
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the base bullet set is empty
+- **AND** the job passes
 
 ### Requirement: Bullet exemptions
 

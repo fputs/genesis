@@ -55,6 +55,8 @@ Genesis DevOps agent implements this change. The changelog bullet is added in an
 - [ ] 1.49 Scenario "Both checks fail together": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
 - [ ] 1.50 Scenario "The hygiene job enforces the bullet": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
 - [ ] 1.51 Scenario "main advanced after branching": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
+- [ ] 1.52 Scenario "A missing head changelog fails": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
+- [ ] 1.53 Scenario "A missing base changelog leaves no bullets": add a test named after this scenario and verify `node --test scripts/pr-hygiene.test.mjs` runs it.
 
 ## 2. CI job
 

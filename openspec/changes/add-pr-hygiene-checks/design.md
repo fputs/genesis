@@ -63,7 +63,7 @@ An implementation pull request is one whose diff includes a spec-drift code path
 
 `Cargo.lock` and `rust-toolchain.toml` are spec-drift code paths. The exemption still wins when the diff is only the exempt set. Adding any other code path, including root `Cargo.toml`, `crates/`, or `.github/workflows/`, removes the exemption. No label skips the check.
 
-A bullet is a trimmed markdown list item with text in the first `## [Unreleased]` section, before the next `## ` heading. Added means the head section has such a line the base section does not. A bullet under a released version, or a line that was already there, does not count. The job does not read labels.
+A bullet is a trimmed markdown list item with text in the first `## [Unreleased]` section, before the next `## ` heading. Added means the head section has such a line the base section does not. A missing `CHANGELOG.md` or a missing `## [Unreleased]` heading on the head fails an implementation pull request with `implementation PR missing CHANGELOG bullet`. The same gaps on the base leave that side's bullet set empty. A bullet under a released version, or a line that was already there, does not count. The job does not read labels.
 
 ### 5. Archive-last is a conjunction
 
