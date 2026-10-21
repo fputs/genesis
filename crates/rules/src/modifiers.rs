@@ -274,11 +274,12 @@ fn collapse_conditions(modifiers: &[Modifier]) -> Result<Vec<Modifier>, Modifier
     Ok(plain)
 }
 
-/// Highest rank wins. A condition with no rank is kept once.
+/// Highest rank wins. The same rank keeps the newer sequence, which is the greater one.
+/// A condition with no rank is kept once, and that tie uses the same newer sequence.
 ///
 /// Rank is the condition's number, so frightened 2 beats frightened 1 even though -1 is
 /// algebraically greater than -2. Frightened and sickened then contribute one status penalty
-/// equal to the negation of that rank.
+/// equal to the negation of that rank. Value does not break a same-rank tie.
 fn keep_condition(group: &[Modifier]) -> Result<Option<Modifier>, ModifierError> {
     let Some(mut best) = group.first().copied() else {
         return Ok(None);
@@ -298,8 +299,8 @@ fn condition_prefers(candidate: Modifier, current: Modifier) -> bool {
         }
         (Some(_), None) => true,
         (None, Some(_)) => false,
-        // Same rank, or neither has one: the lower sequence is stable and does not use value.
-        _ => candidate.sequence < current.sequence,
+        // Same rank, or neither has one: the newer effect wins. Newer is the greater sequence.
+        _ => candidate.sequence > current.sequence,
     }
 }
 
@@ -1022,6 +1023,31 @@ mod tests {
         assert_eq!(status[0].value(), -2);
         assert!(status[0].rank() != Some(1));
         assert_eq!(stacked.get(), -2);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Duplicate Effects".
+    /// Rules 2266. The same rank keeps the greater sequence. Value does not break that tie.
+    #[test]
+    fn a_same_rank_condition_keeps_the_newer_sequence() {
+        let dice = script();
+        let older =
+            penalty(PenaltyType::Status, -9, 1, 1, None).with_condition(FRIGHTENED, Some(2));
+        let newer =
+            penalty(PenaltyType::Status, -1, 2, 9, None).with_condition(FRIGHTENED, Some(2));
+        for modifiers in [[older, newer], [newer, older]] {
+            let stacked = summed(&modifiers);
+            let status: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .collect();
+            assert_eq!(status.len(), 1);
+            assert_eq!(status[0].sequence(), 9);
+            assert_eq!(status[0].rank(), Some(2));
+            assert_eq!(status[0].value(), -2);
+            assert_eq!(stacked.get(), -2);
+        }
         assert_eq!(dice.remaining(), 1);
     }
 
