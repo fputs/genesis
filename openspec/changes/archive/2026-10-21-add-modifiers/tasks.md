@@ -92,4 +92,4 @@
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 6.3 As the final commit of the implementation pull request, run `openspec archive add-modifiers --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 6.3 As the final commit of the implementation pull request, run `openspec archive add-modifiers --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
