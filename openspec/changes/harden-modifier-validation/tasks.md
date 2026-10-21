@@ -15,11 +15,11 @@
 
 ## 4. Changelog, proof, and archive
 
-- [ ] 4.1 Add one bullet under `## [Unreleased]` of root `CHANGELOG.md`. The bullet says frightened and sickened modifiers with no rank or a non-status type are rejected at construction, and the attack check total's internal terms use reserved sources, and it links to the implementation pull request. Verify the new bullet is under `## [Unreleased]` and contains that link
-- [ ] 4.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
+- [x] 4.1 Add one bullet under `## [Unreleased]` of root `CHANGELOG.md`. The bullet says frightened and sickened modifiers with no rank or a non-status type are rejected at construction, and the attack check total's internal terms use reserved sources, and it links to the implementation pull request. Verify the new bullet is under `## [Unreleased]` and contains that link
+- [x] 4.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 4.3 As the final commit of the implementation pull request, run `openspec archive harden-modifier-validation --yes`. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 4.3 As the final commit of the implementation pull request, run `openspec archive harden-modifier-validation --yes`. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
