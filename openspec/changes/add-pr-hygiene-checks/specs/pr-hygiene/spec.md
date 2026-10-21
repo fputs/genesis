@@ -415,6 +415,17 @@ When the body has `OpenSpec-Change: <id>` and the diff removes `openspec/changes
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 
+#### Scenario: A later fix-typo commit is not last
+
+- **GIVEN** a pull_request body line `OpenSpec-Change: add-foo`
+- **AND** the diff removes `openspec/changes/add-foo/`
+- **AND** the commit before the head is `openspec archive add-foo --yes`
+- **AND** the head commit message is `fix typo`
+- **AND** the head commit changes `docs/producer/process.md`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `archive commit is not last`
+
 #### Scenario: A missing archive phrase fails
 
 - **GIVEN** a pull_request body line `OpenSpec-Change: add-foo`
