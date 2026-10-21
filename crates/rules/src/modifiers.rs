@@ -3199,9 +3199,11 @@ mod tests {
                 && modifier.value() == -2
                 && modifier.source().is_none()
         }));
-        assert!(stacked.applied().iter().all(|modifier| {
-            modifier.source() != Some(SourceId(1)) || modifier.value() == -3
-        }));
+        assert!(
+            stacked.applied().iter().all(|modifier| {
+                modifier.source() != Some(SourceId(1)) || modifier.value() == -3
+            })
+        );
         assert_eq!(stacked.get(Statistic::Attack), -12);
         assert_eq!(dice.remaining(), 1);
     }
@@ -3247,7 +3249,9 @@ mod tests {
         let mut item_pairs = 0usize;
         let mut status_pairs = 0usize;
         let mut untyped_pairs = 0usize;
-        let mut bonus_pairs = 0usize;
+        let mut circumstance_bonus_pairs = 0usize;
+        let mut item_bonus_pairs = 0usize;
+        let mut status_bonus_pairs = 0usize;
         let mut sickened_sets = 0usize;
         for set in &sets {
             assert!(set.len() <= 4);
@@ -3271,8 +3275,20 @@ mod tests {
             }) {
                 untyped_pairs += 1;
             }
-            if two_on_one_statistic(set, |modifier| modifier.bonus_type().is_some()) {
-                bonus_pairs += 1;
+            if two_on_one_statistic(set, |modifier| {
+                modifier.bonus_type() == Some(BonusType::Circumstance)
+            }) {
+                circumstance_bonus_pairs += 1;
+            }
+            if two_on_one_statistic(set, |modifier| {
+                modifier.bonus_type() == Some(BonusType::Item)
+            }) {
+                item_bonus_pairs += 1;
+            }
+            if two_on_one_statistic(set, |modifier| {
+                modifier.bonus_type() == Some(BonusType::Status)
+            }) {
+                status_bonus_pairs += 1;
             }
             if set
                 .iter()
@@ -3311,7 +3327,7 @@ mod tests {
         assert!(sickened_ranks.iter().all(|count| *count >= 1));
         let set_count = sets.len();
         println!(
-            "property-test seed=0x0D1A_7E5B sets={set_count} modifiers={built} reserved={reserved} frightened_ranks={frightened_ranks:?} sickened_ranks={sickened_ranks:?} pairs circumstance={circumstance_pairs} item={item_pairs} status={status_pairs} untyped={untyped_pairs} bonus={bonus_pairs} sickened_sets={sickened_sets}"
+            "property-test seed=0x0D1A_7E5B sets={set_count} modifiers={built} reserved={reserved} frightened_ranks={frightened_ranks:?} sickened_ranks={sickened_ranks:?} pairs circumstance={circumstance_pairs} item={item_pairs} status={status_pairs} untyped={untyped_pairs} bonus circumstance={circumstance_bonus_pairs} item={item_bonus_pairs} status={status_bonus_pairs} sickened_sets={sickened_sets}"
         );
         assert!(
             circumstance_pairs >= 50,
@@ -3320,7 +3336,18 @@ mod tests {
         assert!(item_pairs >= 50, "item penalty pairs {item_pairs}");
         assert!(status_pairs >= 50, "status penalty pairs {status_pairs}");
         assert!(untyped_pairs >= 50, "untyped penalty pairs {untyped_pairs}");
-        assert!(bonus_pairs >= 50, "bonus pairs {bonus_pairs}");
+        assert!(
+            circumstance_bonus_pairs >= 50,
+            "circumstance bonus pairs {circumstance_bonus_pairs}"
+        );
+        assert!(
+            item_bonus_pairs >= 50,
+            "item bonus pairs {item_bonus_pairs}"
+        );
+        assert!(
+            status_bonus_pairs >= 50,
+            "status bonus pairs {status_bonus_pairs}"
+        );
         assert!(sickened_sets >= 50, "sickened sets {sickened_sets}");
         for set in &sets {
             let mut modifiers = set.clone();
@@ -3371,8 +3398,8 @@ mod tests {
             both_levels_absent_set(),
             conditioned_exact_duplicates(),
         ];
-        // Item, circumstance, and untyped pairs are uncommon in a set of at most four.
-        // Keep drawing from this seed so each same-type pair count can clear 50.
+        // Item, circumstance, and untyped pairs, and each bonus type, are uncommon
+        // in a set of at most four. Keep drawing from this seed so each count can clear 50.
         for _ in 0..16_000 {
             let count = rng.below(5) as usize;
             sets.push((0..count).map(|_| random_modifier(&mut rng)).collect());
