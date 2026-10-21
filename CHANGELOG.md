@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Pull-request hygiene job `pr-hygiene` (`scripts/pr-hygiene.mjs`, `.github/workflows/pr-hygiene.yml`). An implementation pull request must add a bullet under `## [Unreleased]`, and when a named OpenSpec change is removed the archive commit must be last. ([#23](https://github.com/fputs/genesis/pull/23))
 - Dice, checks, and creature templates: injected dice, degree of success, flat checks, the multiple attack penalty, and a character build that derives a creature from its validated base. Folding a later contribution returns an error when the list is empty, the damage die cannot be stored, or a sum overflows. ([#7](https://github.com/fputs/genesis/pull/7))
 - Spec-drift CI check (`scripts/spec-drift-check.mjs`), now run in `ci.yml` with its tests. It gates OpenSpec validation and flags completed changes that haven't been archived. Any PR that touches code or `.github/workflows/**` must also reference an OpenSpec change id with `OpenSpec-Change:`. ([#10](https://github.com/fputs/genesis/pull/10))
 - `openspec/specs/spec-drift-check` spec, archived from the add-spec-drift-check change.

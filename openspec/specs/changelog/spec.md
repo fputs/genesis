@@ -18,7 +18,7 @@ Root `CHANGELOG.md` MUST follow Keep a Changelog 1.1.0. The text above `## [Unre
 
 ### Requirement: Implementation pull requests add an Unreleased bullet
 
-An implementation pull request changes how the software or its checks behave. Before that pull request is done, it MUST add a bullet under `## [Unreleased]` in the section that fits: `### Added`, `### Changed`, `### Fixed`, `### Removed`, or `### Security`. When more than one of those fits, it MUST add a bullet in each. Each bullet MUST link to the pull request.
+An implementation pull request changes how the software or its checks behave. Before that pull request is done, it MUST add a bullet under `## [Unreleased]` in the section that fits: `### Added`, `### Changed`, `### Fixed`, `### Removed`, or `### Security`. When more than one of those fits, it MUST add a bullet in each. Each bullet MUST link to the pull request. The `pr-hygiene` job MUST fail an implementation pull request that adds no bullet under `## [Unreleased]`.
 
 #### Scenario: A behavior change has a linked bullet
 
@@ -40,6 +40,13 @@ An implementation pull request changes how the software or its checks behave. Be
 - **WHEN** a reviewer reads `## [Unreleased]`
 - **THEN** one bullet is under `### Added` and another is under `### Security`
 - **AND** both bullets link to that pull request
+
+#### Scenario: The hygiene job enforces the bullet
+
+- **GIVEN** an implementation pull request that adds no bullet under `## [Unreleased]`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
 
 ### Requirement: Spec, docs, and archive pull requests skip the bullet
 

@@ -20,6 +20,7 @@ npx @fission-ai/openspec@1.14.3 validate --all --strict
 ```
 All must pass. CI runs the same checks. (Why: "it should work" isn't evidence.)
 An implementation pull request adds a changelog entry under ## [Unreleased] before the work is done. Spec-only, docs-only, and archive-only pull requests do not.
+- The `pr-hygiene` job enforces the Unreleased bullet and archive-last.
 
 ## 3. Formatting and linting
 - Default `rustfmt` settings. Don't hand-format, don't add a `rustfmt.toml` without a spec.
