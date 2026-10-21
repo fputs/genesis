@@ -102,7 +102,7 @@ Check: the three book lines are present. The check also fails while the author-l
 
 Reserved Material is Evan's lore and the name "Project Genesis"; Genesis world and setting names, characters, places, factions, deities, plots, and dialogue; and Genesis art, music, and sound. The research quotes ORC I.h and the AxE: reserved material the publisher develops is exclusive property, and lore, names, story, art, and music stay closed. Art and audio in `docs/visual/` and `docs/audio/` are in that reserved set. `NOTICE-ORC.md` states that list in generic words.
 
-**UNVERIFIED** pending the legal pages of Player Core, GM Core, and Monster Core. The list stays generic until named setting content exists. The research says Art. III.c asks for this product's own reserved material, and that Paizo's reserved-material paragraph does not have to be copied word for word.
+**UNVERIFIED**: generic list pending named Genesis setting content and review by Evan or a lawyer. The research says Art. III.c asks for this product's own reserved material, and that Paizo's reserved-material paragraph does not have to be copied word for word.
 
 Check: `NOTICE-ORC.md` contains the Genesis reserved-material statement. A rules entry that copies Evan's setting names into mechanics fails LIC-6 and this rule.
 

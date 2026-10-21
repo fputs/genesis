@@ -22,7 +22,7 @@ If you use our Licensed Material in your own published work, please credit us as
 
 Reserved Material elements in this product include, but may not be limited to: the name "Project Genesis"; all Genesis world and setting names, characters, places, factions, deities, plots, and dialogue; all art, music, and sound; and all logos and trade dress, and all elements designated as Reserved Material under the ORC License.
 
-**UNVERIFIED** pending the legal pages of Player Core, GM Core, and Monster Core.
+**UNVERIFIED**: generic list pending named Genesis setting content and review by Evan or a lawyer.
 
 ## Expressly Designated Licensed Material
 
