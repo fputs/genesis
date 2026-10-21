@@ -227,6 +227,15 @@ An implementation pull request that is not exempt SHALL add at least one bullet 
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job passes
 
+#### Scenario: Edited still checks the bullet
+
+- **GIVEN** a pull_request `edited` event
+- **AND** the diff changes `crates/rules/src/lib.rs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
 ### Requirement: Changelog bullet shape
 
 A bullet SHALL be a trimmed line inside `## [Unreleased]`, before the next `## ` heading, that is a markdown list item with text. Added means the head section has such a line the base section does not. A missing `CHANGELOG.md`, or a missing `## [Unreleased]` heading, on the base SHALL leave the base bullet set empty.
@@ -435,6 +444,17 @@ When the body has `OpenSpec-Change: <id>` and the diff removes `openspec/changes
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
+
+#### Scenario: An edited body drops the change reference
+
+- **GIVEN** a pull_request `edited` event
+- **AND** the diff removes `openspec/changes/add-foo/`
+- **AND** the edited body has no `OpenSpec-Change: add-foo` line
+- **AND** the head message does not contain `openspec archive add-foo`
+- **AND** the head commit also changes `README.md`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+- **AND** the log does not include `archive commit is not last`
 
 ### Requirement: Each archived change
 
