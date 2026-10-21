@@ -16,10 +16,11 @@ pub use check::{
     resolve_check,
 };
 pub use combatant::{
-    BuildParts, CharacterBuild, CombatantId, CombatantState, ConditionSlot, Contribution, Creature,
-    DieCount, DieCountError, FoldError, MeleeStrike, ReachError, ReachFeet, ShieldTemplate,
-    TemplateError, Vital, aid_check, aid_circumstance_bonus, apply_dice_damage, base_contribution,
-    contributions, derive, fold_contributions, new_combatant_state, stealth_dc_from_modifier,
+    BuildParts, CharacterBuild, CombatantId, CombatantState, ConditionSlot, Contribution,
+    ContributionTerm, Creature, DiceTerm, DieCount, DieCountError, FaceTerm, MeleeStrike,
+    ReachError, ReachFeet, ReachTerm, ReachTermError, ShieldTemplate, TemplateError, Vital,
+    aid_check, aid_circumstance_bonus, apply_dice_damage, base_contribution, contributions, derive,
+    fold_contributions, new_combatant_state, stealth_dc_from_modifier,
 };
 pub use dice::{Dice, Faces, FacesError, SeededDice};
 
