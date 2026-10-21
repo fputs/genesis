@@ -1,0 +1,23 @@
+# Architecture decisions
+
+## 2026-10-20 — v2 restart is OpenSpec-first
+
+Genesis v2 restarts OpenSpec-first. v1 stays on branch `v1-reference` as a parts bin. Port a file only when a change names it.
+
+## 2026-10-20 — Rules crate is engine-free
+
+The rules crate has no Bevy, serde, or file I/O. Callers inject Dice. Ids are CombatantId.
+
+## 2026-10-20 — Phase 1 change order
+
+1. project-foundation
+2. dice-and-checks, including flat checks and untyped MAP, including agile
+3. creature-template: baked stats, optional stealth_dc, aid modifier, no fixed party size
+4. grid-movement
+5. encounter-core
+6. circumstance-modifiers
+7. then shields, reactive strike, positioning/flanking, seek/hidden, delay/ready/aid
+
+## 2026-10-20 — Deferred
+
+Deferred: attributes, proficiency, saves, skills, spells, classes, and broader conditions.
