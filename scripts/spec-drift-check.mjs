@@ -11,6 +11,7 @@ const DATED_ARCHIVE = /^(\d{4})-(\d{2})-(\d{2})-(.+)$/;
 // Failure lines are the spec's whole contract for a red log. Keep them stable.
 const VALIDATE_FAILED = "spec-drift: validate failed";
 const MISSING_REFERENCE = "spec-drift: code change missing OpenSpec-Change";
+const REFERENCE_PREFIX = "OpenSpec-Change:";
 
 function main() {
   const root = process.env.SPEC_DRIFT_ROOT || defaultRoot();
@@ -164,14 +165,16 @@ function referenceFailures(root, body, baseSha) {
     throw new Error("pull request base sha is required for the code-path diff");
   }
   const paths = changedPaths(root, baseSha);
+  const { ids, invalidTokens } = changeReferences(body);
+  // An invalid token is a mistake on every pull request, including docs-only.
+  // It must not also be reported as a missing reference.
+  const failures = invalidTokens.map((token) => invalidChangeId(token));
   if (!paths.some(isCodePath)) {
-    return [];
+    return failures;
   }
-  const ids = changeReferences(body);
-  if (ids.length === 0) {
+  if (invalidTokens.length === 0 && ids.length === 0) {
     return [MISSING_REFERENCE];
   }
-  const failures = [];
   for (const id of ids) {
     if (!changeExists(root, id)) {
       failures.push(`spec-drift: unknown change ${id}`);
@@ -180,11 +183,17 @@ function referenceFailures(root, body, baseSha) {
   return failures;
 }
 
+function invalidChangeId(token) {
+  return token.length === 0
+    ? "spec-drift: invalid change id"
+    : `spec-drift: invalid change id ${token}`;
+}
+
 function changedPaths(root, baseSha) {
   const result = spawnSync(
     "git",
     ["diff", "-z", "--name-status", "--find-renames", baseSha, "HEAD"],
-    { cwd: root, encoding: "utf8" },
+    { cwd: root, encoding: "utf8", env: gitEnv() },
   );
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "git diff failed").trim();
@@ -231,22 +240,55 @@ function isCodePath(path) {
   );
 }
 
+function gitEnv() {
+  // Git's own error text follows the process locale. The C locale keeps it stable.
+  return { ...process.env, LC_ALL: "C" };
+}
+
 function changeReferences(body) {
   const ids = [];
   const seen = new Set();
+  const invalidTokens = [];
+  const invalidSeen = new Set();
   for (const line of body.split("\n")) {
     let text = line;
     if (text.endsWith("\r")) {
       text = text.slice(0, -1);
     }
-    const match = /^OpenSpec-Change: ([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(text.trim());
-    if (!match || !CHANGE_ID.test(match[1]) || seen.has(match[1])) {
+    text = text.trim();
+    if (!text.startsWith(REFERENCE_PREFIX)) {
       continue;
     }
-    seen.add(match[1]);
-    ids.push(match[1]);
+    const token = singleToken(text.slice(REFERENCE_PREFIX.length));
+    if (token === null) {
+      continue;
+    }
+    if (!CHANGE_ID.test(token)) {
+      if (!invalidSeen.has(token)) {
+        invalidSeen.add(token);
+        invalidTokens.push(token);
+      }
+      continue;
+    }
+    if (!seen.has(token)) {
+      seen.add(token);
+      ids.push(token);
+    }
   }
-  return ids;
+  return { ids, invalidTokens };
+}
+
+// One token after the prefix is a reference. Extra words are not. An empty
+// remainder is an invalid token, not a missing line.
+function singleToken(rest) {
+  if (rest.length === 0) {
+    return "";
+  }
+  const parts = rest.trim().split(/\s+/);
+  if (parts.length !== 1) {
+    return null;
+  }
+  return parts[0];
 }
 
 function changeExists(root, id) {

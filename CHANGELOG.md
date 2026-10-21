@@ -20,5 +20,9 @@ v1 history lives on the `v1-reference` branch.
 
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
 
+### Fixed
+
+- pr-hygiene and spec-drift fail closed on an invalid OpenSpec change id, an archive that is not the head commit, and a moved, edited, or fenced changelog bullet. Editing a pull request re-runs spec-drift without skipping Cargo.
+
 ### Security
 - CI workflow token is now limited to read-only access (`permissions: contents: read`). ([#10](https://github.com/fputs/genesis/pull/10))

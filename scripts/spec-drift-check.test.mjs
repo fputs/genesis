@@ -11,7 +11,12 @@ const scriptPath = fileURLToPath(new URL("./spec-drift-check.mjs", import.meta.u
 const workflowPath = fileURLToPath(
   new URL("../.github/workflows/ci.yml", import.meta.url),
 );
+const editedWorkflowPath = fileURLToPath(
+  new URL("../.github/workflows/spec-drift-edited.yml", import.meta.url),
+);
 const workflow = readFileSync(workflowPath, "utf8");
+const editedWorkflow = readFileSync(editedWorkflowPath, "utf8");
+const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
 
 const STUB_LINE = "stub-openspec: validate --all --strict";
 const OPEN = "- [ ] 1.1 Open\n";
@@ -330,7 +335,70 @@ const cases = [
       "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
     },
     head: { "Cargo.toml": "new\n" },
-    excludes: ["spec-drift: unknown change"],
+    excludes: ["spec-drift: unknown change", "spec-drift: invalid change id"],
+  }),
+  failing("An uppercase id is not skipped", ["spec-drift: invalid change id Add-Foo"], {
+    event: "pull_request",
+    body: "OpenSpec-Change: Add-Foo",
+    base: {
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "crates/rules/src/lib.rs": "new\n" },
+    excludes: [MISSING],
+  }),
+  failing(
+    "A valid id does not hide an invalid token",
+    ["spec-drift: invalid change id Add-Foo"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change: add-dice-and-checks\nOpenSpec-Change: Add-Foo",
+      base: {
+        "Cargo.toml": "old\n",
+        "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+      },
+      head: { "Cargo.toml": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  failing(
+    "docs-only PR with OpenSpec-Change: Add-Foo fails",
+    ["spec-drift: invalid change id Add-Foo"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change: Add-Foo",
+      base: {
+        "docs/architect/decisions.md": "old\n",
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  failing(
+    "An empty or spaceless change line is invalid",
+    ["spec-drift: invalid change id\n", "spec-drift: invalid change id Add"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change:\nOpenSpec-Change:Add",
+      base: { "docs/architect/decisions.md": "old\n" },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
+  passing("A scripts-only pull request is not a code path", {
+    event: "pull_request",
+    body: "",
+    base: { "scripts/note.mjs": "old\n" },
+    head: { "scripts/note.mjs": "new\n" },
+    excludes: [MISSING],
+  }),
+  passing("Git diff runs with LC_ALL=C", {
+    event: "pull_request",
+    body: "",
+    base: { "docs/note.md": "old\n" },
+    head: { "docs/note.md": "new\n" },
+    recordGitLocale: true,
   }),
   passing("An active id exists", {
     event: "pull_request",
@@ -524,9 +592,72 @@ test("Job triggers match the Cargo workflow", () => {
   assert.match(header, /push:/);
   assert.match(header, /pull_request:/);
   assert.match(header, /branches:\s*\[main]/);
+  assert.doesNotMatch(workflow, /edited/);
+  assert.doesNotMatch(workflow, /\bif:/);
+  assert.match(jobBlock(workflow, "ci"), /cargo fmt --check/);
   const job = jobBlock(workflow, "spec-drift");
   assert.match(job, /fetch-depth:\s*0/);
   assert.match(job, /node scripts\/spec-drift-check\.mjs/);
+  assert.match(editedWorkflow, /pull_request:/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /branches:\s*\[main]/);
+  assert.match(editedWorkflow, /node scripts\/spec-drift-check\.mjs/);
+  assert.doesNotMatch(editedWorkflow, /node --test/);
+  assert.doesNotMatch(editedWorkflow, /cargo /);
+  const editedJobs = editedWorkflow
+    .slice(editedWorkflow.indexOf("jobs:"))
+    .match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(editedJobs, ["  spec-drift:"]);
+});
+
+test("Editing the body does not replace a failed Cargo check", () => {
+  assert.match(workflow, /pull_request:\n\s+branches: \[main]/);
+  assert.doesNotMatch(workflow, /edited/);
+  assert.doesNotMatch(workflow, /\bif:/);
+  assert.doesNotMatch(workflow, /types:/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /branches:\s*\[main]/);
+  assert.match(editedWorkflow, /node scripts\/spec-drift-check\.mjs/);
+  assert.doesNotMatch(editedWorkflow, /cargo fmt/);
+  assert.doesNotMatch(editedWorkflow, /^ {2}ci:/m);
+});
+
+test("The edited workflow reuses the spec-drift job name", () => {
+  assert.match(editedWorkflow, /pull_request:/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(editedWorkflow, /branches:\s*\[main]/);
+  assert.match(editedWorkflow, /permissions:\n  contents: read\n/);
+  assert.match(
+    editedWorkflow,
+    /group: spec-drift-edited-\$\{\{ github\.event\.pull_request\.number \}\}/,
+  );
+  assert.match(editedWorkflow, /cancel-in-progress:\s*true/);
+  const jobs = editedWorkflow
+    .slice(editedWorkflow.indexOf("jobs:"))
+    .match(/^ {2}[a-z0-9-]+:$/gm);
+  assert.deepEqual(jobs, ["  spec-drift:"]);
+  const job = jobBlock(editedWorkflow, "spec-drift");
+  assert.match(job, /node scripts\/spec-drift-check\.mjs/);
+  assert.doesNotMatch(job, /node --test/);
+  assert.doesNotMatch(editedWorkflow, /pr-hygiene/);
+});
+
+test("Dropping the change line on edit fails", async () => {
+  const fields = {
+    event: "pull_request",
+    base: {
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-dice-and-checks/tasks.md": OPEN,
+    },
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  };
+  await runCase(
+    passing("kept the line", {
+      ...fields,
+      body: "OpenSpec-Change: add-dice-and-checks",
+    }),
+  );
+  await runCase(failing("edited drops the line", [MISSING], { ...fields, body: "" }));
 });
 
 test("Cargo steps stay", () => {
@@ -626,6 +757,15 @@ async function runCase(row) {
     const code = row.validateStatus ?? 0;
     await writeFile(stub, `#!/bin/sh\necho "${STUB_LINE}"\nexit ${code}\n`);
     await chmod(stub, 0o755);
+    const localeLog = join(dir, "git-locale.txt");
+    if (row.recordGitLocale) {
+      const gitStub = join(bin, "git");
+      await writeFile(
+        gitStub,
+        "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf '%s\\n' \"$LC_ALL\" > \"$GIT_LOCALE_LOG\"\nfi\nexec \"$REAL_GIT\" \"$@\"\n",
+      );
+      await chmod(gitStub, 0o755);
+    }
 
     const env = {
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
@@ -635,6 +775,11 @@ async function runCase(row) {
       SPEC_DRIFT_ROOT: dir,
       SPEC_DRIFT_BASE_SHA: baseSha,
     };
+    if (row.recordGitLocale) {
+      env.LC_ALL = "fr_FR.UTF-8";
+      env.GIT_LOCALE_LOG = localeLog;
+      env.REAL_GIT = realGit;
+    }
     if (row.body !== undefined) {
       env.SPEC_DRIFT_BODY = row.body;
     } else if (row.event === "pull_request") {
@@ -653,6 +798,9 @@ async function runCase(row) {
     }
     for (const line of row.excludes ?? []) {
       assert.ok(!output.includes(line), `unexpected ${line}\n${output}`);
+    }
+    if (row.recordGitLocale) {
+      assert.equal(readFileSync(localeLog, "utf8").trim(), "C");
     }
     if (row.assertRepo) {
       row.assertRepo(dir);
