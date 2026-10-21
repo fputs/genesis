@@ -2,7 +2,10 @@ schema: spec-driven
 
 context: |
   Genesis v2. Phase 1 ships a Pathfinder 2e Remaster rules crate only; Phase 2 later ships a basic map editor. v1 lives on branch v1-reference as a parts bin; port files only when a change names them. Rust stable workspace. crates/rules has no Bevy, serde, or file I/O; callers inject Dice; ids are CombatantId. No game/editor crates until their phase. Tabletop procedure, or a recorded substitute (rule, why not, substitute, intent). One change = one procedure family. Tests use scripted dice and cite the Player Core section. Out of Phase 1: classes, spells, feats, attributes/proficiency/skills/saves, editor UI, AI.
+  Coding constitution: AGENTS.md at the repo root binds all implementation work; specs must not contradict it without amending it.
 
 rules:
   specs:
     - Specs use Given/When/Then scenarios.
+  tasks:
+    - Every implementation task list ends with the AGENTS.md proof commands and archiving the change.
