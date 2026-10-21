@@ -39,10 +39,15 @@ Port v1's encounter behaviour into a spec-first, deterministic, seeded, headless
 3. **PC–PC initiative ties** are broken by fixed ID. RAW lets the players choose. PC–enemy ties follow RAW (enemy first).
 4. **Reactions before your first turn** are available. RAW makes this a GM call.
 5. **Dying rules are per creature via `uses_dying_rules`.** PCs use them; enemies default to death at 0 HP, which is the RAW norm. Setting true on a significant foe models the GM option. This is not strictly a deviation, but it is ledgered because v1 differs.
-6. **Massive damage** is checked only for a blow taken while above 0 HP (v1 reading). RAW is silent on this.
+6. ~~Massive damage HP precondition~~: **reverted to RAW** 2026-10-20 (any blow ≥ 2× max HP kills; see rules-deviations.md FIX-15).
 7. **Seek is an open roll**, not a secret check: no hidden-information UI in Phase 1. The RAW area limit (≤ 30 ft in any dimension) **is** enforced.
 8. **Physical-only damage**; no damage types yet.
-9. **Unconscious drops held items**: follow RAW unless the spec chooses otherwise. If v1 behaviour differs, ledger it.
+9. **Unconscious does not drop held items** in Phase 1 (not modeled; ruling 2026-10-20).
+10. **Temp HP**: auto-keep the higher amount; RAW is player choice (ruling 2026-10-20).
+11. **Min-1 damage applies before crit doubling** (smallest crit = 2); RAW is silent (ruling 2026-10-20).
+12. **A readied attack uses the MAP from Ready time** (RAW); dice-and-checks needs an amendment (FIX-16).
+
+The canonical ledger is `rules-deviations.md`.
 
 ## Risks
 - **Licensing:** Remaster rules are under the **ORC License**, which allows reuse with attribution. Paizo trademarks, art and setting are Reserved Material. Avoid OGL-only legacy terms. Add an ORC notice. Don't copy AoN prose into fixtures or specs; paraphrase and cite. Owner sign-off is needed before release.
@@ -81,3 +86,6 @@ Port v1's encounter behaviour into a spec-first, deterministic, seeded, headless
 | 2026-10-20 | Q4: Phase 1 keeps an open Seek roll (ledgered) but enforces the RAW area: "almost always 30 feet or less in any dimension" (PC 417). The cone/burst wording is not in the Remaster text. | Designer |
 
 No open questions remain. Q1's ordering awaits the Architect's call.
+
+### Decision 2026-10-20 (Designer): flat checks use full degrees of success
+Flat checks are checks, so the normal Step 4 degree rules and the natural 20/1 shift both apply. Player Core's Flat Checks section exempts flat checks only from modifiers, and no rule limits them to success or failure. A DC 20 flat check that rolls a natural 20 is a CRITICAL SUCCESS: the numbers give a success, then the natural 20 moves it up one degree. Effects with no critical entry treat a critical success as a success and a critical failure as a failure. Recovery checks do list critical outcomes, so the engine must always return all four degrees. Sources: https://2e.aonprd.com/Rules.aspx?ID=2278 (Flat Checks; Step 4) and https://2e.aonprd.com/Rules.aspx?ID=2287.
