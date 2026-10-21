@@ -10,7 +10,7 @@ See proposal.md for why. `with_condition` returns `Self` and cannot fail. A frig
 
 - Reject invalid frightened and sickened input at construction.
 - Make the property oracle a separate RAW reference.
-- Give the attack check's internal terms reserved sources.
+- Apply the multiple attack penalty once, through `MultipleAttackPenalty`, and do not add a second MAP source.
 
 **Non-Goals:**
 
@@ -55,9 +55,11 @@ Do not draw a zero value or an untyped bonus. Rank 0 builds and contributes noth
 
 ### 3. Reserved attack-check sources
 
-Add three `ModifierSource` variants, one per internal term (untyped multiple attack penalty, circumstance penalty, other untyped penalty). They are distinct from each other and from `MultipleAttackPenalty`. Build the terms in the modifiers module. `attack_check_total` uses that builder and does not pass `SourceId`. A positive untyped term stays a raw addend, as it is today. Callers still cannot construct these variants.
+The multiple attack penalty applies once per check (Player Core p.402, Rules 2289). Reuse `ModifierSource::MultipleAttackPenalty` for that internal term. Do not add a separate internal MAP source. A second attack with no caller multiple attack penalty gets -5, once.
 
-Alternative considered: reuse `SourceId(1..3)` and tell callers to avoid them. Rejected. Caller source 1 is legal and would collapse an internal untyped term.
+The circumstance penalty and the other untyped penalty use reserved sources that no caller can construct. They are distinct from `MultipleAttackPenalty`. `attack_check_total` does not pass `SourceId`. A positive untyped term stays a raw addend.
+
+Alternative considered: add a new MAP variant beside `MultipleAttackPenalty`. Rejected. Two untyped -5 terms would stack. Alternative considered: reuse `SourceId(1..3)` and tell callers to avoid them. Rejected. Caller source 1 is legal.
 
 ### 4. No type-order tiebreak
 

@@ -135,7 +135,7 @@ The group key SHALL be (condition, statistic, bonus or penalty, type), not the s
 
 ### Requirement: Attack check internal terms use reserved sources
 
-The attack check total's internal terms SHALL use distinct reserved sources that no caller can construct, as the multiple attack penalty does. A caller source 1 SHALL NOT equal any internal source and SHALL NOT collapse an internal term.
+The multiple attack penalty SHALL apply once per check and SHALL reuse MultipleAttackPenalty. The attack check SHALL NOT add a separate internal multiple attack penalty source. The other internal terms SHALL use reserved sources that no caller can construct.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
@@ -151,3 +151,11 @@ The attack check total's internal terms SHALL use distinct reserved sources that
 - **AND** the attack-roll total is -12
 - **AND** no internal term is caller source 1
 - **AND** the substitute is recorded as rule, Duplicate Effects keys a repeated effect on its source; why not, these internal terms are not caller effects; substitute, each internal term uses a reserved source no caller can construct; intent, caller source 1 cannot collapse an internal term
+
+#### Scenario: A second attack with no caller MAP gets -5 once
+
+- **GIVEN** a second non-agile attack on the creature's own turn and no caller multiple attack penalty
+- **WHEN** the attack-roll modifiers for that check are totaled
+- **THEN** one untyped penalty of -5 is applied
+- **AND** that penalty is applied once
+- **AND** the multiple attack penalty is not -10
