@@ -10,7 +10,6 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
-- MIT license on the `rules` crate, the ORC notice, and the licensing requirements in `docs/architect/licensing.md`. ([#32](https://github.com/fputs/genesis/pull/32))
 - Modifier stacking for circumstance, item, status, and untyped penalties, and a damage minimum of 1 before critical doubling. ([#25](https://github.com/fputs/genesis/pull/25))
 - 5-foot grid movement for Stride and Step, diagonal cost across a turn, and range-increment data. ([#26](https://github.com/fputs/genesis/pull/26))
 - Pull-request hygiene job `pr-hygiene` (`scripts/pr-hygiene.mjs`, `.github/workflows/pr-hygiene.yml`). An implementation pull request must add a bullet under `## [Unreleased]`, and when a named OpenSpec change is removed the archive commit must be last. ([#23](https://github.com/fputs/genesis/pull/23))
