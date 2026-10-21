@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::check::{CheckRoll, DegreeOfSuccess, resolve_check};
-use crate::dice::{Dice, Faces, FacesError};
+use crate::dice::{Dice, Faces};
 
 /// Stable id for a creature in one encounter. Rules never use engine entity ids.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -85,126 +85,18 @@ impl ReachFeet {
     }
 }
 
-/// One `i32` added by a derivation layer.
-///
-/// Any slice of these fits in `i128`: a slice has at most `isize::MAX` elements, and
-/// `isize::MAX * i32::MAX` is less than `i128::MAX`. The creature stores the nearest `i32`.
+/// Why a fold could not build a creature.
 ///
 /// Player Core, Hit Points.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ContributionTerm(i32);
-
-/// Die-count added by one layer. Each term is `0..=255`.
-///
-/// The fold sums these in `i128` and stores the nearest [`DieCount`].
-///
-/// Player Core, Damage Rolls.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DiceTerm(u8);
-
-/// Face-count added by one layer. Zero adds no faces.
-///
-/// The fold sums these in `i128` and stores the nearest [`Faces`] (`1..=255`).
-///
-/// Player Core, Damage Rolls.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FaceTerm(u8);
-
-/// Why a reach term was rejected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReachTermError {
-    /// The reach was negative.
-    Negative,
+pub enum FoldError {
+    /// A summed `i32` overflowed, or a reach sum is negative.
+    Overflow,
+    /// The damage die has zero faces, or a die count or face count the strike cannot store.
+    DamageDie,
+    /// The contribution list was empty.
+    Empty,
 }
-
-/// Reach added by one layer. Negative reach is not a term.
-///
-/// The fold sums these in `i128` and stores the nearest [`ReachFeet`].
-///
-/// Player Core, Strike.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ReachTerm(i32);
-
-impl ContributionTerm {
-    /// Stores `value`. Every `i32` is a term.
-    ///
-    /// Player Core, Hit Points.
-    pub const fn new(value: i32) -> Self {
-        Self(value)
-    }
-
-    /// The added number.
-    pub const fn get(self) -> i32 {
-        self.0
-    }
-}
-
-impl DiceTerm {
-    /// Stores a die count in `0..=255`.
-    ///
-    /// Player Core, Damage Rolls.
-    pub const fn new(count: u8) -> Self {
-        Self(count)
-    }
-
-    /// The die count already stored on a strike.
-    pub fn from_count(count: DieCount) -> Self {
-        Self(count.get())
-    }
-
-    /// The added die count.
-    pub const fn get(self) -> u8 {
-        self.0
-    }
-}
-
-impl FaceTerm {
-    /// Stores a face delta in `0..=255`. Zero adds no faces.
-    ///
-    /// Player Core, Damage Rolls.
-    pub const fn new(faces: u8) -> Self {
-        Self(faces)
-    }
-
-    /// The face count already stored on a strike. Always at least 1.
-    pub fn from_faces(faces: Faces) -> Self {
-        Self(faces.get())
-    }
-
-    /// The added face count.
-    pub const fn get(self) -> u8 {
-        self.0
-    }
-}
-
-impl ReachTerm {
-    /// Rejects a negative reach.
-    ///
-    /// Player Core, Strike.
-    pub const fn new(feet: i32) -> Result<Self, ReachTermError> {
-        if feet < 0 {
-            Err(ReachTermError::Negative)
-        } else {
-            Ok(Self(feet))
-        }
-    }
-
-    /// The reach already stored on a strike.
-    pub const fn from_reach(reach: ReachFeet) -> Self {
-        Self(reach.to_i32())
-    }
-
-    /// The added reach.
-    pub const fn get(self) -> i32 {
-        self.0
-    }
-}
-
-const fn i128_holds_every_i32_slice_sum() -> bool {
-    (isize::MAX as i128).checked_mul(i32::MAX as i128).is_some()
-}
-
-const _: () = assert!(i128_holds_every_i32_slice_sum());
 
 /// One melee strike on a creature.
 ///
@@ -297,23 +189,23 @@ impl CharacterBuild {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Contribution {
     /// Hit Points added by this layer. Player Core, Hit Points.
-    pub hit_points: ContributionTerm,
+    pub hit_points: i32,
     /// Armor Class added by this layer. Player Core, Hit Points.
-    pub armor_class: ContributionTerm,
+    pub armor_class: i32,
     /// Perception modifier added by this layer. Player Core, "Getting a DC from a Modifier".
-    pub perception: ContributionTerm,
+    pub perception: i32,
     /// Speed in feet added by this layer. Player Core, Speed.
-    pub speed_feet: ContributionTerm,
+    pub speed_feet: i32,
     /// Attack bonus added by this layer. Player Core, Strike.
-    pub attack_bonus: ContributionTerm,
+    pub attack_bonus: i32,
     /// Damage dice added by this layer. Player Core, Damage Rolls.
-    pub damage_dice: DiceTerm,
+    pub damage_dice: i32,
     /// Damage die faces added by this layer. Player Core, Damage Rolls.
-    pub damage_faces: FaceTerm,
+    pub damage_faces: i32,
     /// Damage bonus added by this layer. Player Core, Damage Rolls.
-    pub damage_bonus: ContributionTerm,
+    pub damage_bonus: i32,
     /// Reach in feet added by this layer. Player Core, Strike.
-    pub reach_feet: ReachTerm,
+    pub reach_feet: i32,
     /// Replaces the agile flag when `Some`. Player Core, "Multiple Attack Penalty".
     pub agile: Option<bool>,
     /// Replaces the shield when `Some`. Player Core, "Shield Statistics".
@@ -332,15 +224,15 @@ pub struct Contribution {
 pub fn base_contribution(build: &CharacterBuild) -> Contribution {
     let parts = &build.parts;
     Contribution {
-        hit_points: ContributionTerm::new(parts.hit_points),
-        armor_class: ContributionTerm::new(parts.armor_class),
-        perception: ContributionTerm::new(parts.perception),
-        speed_feet: ContributionTerm::new(parts.speed_feet),
-        attack_bonus: ContributionTerm::new(parts.strike.attack_bonus),
-        damage_dice: DiceTerm::from_count(parts.strike.damage_dice),
-        damage_faces: FaceTerm::from_faces(parts.strike.damage_faces),
-        damage_bonus: ContributionTerm::new(parts.strike.damage_bonus),
-        reach_feet: ReachTerm::from_reach(parts.strike.reach_feet),
+        hit_points: parts.hit_points,
+        armor_class: parts.armor_class,
+        perception: parts.perception,
+        speed_feet: parts.speed_feet,
+        attack_bonus: parts.strike.attack_bonus,
+        damage_dice: parts.strike.damage_dice.to_i32(),
+        damage_faces: parts.strike.damage_faces.to_i32(),
+        damage_bonus: parts.strike.damage_bonus,
+        reach_feet: parts.strike.reach_feet.to_i32(),
         agile: Some(parts.strike.agile),
         shield: parts.shield.clone(),
         stealth_dc: parts.stealth_dc,
@@ -356,60 +248,26 @@ pub fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
     vec![base_contribution(build)]
 }
 
-/// Nearest `i32` to `sum`.
-fn nearest_i32(sum: i128) -> i32 {
-    i32::try_from(sum).unwrap_or(if sum > 0 { i32::MAX } else { i32::MIN })
-}
-
-/// Nearest `u8` to `sum`.
-fn nearest_u8(sum: i128) -> u8 {
-    u8::try_from(sum).unwrap_or(if sum > 0 { u8::MAX } else { 0 })
-}
-
-/// Nearest face count in `1..=255`.
-fn nearest_faces(sum: i128) -> Faces {
-    let faces = match u8::try_from(sum) {
-        Ok(0) | Err(_) => {
-            if sum > 0 {
-                u8::MAX
-            } else {
-                1
-            }
-        }
-        Ok(faces) => faces,
-    };
-    match Faces::new(faces) {
-        Ok(faces) => faces,
-        Err(FacesError::Zero | FacesError::OutOfRange) => Faces::twenty(),
-    }
-}
-
-/// Nearest non-negative reach that fits in [`ReachFeet`].
-fn nearest_reach(sum: i128) -> ReachFeet {
-    let feet = nearest_i32(sum).max(0);
-    match ReachFeet::new(feet) {
-        Ok(reach) => reach,
-        Err(ReachError::Negative) => ReachFeet(0),
-    }
-}
-
 /// Folds layers in order, starting from zeros and `None`.
 ///
-/// Each numeric term is bounded, and the running totals are `i128`. That sum cannot
-/// overflow for any slice. Hit Points and the other `i32` fields store the nearest
-/// `i32`. Dice, faces, and reach store the nearest value their types can hold.
+/// An empty list, a sum past `i32`, or a damage die the strike cannot store is
+/// [`FoldError`]. A negative reach sum cannot be stored, so it is [`FoldError::Overflow`].
 ///
 /// Player Core, Hit Points.
-pub fn fold_contributions(ordered: &[Contribution]) -> Creature {
-    let mut hit_points: i128 = 0;
-    let mut armor_class: i128 = 0;
-    let mut perception: i128 = 0;
-    let mut speed_feet: i128 = 0;
-    let mut attack_bonus: i128 = 0;
-    let mut damage_dice: i128 = 0;
-    let mut damage_faces: i128 = 0;
-    let mut damage_bonus: i128 = 0;
-    let mut reach_feet: i128 = 0;
+pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError> {
+    if ordered.is_empty() {
+        return Err(FoldError::Empty);
+    }
+
+    let mut hit_points: i32 = 0;
+    let mut armor_class: i32 = 0;
+    let mut perception: i32 = 0;
+    let mut speed_feet: i32 = 0;
+    let mut attack_bonus: i32 = 0;
+    let mut damage_dice: i32 = 0;
+    let mut damage_faces: i32 = 0;
+    let mut damage_bonus: i32 = 0;
+    let mut reach_feet: i32 = 0;
     let mut agile = None;
     let mut shield = None;
     let mut stealth_dc = None;
@@ -417,15 +275,33 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Creature {
     let mut uses_dying_rules = None;
 
     for layer in ordered {
-        hit_points += i128::from(layer.hit_points.get());
-        armor_class += i128::from(layer.armor_class.get());
-        perception += i128::from(layer.perception.get());
-        speed_feet += i128::from(layer.speed_feet.get());
-        attack_bonus += i128::from(layer.attack_bonus.get());
-        damage_dice += i128::from(layer.damage_dice.get());
-        damage_faces += i128::from(layer.damage_faces.get());
-        damage_bonus += i128::from(layer.damage_bonus.get());
-        reach_feet += i128::from(layer.reach_feet.get());
+        hit_points = hit_points
+            .checked_add(layer.hit_points)
+            .ok_or(FoldError::Overflow)?;
+        armor_class = armor_class
+            .checked_add(layer.armor_class)
+            .ok_or(FoldError::Overflow)?;
+        perception = perception
+            .checked_add(layer.perception)
+            .ok_or(FoldError::Overflow)?;
+        speed_feet = speed_feet
+            .checked_add(layer.speed_feet)
+            .ok_or(FoldError::Overflow)?;
+        attack_bonus = attack_bonus
+            .checked_add(layer.attack_bonus)
+            .ok_or(FoldError::Overflow)?;
+        damage_dice = damage_dice
+            .checked_add(layer.damage_dice)
+            .ok_or(FoldError::Overflow)?;
+        damage_faces = damage_faces
+            .checked_add(layer.damage_faces)
+            .ok_or(FoldError::Overflow)?;
+        damage_bonus = damage_bonus
+            .checked_add(layer.damage_bonus)
+            .ok_or(FoldError::Overflow)?;
+        reach_feet = reach_feet
+            .checked_add(layer.reach_feet)
+            .ok_or(FoldError::Overflow)?;
         if let Some(value) = layer.agile {
             agile = Some(value);
         }
@@ -443,33 +319,52 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Creature {
         }
     }
 
-    Creature {
-        hit_points: nearest_i32(hit_points),
-        armor_class: nearest_i32(armor_class),
-        perception: nearest_i32(perception),
-        speed_feet: nearest_i32(speed_feet),
+    let damage_dice = DieCount::new(damage_dice).map_err(|_| FoldError::DamageDie)?;
+    let damage_faces = Faces::try_from_i32(damage_faces).map_err(|_| FoldError::DamageDie)?;
+    let reach_feet = ReachFeet::new(reach_feet).map_err(|_| FoldError::Overflow)?;
+
+    Ok(Creature {
+        hit_points,
+        armor_class,
+        perception,
+        speed_feet,
         strike: MeleeStrike {
-            attack_bonus: nearest_i32(attack_bonus),
-            damage_dice: DieCount(nearest_u8(damage_dice)),
-            damage_faces: nearest_faces(damage_faces),
-            damage_bonus: nearest_i32(damage_bonus),
-            reach_feet: nearest_reach(reach_feet),
+            attack_bonus,
+            damage_dice,
+            damage_faces,
+            damage_bonus,
+            reach_feet,
             agile: agile.unwrap_or(false),
         },
         shield,
         stealth_dc,
         aid_modifier,
         uses_dying_rules: uses_dying_rules.unwrap_or(false),
+    })
+}
+
+fn creature_from_validated(build: &CharacterBuild) -> Creature {
+    let parts = &build.parts;
+    Creature {
+        hit_points: parts.hit_points,
+        armor_class: parts.armor_class,
+        perception: parts.perception,
+        speed_feet: parts.speed_feet,
+        strike: parts.strike.clone(),
+        shield: parts.shield.clone(),
+        stealth_dc: parts.stealth_dc,
+        aid_modifier: parts.aid_modifier,
+        uses_dying_rules: parts.uses_dying_rules.unwrap_or(false),
     }
 }
 
 /// Pure derivation. Does not roll dice, do I/O, or read global state.
 ///
-/// Phase 1 folds the base contribution.
+/// Phase 1 builds the Creature from the validated base and does not fold.
 ///
 /// Player Core, Hit Points are fixed by the creature, not by a roll.
 pub fn derive(build: &CharacterBuild) -> Creature {
-    fold_contributions(&contributions(build))
+    creature_from_validated(build)
 }
 
 /// Read-only result of derivation. Hit Points and shield Hit Points are maximums.
@@ -726,13 +621,13 @@ mod tests {
         let mut ordered = layers;
         // Stealth is replaced, not added. A reversed fold would keep the base DC of 17.
         ordered.push(Contribution {
-            armor_class: ContributionTerm::new(1),
+            armor_class: 1,
             stealth_dc: Some(4),
             ..Contribution::default()
         });
-        assert_eq!(ordered[0].armor_class.get(), 18);
-        assert_eq!(ordered[1].armor_class.get(), 1);
-        let folded = fold_contributions(&ordered);
+        assert_eq!(ordered[0].armor_class, 18);
+        assert_eq!(ordered[1].armor_class, 1);
+        let folded = fold_contributions(&ordered).expect("folded numbers fit");
         assert_eq!(folded.armor_class, 19);
         assert_eq!(folded.stealth_dc, Some(4));
         assert_eq!(derive(&original).armor_class, 18);
@@ -1109,7 +1004,7 @@ mod tests {
         let original = build(fighter_parts());
         let layers = contributions(&original);
         assert_eq!(layers.len(), 1);
-        assert_eq!(layers[0].armor_class.get(), 18);
+        assert_eq!(layers[0].armor_class, 18);
         assert_eq!(derive(&original).armor_class, 18);
         assert_eq!(dice.remaining(), 1);
     }
@@ -1123,12 +1018,12 @@ mod tests {
         let original = build(parts);
         let mut ordered = contributions(&original);
         ordered.push(Contribution {
-            armor_class: ContributionTerm::new(1),
+            armor_class: 1,
             stealth_dc: Some(4),
             ..Contribution::default()
         });
-        let folded = fold_contributions(&ordered);
-        assert_eq!(ordered[0].armor_class.get(), 18);
+        let folded = fold_contributions(&ordered).expect("folded numbers fit");
+        assert_eq!(ordered[0].armor_class, 18);
         assert_eq!(folded.armor_class, 19);
         assert_eq!(folded.stealth_dc, Some(4));
         assert_eq!(derive(&original).armor_class, 18);
@@ -1484,72 +1379,68 @@ mod tests {
         assert_eq!(creature.hit_points, 9);
     }
 
+    /// Player Core, Hit Points.
+    #[test]
+    fn an_overflowing_fold_returns_an_error() {
+        let dice = ScriptedDice::new([8]);
+        let layer = Contribution {
+            hit_points: 2_147_483_647,
+            damage_dice: 1,
+            damage_faces: 8,
+            ..Contribution::default()
+        };
+        let next = Contribution {
+            hit_points: 1,
+            damage_dice: 1,
+            damage_faces: 8,
+            ..Contribution::default()
+        };
+        assert_eq!(fold_contributions(&[layer, next]), Err(FoldError::Overflow));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Hit Points.
+    #[test]
+    fn an_empty_slice_returns_an_error() {
+        let dice = ScriptedDice::new([8]);
+        assert_eq!(fold_contributions(&[]), Err(FoldError::Empty));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Hit Points.
+    #[test]
+    fn derive_agrees_with_folding_the_base() {
+        let dice = ScriptedDice::new([8]);
+        let original = build(fighter_parts());
+        let base = base_contribution(&original);
+        assert_eq!(derive(&original), fold_contributions(&[base]).unwrap());
+        assert_eq!(dice.remaining(), 1);
+    }
+
     /// A die count or reach outside its type is rejected at the boundary. Player Core, Damage Rolls.
     #[test]
     fn folded_dice_and_reach_reject_values_that_do_not_fit() {
         assert_eq!(DieCount::new(-1), Err(DieCountError::OutOfRange));
         assert_eq!(DieCount::new(256), Err(DieCountError::OutOfRange));
         assert_eq!(ReachFeet::new(-1), Err(ReachError::Negative));
-        assert_eq!(ReachTerm::new(-5), Err(ReachTermError::Negative));
-
-        let original = build(fighter_parts());
-        let folded = fold_contributions(&contributions(&original));
-        assert_eq!(derive(&original), folded);
-    }
-
-    /// Player Core, Hit Points.
-    ///
-    /// The extreme value of each bounded term folds, including a second copy.
-    #[test]
-    fn extreme_bounded_contributions_fold() {
-        let half = ContributionTerm::new(i32::MAX / 2);
-        let exact = fold_contributions(&[
-            Contribution {
-                hit_points: half,
-                armor_class: half,
+        assert_eq!(
+            fold_contributions(&[Contribution {
+                damage_dice: 256,
+                damage_faces: 8,
+                reach_feet: 5,
                 ..Contribution::default()
-            },
-            Contribution {
-                hit_points: half,
-                armor_class: half,
+            }]),
+            Err(FoldError::DamageDie)
+        );
+        assert_eq!(
+            fold_contributions(&[Contribution {
+                damage_dice: 1,
+                damage_faces: 0,
+                reach_feet: 5,
                 ..Contribution::default()
-            },
-        ]);
-        assert_eq!(exact.hit_points, i32::MAX - 1);
-        assert_eq!(exact.armor_class, i32::MAX - 1);
-
-        let extreme = Contribution {
-            hit_points: ContributionTerm::new(i32::MAX),
-            armor_class: ContributionTerm::new(i32::MAX),
-            perception: ContributionTerm::new(i32::MIN),
-            speed_feet: ContributionTerm::new(i32::MAX),
-            attack_bonus: ContributionTerm::new(i32::MIN),
-            damage_dice: DiceTerm::new(u8::MAX),
-            damage_faces: FaceTerm::new(u8::MAX),
-            damage_bonus: ContributionTerm::new(i32::MAX),
-            reach_feet: ReachTerm::new(i32::MAX).expect("non-negative reach"),
-            ..Contribution::default()
-        };
-        let folded = fold_contributions(&[extreme.clone(), extreme]);
-        assert_eq!(folded.hit_points, i32::MAX);
-        assert_eq!(folded.armor_class, i32::MAX);
-        assert_eq!(folded.perception, i32::MIN);
-        assert_eq!(folded.speed_feet, i32::MAX);
-        assert_eq!(folded.strike.attack_bonus, i32::MIN);
-        assert_eq!(folded.strike.damage_bonus, i32::MAX);
-        assert_eq!(folded.strike.damage_dice.get(), u8::MAX);
-        assert_eq!(folded.strike.damage_faces.get(), u8::MAX);
-        assert_eq!(folded.strike.reach_feet.get(), i32::MAX as u32);
-
-        let one_face = Contribution {
-            damage_faces: FaceTerm::new(1),
-            ..Contribution::default()
-        };
-        let faces = fold_contributions(&vec![one_face.clone(); 255]);
-        assert_eq!(faces.strike.damage_faces.get(), 255);
-        let mut past = vec![one_face.clone(); 255];
-        past.push(one_face);
-        assert_eq!(fold_contributions(&past).strike.damage_faces.get(), u8::MAX);
+            }]),
+            Err(FoldError::DamageDie)
+        );
     }
 
     /// Player Core, "Getting Knocked Out".

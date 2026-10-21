@@ -11,7 +11,7 @@ pub struct Faces(NonZeroU8);
 
 /// Why a face count was rejected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FacesError {
+pub enum FaceCountError {
     /// The count was zero.
     Zero,
     /// The count was negative or did not fit in a `u8`.
@@ -22,21 +22,21 @@ impl Faces {
     /// Rejects zero.
     ///
     /// Player Core, Checks.
-    pub const fn new(faces: u8) -> Result<Self, FacesError> {
+    pub const fn new(faces: u8) -> Result<Self, FaceCountError> {
         match NonZeroU8::new(faces) {
             Some(value) => Ok(Self(value)),
-            None => Err(FacesError::Zero),
+            None => Err(FaceCountError::Zero),
         }
     }
 
     /// Rejects zero, a negative count, and a count above `u8::MAX`.
     ///
-    /// Zero returns [`FacesError::Zero`], the same error as [`Faces::new`].
+    /// Zero returns [`FaceCountError::Zero`], the same error as [`Faces::new`].
     ///
     /// Player Core, Damage Rolls.
-    pub fn try_from_i32(faces: i32) -> Result<Self, FacesError> {
+    pub fn try_from_i32(faces: i32) -> Result<Self, FaceCountError> {
         let Ok(faces) = u8::try_from(faces) else {
-            return Err(FacesError::OutOfRange);
+            return Err(FaceCountError::OutOfRange);
         };
         Self::new(faces)
     }
@@ -55,7 +55,7 @@ impl Faces {
     pub const fn twenty() -> Self {
         match Self::new(20) {
             Ok(faces) => faces,
-            Err(FacesError::Zero | FacesError::OutOfRange) => Self(NonZeroU8::MIN),
+            Err(FaceCountError::Zero | FaceCountError::OutOfRange) => Self(NonZeroU8::MIN),
         }
     }
 }
@@ -183,10 +183,10 @@ mod tests {
     /// Zero is not a die. Player Core, Checks.
     #[test]
     fn faces_reject_zero_and_values_that_do_not_fit() {
-        assert_eq!(Faces::new(0), Err(FacesError::Zero));
-        assert_eq!(Faces::try_from_i32(0), Err(FacesError::Zero));
-        assert_eq!(Faces::try_from_i32(-1), Err(FacesError::OutOfRange));
-        assert_eq!(Faces::try_from_i32(256), Err(FacesError::OutOfRange));
+        assert_eq!(Faces::new(0), Err(FaceCountError::Zero));
+        assert_eq!(Faces::try_from_i32(0), Err(FaceCountError::Zero));
+        assert_eq!(Faces::try_from_i32(-1), Err(FaceCountError::OutOfRange));
+        assert_eq!(Faces::try_from_i32(256), Err(FaceCountError::OutOfRange));
         assert_eq!(Faces::new(20).expect("d20").get(), 20);
     }
 
