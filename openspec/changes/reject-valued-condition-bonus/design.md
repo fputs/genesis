@@ -23,6 +23,8 @@ See proposal.md for why. `with_condition` still returns `Self`. Ruling R-03, in 
 
 ### 1. Reject the bonus at construction
 
+This change overrides `harden-modifier-validation` tasks 1.1 and 2.1, design section 1, and its spec delta. A frightened or sickened bonus is rejected per R-04, not accepted. Do not edit that change folder. PR #37 is implementing and archiving it. Archive this change after `harden-modifier-validation`.
+
 Extend the R-03 check. A frightened or sickened bonus, at any rank including 0, returns `ModifierError::InvalidValuedCondition`. Do not rewrite it into a status penalty. A penalty of rank 0 stays `Ok` and still contributes nothing. A penalty of rank above 0 still applies as status `-rank`. Any other condition with no rank stays `Ok`.
 
 Alternative considered: drop the bonus while totaling and keep construction successful. Rejected. R-04 says construction, the same point as R-03.
