@@ -72,7 +72,7 @@ The research quotes ORC I.b and II.d.i: the ORC grants no trademark rights and n
 
 **UNVERIFIED**: the research marks nominative fair use of a compatibility phrase as a lawyer question, not a grant from Paizo. This project does not use that phrase.
 
-Check: the product title, logos, store page, marketing text, `README.md`, and `NOTICE-ORC.md` contain no compatibility claim and no endorsement claim. A Pathfinder mention is one of the book titles in the Attribution section of `NOTICE-ORC.md`.
+Check: the product title, logos, store page, marketing text, `README.md`, and `NOTICE-ORC.md` contain no compatibility claim and no endorsement claim. A Pathfinder mention is one of the book titles in the Attribution section of `NOTICE-ORC.md`, or the same title repeated under LIC-3, LIC-4, or LIC-9.
 
 ## LIC-8. Where the notice is placed
 
