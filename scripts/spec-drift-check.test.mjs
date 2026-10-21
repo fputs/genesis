@@ -386,6 +386,30 @@ const cases = [
       excludes: [MISSING],
     },
   ),
+  failing("A spaceless change id is invalid", ["spec-drift: invalid change id add-foo"], {
+    event: "pull_request",
+    body: "OpenSpec-Change:add-foo",
+    base: {
+      "docs/architect/decisions.md": "old\n",
+      "openspec/changes/add-foo/tasks.md": OPEN,
+    },
+    head: { "docs/architect/decisions.md": "new\n" },
+    excludes: [MISSING],
+  }),
+  failing(
+    "Two spaces before the change id are invalid",
+    ["spec-drift: invalid change id add-foo"],
+    {
+      event: "pull_request",
+      body: "OpenSpec-Change:  add-foo",
+      base: {
+        "docs/architect/decisions.md": "old\n",
+        "openspec/changes/add-foo/tasks.md": OPEN,
+      },
+      head: { "docs/architect/decisions.md": "new\n" },
+      excludes: [MISSING],
+    },
+  ),
   passing("A scripts-only pull request is not a code path", {
     event: "pull_request",
     body: "",

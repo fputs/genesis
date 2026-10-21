@@ -259,36 +259,41 @@ function changeReferences(body) {
     if (!text.startsWith(REFERENCE_PREFIX)) {
       continue;
     }
-    const token = singleToken(text.slice(REFERENCE_PREFIX.length));
-    if (token === null) {
+    const parsed = singleToken(text.slice(REFERENCE_PREFIX.length));
+    if (parsed === null) {
       continue;
     }
-    if (!CHANGE_ID.test(token)) {
-      if (!invalidSeen.has(token)) {
-        invalidSeen.add(token);
-        invalidTokens.push(token);
+    // Exactly one space is required. A kebab-case token jammed against the
+    // colon, or padded with extra spaces, is still an invalid id.
+    if (!parsed.spaced || !CHANGE_ID.test(parsed.token)) {
+      if (!invalidSeen.has(parsed.token)) {
+        invalidSeen.add(parsed.token);
+        invalidTokens.push(parsed.token);
       }
       continue;
     }
-    if (!seen.has(token)) {
-      seen.add(token);
-      ids.push(token);
+    if (!seen.has(parsed.token)) {
+      seen.add(parsed.token);
+      ids.push(parsed.token);
     }
   }
   return { ids, invalidTokens };
 }
 
-// One token after the prefix is a reference. Extra words are not. An empty
-// remainder is an invalid token, not a missing line.
+// A reference is the prefix, exactly one space, and one token. Extra words are
+// not a reference. Any other remainder is an invalid token, not a missing line.
 function singleToken(rest) {
-  if (rest.length === 0) {
-    return "";
-  }
-  const parts = rest.trim().split(/\s+/);
-  if (parts.length !== 1) {
+  if (rest.startsWith(" ") && !rest.startsWith("  ")) {
+    const token = rest.slice(1);
+    if (token.length > 0 && !/\s/.test(token)) {
+      return { token, spaced: true };
+    }
+    if (token.length === 0) {
+      return { token: "", spaced: false };
+    }
     return null;
   }
-  return parts[0];
+  return { token: rest.trim(), spaced: false };
 }
 
 function changeExists(root, id) {
