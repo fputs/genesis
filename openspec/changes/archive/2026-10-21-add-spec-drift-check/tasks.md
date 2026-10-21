@@ -89,5 +89,5 @@ Genesis DevOps agent implements this change. The implementation pull request's l
 
 ## 5. Proof and archive
 
-- [ ] 5.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 5.2 As the final commit of this implementation pull request, run `openspec archive add-spec-drift-check --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 5.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`
+- [x] 5.2 As the final commit of this implementation pull request, run `openspec archive add-spec-drift-check --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
