@@ -142,11 +142,18 @@ An active change's `tasks.md` SHALL be fully checked only when it has at least o
 - **WHEN** the file is classified
 - **THEN** it is not fully checked
 
-### Requirement: Push fails a completed unarchived change
+### Requirement: Completed unarchived change fails
 
-On push to `main`, the job SHALL fail when any active change has a fully checked `tasks.md`. The log SHALL include `spec-drift: completed unarchived change <id>` for each such id.
+On push and on pull_request to `main`, the job SHALL fail when any active change in the tree under test has a fully checked `tasks.md`. The tree under test SHALL be the pushed commit on push and the checked-out result after the pull request's changes on pull_request. Push SHALL run this same check only as a backstop. The log SHALL include `spec-drift: completed unarchived change <id>` for each such id. The check SHALL NOT compare `tasks.md` with the base commit.
 
-#### Scenario: Just-merged implementation is caught
+#### Scenario: A pull request that leaves every box checked fails
+
+- **GIVEN** a pull_request to `main` whose checked-out result has active change `add-dice-and-checks` with every task checkbox checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: completed unarchived change add-dice-and-checks`
+
+#### Scenario: Push backstop fails that same tree
 
 - **GIVEN** a push to `main` whose tree has active change `add-dice-and-checks` with every task checkbox checked
 - **WHEN** the `spec-drift` job runs
@@ -189,62 +196,71 @@ On push to `main`, the job SHALL fail when any active change has a fully checked
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job fails
 
-### Requirement: Implementation pull request may finish tasks
+### Requirement: Keeping the active change fails
 
-On pull_request to `main`, a fully checked active change on the checked-out result SHALL NOT fail the completed-change check when that same id is not a fully checked active change on the base commit.
+A pull_request to `main` SHALL fail when its checked-out result still has a fully checked active change, including when an archive copy of that change is also present.
 
-#### Scenario: The pull request that checks the last boxes passes
+#### Scenario: A later pull request still has the completed change
 
-- **GIVEN** a pull_request to `main`
-- **AND** base active change `add-dice-and-checks` has an unchecked task checkbox
-- **AND** the checked-out result has that change active and fully checked
-- **AND** validation exits zero
-- **AND** the diff does not change a code path
-- **WHEN** the `spec-drift` job runs
-- **THEN** the job passes
-
-#### Scenario: A new fully checked change on the pull request passes
-
-- **GIVEN** a pull_request to `main` whose base has no `add-dice-and-checks` directory
-- **AND** the checked-out result adds that active change already fully checked
-- **AND** validation exits zero
-- **AND** the diff does not change a code path
-- **WHEN** the `spec-drift` job runs
-- **THEN** the completed-change check passes
-
-### Requirement: Pull request fails an inherited completed change
-
-On pull_request to `main`, the job SHALL fail when an active change is fully checked on the checked-out result and that same id is already a fully checked active change on the base commit. The log SHALL include `spec-drift: completed unarchived change <id>`.
-
-#### Scenario: A later pull request inherits the completed change
-
-- **GIVEN** a pull_request to `main`
-- **AND** base and the checked-out result both have active `add-dice-and-checks` fully checked
+- **GIVEN** a pull_request to `main` whose checked-out result has active `add-dice-and-checks` fully checked
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job fails
 - **AND** the log includes `spec-drift: completed unarchived change add-dice-and-checks`
 
 #### Scenario: Copying to archive without removing the active change fails
 
-- **GIVEN** a pull_request to `main` whose base has active `add-dice-and-checks` fully checked
-- **AND** the result keeps that active directory and also has `openspec/changes/archive/2026-10-21-add-dice-and-checks/`
+- **GIVEN** a pull_request to `main` whose result keeps active `add-dice-and-checks` fully checked
+- **AND** the result also has `openspec/changes/archive/2026-10-21-add-dice-and-checks/`
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job fails
 - **AND** the log includes `spec-drift: completed unarchived change add-dice-and-checks`
 
-### Requirement: Archiving pull request passes
+### Requirement: Implementation pull request archives in its last commit
 
-On pull_request to `main`, the completed-change check SHALL pass when no active change is fully checked on the checked-out result, including when the base still has a fully checked active change that the pull request moved out of `openspec/changes/`.
+The pull request that completes a change SHALL pass the completed-change check only when its checked-out result has no fully checked active change. That result SHALL be produced by a final commit that runs `openspec archive <id> --yes` for each change the pull request completed. There SHALL be no separate archive pull request. The push of that result to `main` SHALL pass the same check, so `main` SHALL stay green.
 
-#### Scenario: Moving the change into archive passes
+#### Scenario: Checked tasks still active fails the pull request
 
-- **GIVEN** a pull_request to `main` whose base has active `add-dice-and-checks` fully checked
+- **GIVEN** a pull_request to `main` whose base has active `add-dice-and-checks` with an open checkbox
+- **AND** the checked-out result has that change active and fully checked
+- **AND** validation exits zero
+- **AND** the diff does not change a code path
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: completed unarchived change add-dice-and-checks`
+
+#### Scenario: A new fully checked active change fails
+
+- **GIVEN** a pull_request to `main` whose checked-out result adds active `add-dice-and-checks` already fully checked
+- **AND** validation exits zero
+- **AND** the diff does not change a code path
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: completed unarchived change add-dice-and-checks`
+
+#### Scenario: The last commit is the archive
+
+- **GIVEN** an implementation pull request that completed `add-dice-and-checks`
+- **WHEN** its commits are read
+- **THEN** the last commit is `openspec archive add-dice-and-checks --yes`
 - **AND** the checked-out result has no active `add-dice-and-checks` directory
-- **AND** the result has `openspec/changes/archive/2026-10-21-add-dice-and-checks/` with that fully checked `tasks.md`
+- **AND** the result has `openspec/changes/archive/` dated with that id and a fully checked `tasks.md`
+
+#### Scenario: The archived result passes the pull request
+
+- **GIVEN** that archived checked-out result
 - **AND** validation exits zero
 - **AND** the diff does not change a code path
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job passes
+
+#### Scenario: The following push stays green
+
+- **GIVEN** the push to `main` of that same archived result
+- **AND** validation exits zero
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+- **AND** the log does not include `spec-drift: completed unarchived change`
 
 ### Requirement: Code paths
 
@@ -522,26 +538,27 @@ On push to `main`, the job SHALL NOT fail for a missing or unknown change refere
 - **THEN** the job passes
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
 
-### Requirement: Implementation pull request then the main push
+### Requirement: Code-path implementation pull request archives too
 
-The pull request that finishes an active change and edits a code path SHALL pass when its body names that existing id and validation passes. The push of that merge to `main` SHALL fail the completed-change check.
+An implementation pull request that changes a code path SHALL pass only when its body names an existing change id, validation passes, and its checked-out result has no fully checked active change. Its last commit SHALL be `openspec archive <id> --yes`. The push of that result SHALL pass the completed-change check.
 
-#### Scenario: Implementation pull request passes
+#### Scenario: Archived implementation pull request passes
 
-- **GIVEN** a pull_request to `main` whose base has active `add-spec-drift-check` with an open checkbox
-- **AND** the checked-out result has that change active and fully checked
+- **GIVEN** a pull_request to `main` whose last commit is `openspec archive add-spec-drift-check --yes`
+- **AND** the checked-out result has that change only under `openspec/changes/archive/`
 - **AND** the diff changes `.github/workflows/ci.yml`
 - **AND** the body line is `OpenSpec-Change: add-spec-drift-check`
 - **AND** validation exits zero
 - **WHEN** the `spec-drift` job runs
 - **THEN** the job passes
 
-#### Scenario: The following push to main fails
+#### Scenario: Push of that merge stays green
 
-- **GIVEN** the push to `main` of that same result
+- **GIVEN** the push to `main` of that same archived result
+- **AND** validation exits zero
 - **WHEN** the `spec-drift` job runs
-- **THEN** the job fails
-- **AND** the log includes `spec-drift: completed unarchived change add-spec-drift-check`
+- **THEN** the job passes
+- **AND** the log does not include `spec-drift: completed unarchived change`
 
 ### Requirement: Every failed check is reported
 

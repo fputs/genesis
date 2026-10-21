@@ -6,15 +6,16 @@
 
 Phase 1 order in `docs/architect/decisions.md` places `dice-and-checks` immediately after the archived foundation change, then the rules changes (modifiers next among those). This gate is inserted immediately after `add-dice-and-checks` and does not reorder those rules changes. Apply records that insertion; this design does not edit the decision log.
 
-The workflow in that same decision log is spec pull request, then a separate implementation pull request, then an archive pull request. The completed-change check has to let the middle pull request merge and go red on the following push to `main`, and let the archive pull request stay green.
+The 2026-10-20 decision log describes a separate archive pull request after implementation. This gate replaces that. The implementation pull request's last commit is `openspec archive <id> --yes`, so the merged tree has no fully checked active change and `main` stays green. Push to `main` repeats the check only as a backstop. Genesis DevOps agent implements this change.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
 - One local script, one new job, three checks, deterministic results from the checkout.
-- Catch a fully checked active change on the push that updates `main`.
-- Let the archiving pull request pass.
+- Fail a pull request whose result still has a fully checked active change, so that tree never merges.
+- Keep `main` green. Push to `main` repeats the completed-change check only as a backstop.
+- The implementation pull request passes after its last commit, `openspec archive <id> --yes`.
 - One reference mechanism for code-path pull requests.
 
 **Non-Goals:**
@@ -46,20 +47,22 @@ A changed path is a code path only when it is root `Cargo.toml`, root `Cargo.loc
 
 When the diff has no code path, the reference check passes and does not read the body. A docs-only pull request and an openspec-only pull request are exempt, including when the body names an unknown id. A diff that also touches a code path is not exempt.
 
-Alternative considered: require a reference on every pull request. Spec-only and archive pull requests would then need a trailer for no engine change. The exemption matches the paths named in the request.
+Alternative considered: require a reference on every pull request. Spec-only pull requests would then need a trailer for no engine change. An implementation pull request that archives in its last commit still needs the trailer when it edits a code path. The exemption matches the paths named in the request.
 
 ### 3. The reference check runs only on pull_request
 
 Push to `main` has no pull request body in the local event. Looking up the merged pull request would call the GitHub API. The reference check is skipped on push and counts as passed. Pull request bodies come from `github.event.pull_request.body` in `GITHUB_EVENT_PATH` (null body is empty).
 
-### 4. Completed-change check differs by event
+### 4. Completed-change check is the same tree predicate
 
 Fully checked and active are defined in the spec. Tracked boxes are hyphen task items. A box is checked when its brackets hold only `x` or `X`, with any spacing, which is how apply treats `- [ x]`. `archive` is not an active change.
 
-- **push to `main`:** fail if any active change in the pushed tree is fully checked. This is how a just-merged implementation pull request is caught. There is no exemption on push.
-- **pull_request to `main`:** fail if the checked-out result has a fully checked active change whose same id is already a fully checked active change on the base commit. The implementation pull request that checks the last boxes has a base that is not fully checked, so it passes. The archive pull request removes the active directory, so the result has nothing to fail. A later pull request that still contains the completed change fails.
+The predicate does not look at the base commit. It fails when the tree under test has any fully checked active change.
 
-The job uses the default pull_request checkout (the merge commit) as the result, and `pull_request.base.sha` as the base. Read base `tasks.md` with `git show <base>:openspec/changes/<id>/tasks.md`. A missing file is not fully checked.
+- **pull_request to `main`:** the tree under test is the checked-out result after the pull request's changes (the default merge commit). Earlier commits on the branch may have every box checked. The head must not. The implementation pull request's last commit is `openspec archive <id> --yes`, which moves the change under `openspec/changes/archive/`. There is no separate archive pull request.
+- **push to `main`:** the tree under test is the pushed commit. The check is the same predicate, run only as a backstop. The designed merge already passed on the pull request, so this push stays green and `main` does not go red.
+
+`pull_request.base.sha` is still required for the code-path diff. It is not an input to the completed-change check.
 
 ### 5. One Node script, pinned CLI, no package
 
@@ -80,16 +83,16 @@ Alternative considered: a bash script. The job already installs Node for the CLI
 
 `scripts/spec-drift-check.test.mjs` uses `node:test`. Each table row builds a temporary git repository: base commit, head commit, optional pull request body, and a stub `openspec` executable prepended to `PATH` that exits 0 or 1 and prints a marker. The test runs the same `node scripts/spec-drift-check.mjs` entry point as CI and asserts the exit status and failure lines.
 
-The table includes every pass and fail scenario of the validation, completed-change, and reference checks in the spec, including docs-only, openspec-only, several ids, the implementation pull request, the following push, and the archive pull request. One row reads `.github/workflows/ci.yml` and asserts the `@fission-ai/openspec@1.14.3` pin and Node 22.
+The table includes every pass and fail scenario of the validation, completed-change, and reference checks in the spec, including docs-only, openspec-only, several ids, a pull request whose result is still fully checked, the implementation pull request whose last commit is `openspec archive <id> --yes`, and the push of that green result. A push of a fully checked active change is the backstop row. One row reads `.github/workflows/ci.yml` and asserts the `@fission-ai/openspec@1.14.3` pin and Node 22.
 
 ### 7. Phase 1 note lands at apply time
 
-When this change is applied, append a dated decision to `docs/architect/decisions.md`: `spec-drift-check` slots immediately after `add-dice-and-checks`. Leave the relative order of the rules changes after `add-dice-and-checks` as it stands. Do not rewrite the 2026-10-20 lists in place.
+When this change is applied, append dated decisions to `docs/architect/decisions.md`. One says `spec-drift-check` slots immediately after `add-dice-and-checks`. Another says an implementation pull request's last commit is `openspec archive <id> --yes`, there is no separate archive pull request, and this gate leaves `main` green. Leave the relative order of the rules changes after `add-dice-and-checks` as it stands. Do not rewrite the 2026-10-20 lists in place. Genesis DevOps agent does this apply.
 
 ## Risks / Trade-offs
 
 - [Shallow checkout cannot see the base commit] → `fetch-depth: 0` on this job only. The Cargo job stays as it is.
-- [Push to `main` stays red until archive merges] → The archive pull request's own job is green, because the result no longer has the active change. Required checks are the pull request job. Do not add a rule that blocks a pull request because the previous push to `main` is red.
+- [A direct push could land a fully checked active change] → Push to `main` runs the same completed-change check as a backstop. The designed path never merges that tree, because the pull request fails first. `main` stays green.
 - [Unchecking a box makes a completed change look open] → Accepted. The check is the checkbox state on the tree under test.
 - [A pull request that only edits `scripts/` needs no change id] → Accepted. The code-path list is closed. This change's implementation pull request also edits `.github/workflows/ci.yml`, so it still needs `OpenSpec-Change: add-spec-drift-check`.
 - [Fenced examples in the body count as references] → Accepted. Matching is line-based so it stays deterministic.
@@ -98,6 +101,6 @@ When this change is applied, append a dated decision to `docs/architect/decision
 ## Migration Plan
 
 1. Merge this spec pull request. It touches only `openspec/changes/add-spec-drift-check/`, so once the job exists it would be openspec-only and exempt.
-2. After `add-dice-and-checks`, apply this change on its own pull request. That pull request edits `.github/workflows/**`, so its body includes `OpenSpec-Change: add-spec-drift-check` while that id is still active. Its tasks go from open to checked in that pull request, so the completed-change check passes there.
-3. Merging that pull request makes the push to `main` fail until an archive pull request moves the change under `openspec/changes/archive/`. The archive diff stays under `openspec/` (and `docs/` if the decision log is updated there) and passes.
+2. After `add-dice-and-checks`, Genesis DevOps agent applies this change on its own pull request. That pull request edits `.github/workflows/**`, so its body includes `OpenSpec-Change: add-spec-drift-check`. Its last commit is `openspec archive add-spec-drift-check --yes`. The checked-out result has the change under `openspec/changes/archive/`, so the completed-change check passes.
+3. The push of that merge to `main` runs the same check and passes. `main` stays green. There is no follow-up archive pull request.
 4. Rollback is removing the `spec-drift` job and the script. No data migration.
