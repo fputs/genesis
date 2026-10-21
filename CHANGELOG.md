@@ -21,5 +21,8 @@ v1 history lives on the `v1-reference` branch.
 
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
 
+### Fixed
+- Duplicate effects collapse on (source id, statistic, type, bonus or penalty), and an equal sequence keeps the worse penalty. ([#30](https://github.com/fputs/genesis/pull/30))
+
 ### Security
 - CI workflow token is now limited to read-only access (`permissions: contents: read`). ([#10](https://github.com/fputs/genesis/pull/10))

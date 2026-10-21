@@ -19,7 +19,7 @@
 
 ## 3. Changelog, proof, and archive
 
-- [ ] 3.1 Add one bullet under `### Fixed` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet names the duplicate-effect key and the worse equal-sequence penalty, and it links to the implementation pull request. Verify the new bullet is under `### Fixed` and contains that link
+- [x] 3.1 Add one bullet under `### Fixed` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet names the duplicate-effect key and the worse equal-sequence penalty, and it links to the implementation pull request. Verify the new bullet is under `### Fixed` and contains that link
 - [ ] 3.2 Run the AGENTS.md proof commands and verify each exits 0. Library code does not panic, sums stay checked, and no dependency was added.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
