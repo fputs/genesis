@@ -288,7 +288,7 @@ Same faction SHALL count as willing. A path SHALL be allowed to enter a same-fac
 
 This capability SHALL NOT let a move end in another creature's square because that creature is prone, dead, willing, or Tiny. Those sharing rules are out of scope.
 
-**Rule**: Player Core pg. 422 lets you share a space with a prone creature that is willing, unconscious, or dead and your size or smaller. Tiny creatures may end in another creature's space. https://2e.aonprd.com/Rules.aspx?ID=2361 https://2e.aonprd.com/Rules.aspx?ID=2362
+**Rule**: Player Core pg. 422 lets you share a space with a prone creature that is willing, unconscious, or dead and your size or smaller (Rules 2361). Tiny creatures may end in another creature's space, and other creatures may end in a Tiny creature's space (Rules 2362, PC 422). https://2e.aonprd.com/Rules.aspx?ID=2361 https://2e.aonprd.com/Rules.aspx?ID=2362
 **Why**: Prone and Tiny footprints are deferred.
 **Substitute**: Ending on any other creature stays an occupied-end or enemy-square error. No prone, dead, willing, or Tiny exception exists.
 **Intent**: Positioning and creature sizes can add sharing later.
@@ -458,7 +458,7 @@ Stride and Step SHALL move only through squares the caller listed, in that order
 
 This capability SHALL NOT represent walls and SHALL NOT reject a diagonal move because an orthogonal neighbour blocks a corner. Phase 1 has no walls. This capability SHALL NOT apply the future ruling that a diagonal is blocked only when both orthogonal neighbours block.
 
-**Rule**: The checklist's Player Core rows do not define corner cutting.
+**Rule**: Player Core has no corner-cutting rule (Rules 2356, PC 421); future ruling DEV-22.
 **Why**: Phase 1 maps have no walls, so no corner can block a diagonal.
 **Substitute**: A diagonal move is not rejected for a blocked corner. The future ruling is recorded and not applied: a diagonal is blocked only when both orthogonal neighbours block.
 **Intent**: Wall geometry can be added later without revisiting the ruling.

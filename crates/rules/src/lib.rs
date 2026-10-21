@@ -8,6 +8,7 @@
 mod check;
 mod combatant;
 mod dice;
+mod grid;
 
 pub use check::{
     ArithmeticOverflow, AttackTotalTerm, CheckModifier, CheckRoll, DcModifier, DegreeOfSuccess,
@@ -25,3 +26,8 @@ pub use dice::{Dice, FaceCountError, Faces, SeededDice};
 
 #[cfg(any(test, feature = "test-support"))]
 pub use dice::ScriptedDice;
+pub use grid::{
+    DiagonalCounter, FactionId, GridError, MapBounds, MoveInput, MoveOutcome, Occupant, RangeBand,
+    Size, SizeData, Space, Square, SquareEvent, Terrain, adjacent, distance, in_reach,
+    move_trait_allowed, range_band, size_data, step, stride, validate_speed,
+};
