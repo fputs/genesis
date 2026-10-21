@@ -1502,6 +1502,27 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
+    /// Player Core pg. 400, Penalties.
+    #[test]
+    fn two_item_penalties_on_one_statistic_apply_only_the_worst() {
+        let dice = script();
+        let lesser = penalty(PenaltyType::Item, -2, 1, 1, None, Statistic::Attack);
+        let worse = penalty(PenaltyType::Item, -8, 2, 2, None, Statistic::Attack);
+        for modifiers in orders_of_two(lesser, worse) {
+            let stacked = summed(&modifiers);
+            let item: Vec<_> = stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Item))
+                .collect();
+            assert_eq!(item.len(), 1);
+            assert_eq!(item[0].value(), -8);
+            assert_eq!(stacked.get(Statistic::Attack), -8);
+            assert_ne!(stacked.get(Statistic::Attack), -10);
+        }
+        assert_eq!(dice.remaining(), 1);
+    }
+
     /// Player Core, "Multiple Attack Penalty".
     /// Player Core, "Range Penalty".
     #[test]
