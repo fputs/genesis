@@ -54,7 +54,7 @@ A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's re
 
 ### Requirement: Strike damage removes temporary Hit Points first
 
-Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder SHALL reduce current Hit Points. Damage of 0 SHALL leave both unchanged. One helper SHALL apply that amount. apply_dice_damage SHALL stay unchanged. When the temporary amount reaches 0, its rounds SHALL be 0.
+Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder SHALL reduce current Hit Points. Damage of 0 SHALL leave both unchanged. Strike damage SHALL be applied by apply_resolved_blow. When the temporary amount reaches 0, its rounds SHALL be 0.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2321 (Player Core pg. 410, Temporary Hit Points)
 
