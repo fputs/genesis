@@ -43,8 +43,8 @@ Each scenario has one test. The test name is the scenario title in snake_case: l
 
 ## 5. Changelog and proof
 
-- [ ] 5.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for initiative, the turn, and Strike, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
-- [ ] 5.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
+- [x] 5.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for initiative, the turn, and Strike, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
+- [x] 5.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
