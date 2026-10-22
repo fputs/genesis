@@ -7,9 +7,10 @@ use crate::check::{
     multiple_attack_penalty,
 };
 use crate::combatant::{
-    CombatantId, CombatantState, Creature, DieCount, HpError, Vital, damage_dealt, note_hit_points,
+    CombatantId, CombatantState, Creature, DieCount, HpError, Vital, damage_dealt,
 };
 use crate::dice::{Dice, Faces};
+use crate::dying::apply_resolved_blow;
 use crate::modifiers::{Modifier, ModifierError, Statistic};
 
 /// Which team a combatant is on. Phase 1 has no other team type (DEV-26).
@@ -457,6 +458,7 @@ impl Encounter {
     /// A miss spends the action, records damage 0, and does not roll a damage die.
     /// [`HpError::NotAHit`] is not returned from this path. Success and critical success roll
     /// the damage dice once; a critical success doubles that total inside [`damage_dealt`].
+    /// A hit passes that total and this Strike's degree to [`apply_resolved_blow`].
     ///
     /// Player Core, Strike.
     pub fn strike(
@@ -495,7 +497,7 @@ impl Encounter {
                 degree == DegreeOfSuccess::CriticalSuccess,
             )
             .map_err(EncounterError::DamageOverflow)?;
-            self.apply_damage(target, dealt)?;
+            self.apply_damage(target, dealt, degree)?;
             dealt
         };
         self.finish_strike(attacker)?;
@@ -634,15 +636,25 @@ impl Encounter {
         Ok(())
     }
 
-    fn apply_damage(&mut self, target: CombatantId, amount: i32) -> Result<(), EncounterError> {
+    fn apply_damage(
+        &mut self,
+        target: CombatantId,
+        amount: i32,
+        degree: DegreeOfSuccess,
+    ) -> Result<(), EncounterError> {
         let index = self.member_index(target)?;
         let member = self
             .members
             .get_mut(index)
             .ok_or(EncounterError::UnknownCombatant)?;
         let participant = &mut member.participant;
-        apply_strike_damage(&mut participant.state, &participant.creature, amount)
-            .map_err(EncounterError::HitPoints)
+        apply_resolved_blow(
+            &mut participant.state,
+            &participant.creature,
+            amount,
+            degree,
+        )
+        .map_err(EncounterError::HitPoints)
     }
 
     fn finish_strike(&mut self, attacker: CombatantId) -> Result<(), EncounterError> {
@@ -669,49 +681,6 @@ impl Encounter {
     fn start_of_turn_step(&mut self, _id: CombatantId) {}
 
     fn end_of_turn_step(&mut self, _id: CombatantId) {}
-}
-
-/// Removes temporary Hit Points first, then current Hit Points, floored at 0.
-///
-/// Damage of 0 leaves both unchanged. A negative amount returns [`HpError::NegativeAmount`]
-/// and writes nothing. This does not roll and does not grant temporary Hit Points.
-///
-/// Player Core, "Temporary Hit Points".
-pub(crate) fn apply_strike_damage(
-    state: &mut CombatantState,
-    creature: &Creature,
-    amount: i32,
-) -> Result<(), HpError> {
-    if amount == 0 {
-        return Ok(());
-    }
-    if amount < 0 {
-        return Err(HpError::NegativeAmount);
-    }
-    let temp = state.temp_hit_points;
-    let (new_temp, rest) = if temp > 0 {
-        if temp >= amount {
-            (temp.checked_sub(amount).ok_or(HpError::Overflow)?, 0)
-        } else {
-            (0, amount.checked_sub(temp).ok_or(HpError::Overflow)?)
-        }
-    } else {
-        (temp, amount)
-    };
-    let new_hp = if rest == 0 {
-        state.hit_points
-    } else {
-        match state.hit_points.checked_sub(rest) {
-            Some(next) => next.max(0),
-            None => 0,
-        }
-    };
-    state.temp_hit_points = new_temp;
-    if rest > 0 {
-        state.hit_points = new_hp;
-        note_hit_points(state, creature);
-    }
-    Ok(())
 }
 
 fn misses(degree: DegreeOfSuccess) -> bool {
@@ -753,10 +722,11 @@ mod tests {
     use super::*;
     use crate::check::DegreeOfSuccess;
     use crate::combatant::{
-        BuildParts, CharacterBuild, CombatantId, DieCount, HpError, MeleeStrike, ReachFeet,
-        ShieldTemplate, Vital, derive, new_combatant_state,
+        BuildParts, CharacterBuild, CombatantId, DieCount, DyingValue, HpError, MeleeStrike,
+        ReachFeet, ShieldTemplate, Vital, derive, new_combatant_state,
     };
     use crate::dice::{Faces, ScriptedDice};
+    use crate::dying::{InitiativeMove, apply_resolved_blow, take_initiative_move};
     use crate::modifiers::{BonusType, Modifier, ModifierError, PenaltyType, SourceId, Statistic};
 
     fn id(value: u32) -> CombatantId {
@@ -2304,10 +2274,9 @@ mod tests {
     /// Player Core, "Temporary Hit Points". Ruling R-06.
     #[test]
     fn damage_removes_temporary_hit_points_then_hit_points() {
-        let (mut encounter, mut dice) = begin(
-            vec![pc(1, 0, 20, 11), with_temp(pc(2, 0, 20, 11), 5)],
-            &[14, 10, 11, 3],
-        );
+        let mut target = with_temp(pc(2, 0, 20, 11), 5);
+        target.state.temp_rounds = 3;
+        let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 11), target], &[14, 10, 11, 3]);
         encounter.start_turn().expect("start");
         encounter
             .strike(
@@ -2319,6 +2288,7 @@ mod tests {
             )
             .expect("strike");
         assert_eq!(temp_hp(&encounter, 2), 0);
+        assert_eq!(encounter.state(id(2)).expect("state").temp_rounds, 0);
         assert_eq!(hit_points(&encounter, 2), 18);
     }
 
@@ -2491,12 +2461,146 @@ mod tests {
     fn a_negative_amount_is_not_overflow() {
         let mut participant = pc(1, 0, 20, 18);
         let creature = participant.creature.clone();
-        let result = apply_strike_damage(&mut participant.state, &creature, -1);
+        let result = apply_resolved_blow(
+            &mut participant.state,
+            &creature,
+            -1,
+            DegreeOfSuccess::Success,
+        );
         assert_eq!(result, Err(HpError::NegativeAmount));
         assert_ne!(result, Err(HpError::Overflow));
         assert_eq!(participant.state.hit_points, 20);
         assert_eq!(participant.state.temp_hit_points, 0);
         assert_eq!(participant.state.wounded, 0);
         assert_eq!(participant.state.vital, Vital::Alive);
+    }
+
+    fn take_report(encounter: &mut Encounter, value: u32) -> Option<InitiativeMove> {
+        let member = encounter
+            .members
+            .iter_mut()
+            .find(|member| member.participant.id == id(value))
+            .expect("member");
+        take_initiative_move(&mut member.participant.state)
+    }
+
+    /// Player Core pg. 410, "Getting Knocked Out".
+    #[test]
+    fn with_dying_rules_a_strike_to_0_sets_dying_1_and_a_pending_report() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                combatant(1, Side::Pc, 0, 20, 11, false),
+                combatant(2, Side::Pc, 0, 9, 11, true),
+            ],
+            &[14, 10, 11, 8],
+        );
+        let order = encounter.order().to_vec();
+        encounter.start_turn().expect("start");
+        encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 1),
+                &[],
+                &mut dice,
+            )
+            .expect("strike");
+        assert_eq!(hit_points(&encounter, 2), 0);
+        assert_eq!(
+            vital(&encounter, 2),
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
+        assert_eq!(wounded(&encounter, 2), 0);
+        assert_eq!(encounter.order(), order.as_slice());
+        assert_eq!(
+            take_report(&mut encounter, 2),
+            Some(InitiativeMove::Pending)
+        );
+
+        let (mut crit_encounter, mut crit_dice) = begin(
+            vec![
+                combatant(1, Side::Pc, 0, 20, 11, false),
+                combatant(2, Side::Pc, 0, 9, 11, true),
+            ],
+            &[14, 10, 20, 4, 20, 1],
+        );
+        crit_encounter.start_turn().expect("crit start");
+        let crit = crit_encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 1),
+                &[],
+                &mut crit_dice,
+            )
+            .expect("crit strike");
+        assert_eq!(crit.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(
+            vital(&crit_encounter, 2),
+            Vital::Dying(DyingValue::new(2).expect("dying 2"))
+        );
+        assert_eq!(crit_dice.remaining(), 2);
+
+        let (mut inconsistent, mut inconsistent_dice) = begin(
+            vec![
+                combatant(1, Side::Pc, 0, 20, 11, false),
+                combatant(2, Side::Pc, 0, 9, 11, true),
+            ],
+            &[14, 10, 11, 8],
+        );
+        {
+            let target = inconsistent
+                .members
+                .iter_mut()
+                .find(|member| member.participant.id == id(2))
+                .expect("target");
+            target.participant.state.vital = Vital::Dying(DyingValue::new(1).expect("dying 1"));
+            target.participant.state.hit_points = 4;
+        }
+        inconsistent.start_turn().expect("inconsistent start");
+        let attacker_actions = actions(&inconsistent, 1);
+        let target_actions = actions(&inconsistent, 2);
+        assert_eq!(
+            inconsistent.strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 1),
+                &[],
+                &mut inconsistent_dice,
+            ),
+            Err(EncounterError::HitPoints(HpError::InconsistentVital))
+        );
+        assert_eq!(actions(&inconsistent, 1), attacker_actions);
+        assert_eq!(actions(&inconsistent, 2), target_actions);
+        assert_eq!(
+            vital(&inconsistent, 2),
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
+        assert_eq!(hit_points(&inconsistent, 2), 4);
+    }
+
+    /// Player Core pg. 412, Massive Damage.
+    #[test]
+    fn a_massive_strike_leaves_no_dying_value() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                combatant(1, Side::Pc, 0, 20, 11, false),
+                combatant(2, Side::Pc, 0, 10, 11, true),
+            ],
+            &[14, 10, 11, 8],
+        );
+        encounter.start_turn().expect("start");
+        encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 12),
+                &[],
+                &mut dice,
+            )
+            .expect("strike");
+        assert_eq!(vital(&encounter, 2), Vital::Dead);
+        assert!(!matches!(vital(&encounter, 2), Vital::Dying(_)));
+        assert_eq!(take_report(&mut encounter, 2), None);
     }
 }

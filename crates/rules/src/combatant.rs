@@ -413,17 +413,55 @@ pub struct Creature {
     pub uses_dying_rules: bool,
 }
 
-/// What 0 current Hit Points means for this combatant. Encounter-core owns the dying value.
+/// A dying value of 1, 2, or 3. Dying 4 or higher is death and is not stored.
 ///
-/// Player Core, "Getting Knocked Out".
+/// Player Core pg. 411, Dying. Player Core pg. 443, Dying.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DyingValue(u8);
+
+/// Why a dying value was rejected.
+///
+/// Player Core pg. 411, Dying.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DyingValueError {
+    /// The value was outside 1, 2, or 3. Player Core pg. 411, Dying.
+    OutOfRange,
+}
+
+impl DyingValue {
+    /// Accepts 1, 2, or 3.
+    ///
+    /// Player Core pg. 411, Dying.
+    pub fn new(value: i32) -> Result<Self, DyingValueError> {
+        match u8::try_from(value) {
+            Ok(narrow) if (1..=3).contains(&narrow) => Ok(Self(narrow)),
+            _ => Err(DyingValueError::OutOfRange),
+        }
+    }
+
+    /// The stored dying value, 1, 2, or 3.
+    ///
+    /// Player Core pg. 411, Dying.
+    pub const fn get(self) -> i32 {
+        self.0 as i32
+    }
+}
+
+/// Whether the combatant is conscious, unconscious, dying, or dead.
+///
+/// Alive is the only conscious vital. Unconscious is 0 Hit Points and not dying.
+///
+/// Player Core pg. 410, "Getting Knocked Out". Player Core pg. 446, Unconscious.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vital {
-    /// Current Hit Points are above 0. Player Core, "Getting Knocked Out".
+    /// Conscious. Player Core pg. 410, "Getting Knocked Out".
     Alive,
-    /// 0 Hit Points and `uses_dying_rules` is false. Player Core, "Getting Knocked Out".
+    /// 0 Hit Points and not dying. Player Core pg. 446, Unconscious.
+    Unconscious,
+    /// Dying 1, 2, or 3, at 0 Hit Points. Player Core pg. 411, Dying.
+    Dying(DyingValue),
+    /// Dead. No dying value is stored. Player Core pg. 411, Death.
     Dead,
-    /// 0 Hit Points and dying applies. No dying value is chosen. Player Core, "Getting Knocked Out".
-    EnterDying,
 }
 
 /// Empty in Phase 1. The vec is the slot later conditions will fill.
@@ -441,13 +479,15 @@ pub struct CombatantState {
     pub id: CombatantId,
     /// Current Hit Points. Player Core, "Getting Knocked Out".
     pub hit_points: i32,
-    /// Temporary Hit Points. Player Core, Hit Points.
+    /// Temporary Hit Points. 0 means none. Player Core pg. 410, Temporary Hit Points.
     pub temp_hit_points: i32,
+    /// Rounds left on the temporary Hit Point pool. 0 means none.
+    ///
+    /// Player Core pg. 410, Temporary Hit Points. Duration ticks at the recipient's start of turn (DEV-32).
+    pub temp_rounds: u32,
     /// Condition slot. Empty in Phase 1. Player Core, Encounter Mode.
     pub conditions: Vec<ConditionSlot>,
-    /// True when 0 Hit Points entered dying. Not a dying value. Player Core, "Getting Knocked Out".
-    pub dying_entered: bool,
-    /// Wounded value. This change does not increase it. Player Core, "Getting Knocked Out".
+    /// Wounded value. It increases only when dying is lost. Player Core pg. 447, Wounded.
     pub wounded: i32,
     /// Current shield Hit Points, if the creature has a shield. Player Core, "Shield Statistics".
     pub shield_hit_points: Option<i32>,
@@ -457,8 +497,12 @@ pub struct CombatantState {
     pub actions_remaining: u8,
     /// Reaction ready. Encounter-core readies it. Player Core, Encounter Mode.
     pub reaction_ready: bool,
-    /// Alive, dead, or entering dying. Player Core, "Getting Knocked Out".
+    /// Alive, unconscious, dying, or dead. Player Core pg. 410, "Getting Knocked Out".
     pub vital: Vital,
+    /// Set when a blow newly stores a dying value. The caller takes it once.
+    ///
+    /// Player Core pg. 410, "Getting Knocked Out".
+    pub initiative_move: Option<crate::dying::InitiativeMove>,
 }
 
 /// Initializes state from a creature. Actions and the reaction stay unset for encounter-core.
@@ -469,14 +513,15 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
         id,
         hit_points: creature.hit_points,
         temp_hit_points: 0,
+        temp_rounds: 0,
         conditions: Vec::new(),
-        dying_entered: false,
         wounded: 0,
         shield_hit_points: creature.shield.as_ref().map(|shield| shield.hit_points),
         shield_raised: false,
         actions_remaining: 0,
         reaction_ready: false,
         vital: Vital::Alive,
+        initiative_move: None,
     }
 }
 
@@ -496,6 +541,26 @@ pub enum HpError {
     /// Player Core, "Damage Rolls". `damage_dealt` does not return a negative total, so this
     /// names a direct call that passes one. It is not an overflow.
     NegativeAmount,
+    /// The heal was 0 or less. The state is unchanged.
+    ///
+    /// Player Core pg. 410, Healing.
+    NonPositiveHealing,
+    /// The combatant is dead. The state is unchanged.
+    ///
+    /// Player Core pg. 411, Death.
+    Dead,
+    /// The temporary Hit Point amount was negative. The pool is unchanged.
+    ///
+    /// Player Core pg. 410, Temporary Hit Points.
+    NegativeTemporaryHitPoints,
+    /// A positive temporary pool was granted for 0 rounds. The pool is unchanged.
+    ///
+    /// Player Core pg. 410, Temporary Hit Points.
+    ZeroTemporaryDuration,
+    /// Alive at 0 Hit Points, or dying or unconscious above or below 0.
+    ///
+    /// Nothing is written. Player Core pg. 410, "Getting Knocked Out".
+    InconsistentVital,
 }
 
 /// Damage after modifiers on the damage statistic. The result is never negative.
@@ -560,16 +625,16 @@ fn applied_penalty_total(applied: &[Modifier]) -> Result<i64, ModifierError> {
     Ok(sum)
 }
 
-/// Rolls `faces` once, folds `bonus` and `modifiers`, and subtracts that from current Hit Points, floored at 0.
+/// Rolls `faces` once, folds `bonus` and `modifiers`, and resolves that blow.
 ///
 /// [`damage_dealt`] clamps a non-positive total to 0, and applies the floor of 1 before critical
 /// doubling when penalties reduce a total of at least 1. An overflowing total returns
-/// [`HpError::Overflow`] and leaves the state unchanged.
+/// [`HpError::Overflow`] and leaves the state unchanged. The die already drawn stays drawn.
+/// `critical` maps to [`DegreeOfSuccess::CriticalSuccess`] or [`DegreeOfSuccess::Success`].
+/// Alive at 0 Hit Points, or dying or unconscious at any other total, returns
+/// [`HpError::InconsistentVital`] before the die is drawn.
 ///
-/// At 0 Hit Points, `uses_dying_rules` false marks the state dead. True records that dying applies
-/// and does not choose a dying value. The creature and the build are not written.
-///
-/// Player Core, "Getting Knocked Out" and "Damage Rolls".
+/// Player Core pg. 410, "Getting Knocked Out". Player Core pg. 406, "Damage Rolls".
 pub fn apply_dice_damage(
     state: &mut CombatantState,
     creature: &Creature,
@@ -579,60 +644,34 @@ pub fn apply_dice_damage(
     modifiers: &[Modifier],
     critical: bool,
 ) -> Result<(), HpError> {
+    if crate::dying::inconsistent_vital(state) {
+        return Err(HpError::InconsistentVital);
+    }
     let rolled = i32::from(dice.roll(faces));
     let rolled_plus_baked = rolled.checked_add(bonus).ok_or(HpError::Overflow)?;
     let amount =
         damage_dealt(rolled_plus_baked, modifiers, critical).map_err(|_| HpError::Overflow)?;
-    // A non-positive result is not a penalty floor. Subtracting it would raise Hit Points.
-    if amount > 0 {
-        state.hit_points = match state.hit_points.checked_sub(amount) {
-            Some(next) => next.max(0),
-            None => 0,
-        };
-        note_hit_points(state, creature);
-    }
-    Ok(())
+    let degree = if critical {
+        DegreeOfSuccess::CriticalSuccess
+    } else {
+        DegreeOfSuccess::Success
+    };
+    crate::dying::apply_resolved_blow(state, creature, amount, degree)
 }
 
-/// Adds `amount` and caps current Hit Points at the creature's maximum.
+/// Adds a positive `amount` and caps current Hit Points at the creature's maximum.
 ///
-/// An add that does not fit in `i32` returns [`HpError::Overflow`] and leaves the state unchanged.
-/// Current Hit Points stay from 0 through the maximum.
+/// A non-positive amount returns [`HpError::NonPositiveHealing`]. Healing the dead returns
+/// [`HpError::Dead`]. An add that does not fit in `i32`, or a wounded increase that does not
+/// fit, returns [`HpError::Overflow`]. Each of those leaves the state unchanged.
 ///
-/// Player Core, Healing.
+/// Player Core pg. 410, Healing. Player Core pg. 411, "Losing the Dying Condition".
 pub fn apply_healing(
     state: &mut CombatantState,
     creature: &Creature,
     amount: i32,
 ) -> Result<(), HpError> {
-    let added = state
-        .hit_points
-        .checked_add(amount)
-        .ok_or(HpError::Overflow)?;
-    let maximum = creature.hit_points.max(0);
-    state.hit_points = if added < 0 {
-        0
-    } else if added > maximum {
-        maximum
-    } else {
-        added
-    };
-    note_hit_points(state, creature);
-    Ok(())
-}
-
-/// Updates vital from current Hit Points. Does not choose a dying value and does not change wounded.
-///
-/// Player Core, "Getting Knocked Out".
-pub(crate) fn note_hit_points(state: &mut CombatantState, creature: &Creature) {
-    if state.hit_points > 0 {
-        state.vital = Vital::Alive;
-    } else if creature.uses_dying_rules {
-        state.vital = Vital::EnterDying;
-        state.dying_entered = true;
-    } else {
-        state.vital = Vital::Dead;
-    }
+    crate::dying::apply_healing(state, creature, amount)
 }
 
 /// Stealth DC placed on a build: 10 plus the Stealth modifier. Not used inside [`derive`].
@@ -1040,7 +1079,7 @@ mod tests {
         .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::Dead);
-        assert!(!state.dying_entered);
+        assert!(!matches!(state.vital, Vital::Dying(_)));
         assert!(state.conditions.is_empty());
         assert_eq!(state.wounded, 0);
         assert_eq!(creature, before);
@@ -1058,7 +1097,7 @@ mod tests {
         .expect("damage fits");
         assert_eq!(grazed.hit_points, 7);
         assert_eq!(grazed.vital, Vital::Alive);
-        assert!(!grazed.dying_entered);
+        assert!(!matches!(grazed.vital, Vital::Dying(_)));
         assert_eq!(creature.hit_points, 9);
     }
 
@@ -1082,8 +1121,10 @@ mod tests {
         )
         .expect("damage fits");
         assert_eq!(state.hit_points, 0);
-        assert_eq!(state.vital, Vital::EnterDying);
-        assert!(state.dying_entered);
+        assert_eq!(
+            state.vital,
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
         assert_ne!(state.vital, Vital::Dead);
         assert!(state.conditions.is_empty());
         assert_eq!(state.wounded, 0);
@@ -1515,7 +1556,7 @@ mod tests {
         .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.vital, Vital::Dead);
-        assert!(!state.dying_entered);
+        assert!(!matches!(state.vital, Vital::Dying(_)));
         assert!(state.conditions.is_empty());
         assert_eq!(creature, before);
     }
@@ -1538,8 +1579,43 @@ mod tests {
         .expect("damage fits");
         assert_eq!(state.hit_points, 0);
         assert_ne!(state.vital, Vital::Dead);
-        assert_eq!(state.vital, Vital::EnterDying);
-        assert!(state.dying_entered);
+        assert_eq!(
+            state.vital,
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
+        assert_eq!(state.wounded, 0);
+        assert_eq!(creature, before);
+    }
+
+    /// Player Core pg. 411, Dying.
+    #[test]
+    fn dying_value_accepts_only_1_through_3() {
+        assert_eq!(DyingValue::new(0), Err(DyingValueError::OutOfRange));
+        assert_eq!(DyingValue::new(4), Err(DyingValueError::OutOfRange));
+        for value in 1..=3 {
+            assert_eq!(DyingValue::new(value).expect("in range").get(), value);
+        }
+    }
+
+    /// Player Core pg. 412, Massive Damage.
+    #[test]
+    fn massive_damage_with_the_flag_leaves_no_dying_value() {
+        let creature = derive(&build(fighter_with_hp(9, Some(true))));
+        let before = creature.clone();
+        let mut state = new_combatant_state(CombatantId(1), &creature);
+        apply_dice_damage(
+            &mut state,
+            &creature,
+            &mut ScriptedDice::new([8]),
+            d8(),
+            10,
+            &[],
+            false,
+        )
+        .expect("damage fits");
+        assert_eq!(state.hit_points, 0);
+        assert_eq!(state.vital, Vital::Dead);
+        assert!(!matches!(state.vital, Vital::Dying(_)));
         assert_eq!(creature, before);
     }
 
@@ -1665,8 +1741,12 @@ mod tests {
         )
         .expect("damage fits");
         assert_eq!(state.hit_points, 0);
-        assert_eq!(state.vital, Vital::EnterDying);
-        assert!(state.dying_entered);
+        assert_eq!(
+            state.vital,
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
+        assert_eq!(state.wounded, 0);
+        assert_ne!(state.vital, Vital::Dead);
     }
 
     /// Player Core, "Damage Rolls".
