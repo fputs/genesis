@@ -91,20 +91,81 @@ function nonExemptImplementation(paths) {
 }
 
 function unfencedBody(body) {
-  // spec-drift counts a fenced OpenSpec-Change line. This own-change id does not.
-  let fenced = false;
+  // Own-change lines sit outside CommonMark fenced code blocks. An info string
+  // opens a block, and a shorter closer leaves the rest fenced. The changelog
+  // bullet parser keeps isFence and fails closed.
+  let open = null;
   const kept = [];
   for (const raw of body.split("\n")) {
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
-    if (isFence(line.trim())) {
-      fenced = !fenced;
+    const mark = commonMarkFence(line);
+    if (open) {
+      if (
+        mark &&
+        mark.closer &&
+        mark.marker === open.marker &&
+        mark.length >= open.length
+      ) {
+        open = null;
+      }
       continue;
     }
-    if (!fenced) {
-      kept.push(line);
+    if (mark && mark.opener) {
+      open = mark;
+      continue;
     }
+    kept.push(line);
   }
   return kept.join("\n");
+}
+
+function commonMarkFence(line) {
+  const start = fenceColumn(line);
+  if (!start) {
+    return null;
+  }
+  const marker = line[start.index];
+  if (marker !== "`" && marker !== "~") {
+    return null;
+  }
+  let index = start.index;
+  let length = 0;
+  while (index < line.length && line[index] === marker) {
+    length += 1;
+    index += 1;
+  }
+  if (length < 3) {
+    return null;
+  }
+  const rest = line.slice(index);
+  const closer = /^[ \t]*$/.test(rest);
+  // A backtick fence's info string may not contain a backtick.
+  const opener = marker !== "`" || !rest.includes("`");
+  if (!opener && !closer) {
+    return null;
+  }
+  return { marker, length, opener, closer };
+}
+
+// CommonMark expands a tab to the next column of 4, and a fence indent is at most 3.
+function fenceColumn(line) {
+  let column = 0;
+  let index = 0;
+  while (index < line.length) {
+    const char = line[index];
+    if (char === " ") {
+      column += 1;
+    } else if (char === "\t") {
+      column += 4 - (column % 4);
+    } else {
+      return column <= 3 ? { index } : null;
+    }
+    if (column > 3) {
+      return null;
+    }
+    index += 1;
+  }
+  return null;
 }
 
 function defaultRoot() {
@@ -334,6 +395,7 @@ function parseChangelog(text) {
   return { sawHeading, unreleased, all };
 }
 
+// The bullet parser fails closed on a line of only backticks. Own-change lines do not use this.
 function isFence(trimmed) {
   return /^`{3,}$/.test(trimmed);
 }

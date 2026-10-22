@@ -702,6 +702,66 @@ const cases = [
       "CHANGELOG.md": NEW_LOG,
     },
   }),
+  failing("A ```bash block followed by the id line fails", [ARCHIVE], {
+    draft: false,
+    body: "```bash\necho hi\n```\nOpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  failing("A ````rust block fails", [ARCHIVE], {
+    draft: false,
+    body: "````rust\nfn main() {}\n````\nOpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  failing("A ~~~ block fails", [ARCHIVE], {
+    draft: false,
+    body: "~~~\necho hi\n~~~\nOpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  passing("The id inside an info-string fence passes", {
+    draft: false,
+    body: "```bash\nOpenSpec-Change: add-foo\n```",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  passing("A shorter closer that doesn't close, so the id stays fenced", {
+    draft: false,
+    body: "````rust\n```\nOpenSpec-Change: add-foo\n```",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
   passing("A non-draft implementation pull request with no change of its own passes", {
     draft: false,
     body: "Ready, with no change line.",
