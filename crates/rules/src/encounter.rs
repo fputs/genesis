@@ -12,6 +12,10 @@ use crate::combatant::{
 use crate::dice::{Dice, Faces};
 use crate::dying::apply_resolved_blow;
 use crate::modifiers::{Modifier, ModifierError, Statistic};
+use crate::shield::{
+    AttackBlowError, PlannedBlow, ShieldBlock, ShieldError, lower_raised_shield, plan_attack_blow,
+    raise_shield as raise_combatant_shield, reduce_shield, validate_raise,
+};
 
 /// Which team a combatant is on. Phase 1 has no other team type (DEV-26).
 ///
@@ -94,6 +98,24 @@ pub enum EncounterError {
     NoReaction,
     /// The combatant is not Alive. Player Core, "Step 2: Act".
     NotConscious,
+    /// The target is not Alive, so a requested Shield Block does not apply.
+    ///
+    /// This is the target's error. [`EncounterError::NotConscious`] stays the attacker's.
+    ///
+    /// Player Core, "Shield Block".
+    TargetNotConscious,
+    /// The creature has no shield. Player Core, "Raise a Shield".
+    NoShield,
+    /// The shield is not raised. Player Core, "Shield Block".
+    NotRaised,
+    /// The shield is broken, or a block was requested against a destroyed shield.
+    ///
+    /// Player Core, Broken.
+    Broken,
+    /// The shield is destroyed, so it cannot be raised. Player Core, "Shield Statistics".
+    Destroyed,
+    /// The blow amount is negative. Player Core, "Shield Block".
+    NegativeAmount,
     /// The target is dead. Player Core, Strike.
     TargetDead,
     /// The target is the attacker. Player Core, Strike.
@@ -453,23 +475,120 @@ impl Encounter {
         }))
     }
 
+    /// Raises the active combatant's shield and spends 1 action through [`Self::spend_actions`].
+    ///
+    /// [`EncounterError::NotYourTurn`] is returned before any write when `id` is not the
+    /// active combatant. The shield checks run next. A broken or destroyed shield does not
+    /// spend the action.
+    ///
+    /// Player Core, "Raise a Shield". Player Core, "Step 2: Act".
+    pub fn raise_shield(&mut self, id: CombatantId) -> Result<(), EncounterError> {
+        if self.open != Some(id) {
+            return Err(EncounterError::NotYourTurn);
+        }
+        let index = self.member_index(id)?;
+        {
+            let member = self
+                .members
+                .get(index)
+                .ok_or(EncounterError::UnknownCombatant)?;
+            validate_raise(&member.participant.state, &member.participant.creature)
+                .map_err(map_raise_error)?;
+        }
+        self.spend_actions(id, 1)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        raise_combatant_shield(&mut member.participant.state, &member.participant.creature)
+            .map_err(map_raise_error)
+    }
+
+    /// Resolves a requested Shield Block for `defender`.
+    ///
+    /// The reaction is spent only through [`Self::spend_reaction`], and only after the block
+    /// is legal. This does not call [`crate::shield::apply_attack_blow`]. A blow that fails
+    /// restores the state, so the reaction spend is not kept.
+    ///
+    /// Player Core, "Shield Block".
+    pub fn shield_block(
+        &mut self,
+        defender: CombatantId,
+        amount: i32,
+        degree: DegreeOfSuccess,
+    ) -> Result<(), EncounterError> {
+        let index = self.member_index(defender)?;
+        let plan = {
+            let member = self
+                .members
+                .get(index)
+                .ok_or(EncounterError::UnknownCombatant)?;
+            plan_attack_blow(
+                &member.participant.state,
+                &member.participant.creature,
+                amount,
+                degree,
+                ShieldBlock::Requested,
+            )
+            .map_err(map_attack_blow_error)?
+        };
+        match plan {
+            PlannedBlow::NoWrite => Ok(()),
+            PlannedBlow::Unblocked(amount) => self.apply_damage(defender, amount, degree),
+            PlannedBlow::Blocked(remainder) => {
+                let snapshot = self
+                    .members
+                    .get(index)
+                    .ok_or(EncounterError::UnknownCombatant)?
+                    .participant
+                    .state
+                    .clone();
+                self.spend_reaction(defender)?;
+                let member = self
+                    .members
+                    .get_mut(index)
+                    .ok_or(EncounterError::UnknownCombatant)?;
+                let participant = &mut member.participant;
+                if let Err(error) = apply_resolved_blow(
+                    &mut participant.state,
+                    &participant.creature,
+                    remainder,
+                    degree,
+                ) {
+                    participant.state = snapshot;
+                    return Err(EncounterError::HitPoints(error));
+                }
+                reduce_shield(&mut participant.state, remainder);
+                Ok(())
+            }
+        }
+    }
+
     /// Strikes `target` with `profile` on the active creature's turn.
     ///
     /// A miss spends the action, records damage 0, and does not roll a damage die.
     /// [`HpError::NotAHit`] is not returned from this path. Success and critical success roll
     /// the damage dice once; a critical success doubles that total inside [`damage_dealt`].
-    /// A hit passes that total and this Strike's degree to [`apply_resolved_blow`].
+    /// A hit passes that total and `block` through the encounter block once. It does not also
+    /// call [`apply_resolved_blow`]. [`ShieldBlock::Requested`] checks the shield before any
+    /// die is drawn and spends no action when that check fails. A miss does not resolve a
+    /// block. The degree uses the target's baked Armor Class. A requested reaction is spent
+    /// only through [`Self::spend_reaction`].
     ///
-    /// Player Core, Strike.
+    /// Player Core, Strike. Player Core, "Shield Block".
     pub fn strike(
         &mut self,
         attacker: CombatantId,
         target: CombatantId,
         profile: &StrikeProfile,
         modifiers: &[Modifier],
+        block: ShieldBlock,
         dice: &mut impl Dice,
     ) -> Result<StrikeOutcome, EncounterError> {
         self.prepare_strike(attacker, target)?;
+        if let ShieldBlock::Requested = block {
+            self.block_is_ready(target)?;
+        }
         let map = self.attack_trait_penalty(attacker, profile.agility)?;
         let attack_term = bounded_term(profile.attack_bonus)?;
         let map_term = bounded_term(map)?;
@@ -497,7 +616,10 @@ impl Encounter {
                 degree == DegreeOfSuccess::CriticalSuccess,
             )
             .map_err(EncounterError::DamageOverflow)?;
-            self.apply_damage(target, dealt, degree)?;
+            match block {
+                ShieldBlock::Declined => self.apply_damage(target, dealt, degree)?,
+                ShieldBlock::Requested => self.shield_block(target, dealt, degree)?,
+            }
             dealt
         };
         self.finish_strike(attacker)?;
@@ -678,9 +800,53 @@ impl Encounter {
         Ok(())
     }
 
-    fn start_of_turn_step(&mut self, _id: CombatantId) {}
+    fn start_of_turn_step(&mut self, id: CombatantId) {
+        if self.is_dead(id) {
+            return;
+        }
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            lower_raised_shield(&mut member.participant.state);
+        }
+    }
 
     fn end_of_turn_step(&mut self, _id: CombatantId) {}
+
+    fn block_is_ready(&self, target: CombatantId) -> Result<(), EncounterError> {
+        let state = self.state(target)?;
+        let creature = self.creature(target)?;
+        plan_attack_blow(
+            state,
+            creature,
+            1,
+            DegreeOfSuccess::Success,
+            ShieldBlock::Requested,
+        )
+        .map(|_| ())
+        .map_err(map_attack_blow_error)
+    }
+}
+
+fn map_raise_error(error: ShieldError) -> EncounterError {
+    match error {
+        ShieldError::NoShield => EncounterError::NoShield,
+        ShieldError::Broken => EncounterError::Broken,
+        ShieldError::Destroyed => EncounterError::Destroyed,
+        ShieldError::NotConscious => EncounterError::NotConscious,
+    }
+}
+
+fn map_attack_blow_error(error: AttackBlowError) -> EncounterError {
+    match error {
+        AttackBlowError::NotConscious => EncounterError::TargetNotConscious,
+        AttackBlowError::NoShield => EncounterError::NoShield,
+        AttackBlowError::NotRaised => EncounterError::NotRaised,
+        AttackBlowError::Broken => EncounterError::Broken,
+        AttackBlowError::NoReaction => EncounterError::NoReaction,
+        AttackBlowError::NegativeAmount => EncounterError::NegativeAmount,
+        AttackBlowError::HitPoints(error) => EncounterError::HitPoints(error),
+    }
 }
 
 fn misses(degree: DegreeOfSuccess) -> bool {
@@ -728,6 +894,7 @@ mod tests {
     use crate::dice::{Faces, ScriptedDice};
     use crate::dying::{InitiativeMove, apply_resolved_blow, take_initiative_move};
     use crate::modifiers::{BonusType, Modifier, ModifierError, PenaltyType, SourceId, Statistic};
+    use crate::shield::ShieldBlock;
 
     fn id(value: u32) -> CombatantId {
         CombatantId(value)
@@ -885,6 +1052,7 @@ mod tests {
                     id(2),
                     &profile(0, Agility::NotAgile, 1, 8, 4),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect("strike");
@@ -1184,6 +1352,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("knockout");
@@ -1213,6 +1382,7 @@ mod tests {
                     id(1),
                     &profile(0, Agility::NotAgile, 1, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("strike"),
@@ -1243,6 +1413,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("knockout");
@@ -1570,6 +1741,7 @@ mod tests {
                 id(2),
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -1599,6 +1771,7 @@ mod tests {
                 id(2),
                 &profile(10, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("knockout");
@@ -1614,6 +1787,7 @@ mod tests {
                 id(2),
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("second");
@@ -1633,6 +1807,7 @@ mod tests {
                     id(2),
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("early"),
@@ -1654,6 +1829,7 @@ mod tests {
                     id(1),
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("off"),
@@ -1675,6 +1851,7 @@ mod tests {
                     id(99),
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("missing"),
@@ -1697,6 +1874,7 @@ mod tests {
                     id(1),
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("self"),
@@ -1721,6 +1899,7 @@ mod tests {
                     id(2),
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("dead"),
@@ -1744,6 +1923,7 @@ mod tests {
                     id(2),
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("empty"),
@@ -1766,6 +1946,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 0, 8, 0),
                 &[modifier],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -1785,6 +1966,7 @@ mod tests {
                 id(2),
                 &profile(9, Agility::NotAgile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("first");
@@ -1795,6 +1977,7 @@ mod tests {
                 id(2),
                 &profile(9, Agility::NotAgile, 0, 8, 0),
                 &[modifier],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("second");
@@ -1819,6 +2002,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 0, 8, 0),
                 &modifiers,
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -1842,6 +2026,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 0, 8, 0),
                 &modifiers,
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -1867,6 +2052,7 @@ mod tests {
                 id(2),
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &modifiers,
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -1886,6 +2072,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("first");
@@ -1896,6 +2083,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 0, 8, 0),
                 &[modifier],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("second");
@@ -1917,6 +2105,7 @@ mod tests {
                 id(2),
                 &profile(8, Agility::Agile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("first");
@@ -1926,6 +2115,7 @@ mod tests {
                 id(2),
                 &profile(8, Agility::Agile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("second");
@@ -1944,13 +2134,13 @@ mod tests {
         encounter.start_turn().expect("start");
         let weapon = profile(8, Agility::NotAgile, 0, 8, 0);
         encounter
-            .strike(id(1), id(2), &weapon, &[], &mut dice)
+            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
             .expect("first");
         encounter
-            .strike(id(1), id(2), &weapon, &[], &mut dice)
+            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
             .expect("second");
         let outcome = encounter
-            .strike(id(1), id(2), &weapon, &[], &mut dice)
+            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
             .expect("third");
         assert_eq!(outcome.map, -10);
         assert_eq!(outcome.total, 13);
@@ -1971,6 +2161,7 @@ mod tests {
                     id(2),
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("early"),
@@ -1984,6 +2175,7 @@ mod tests {
                 id(2),
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2005,6 +2197,7 @@ mod tests {
                     id(2),
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("count"),
@@ -2023,10 +2216,10 @@ mod tests {
         encounter.start_turn().expect("start");
         let weapon = profile(8, Agility::NotAgile, 0, 8, 0);
         encounter
-            .strike(id(1), id(2), &weapon, &[], &mut dice)
+            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
             .expect("first");
         encounter
-            .strike(id(1), id(2), &weapon, &[], &mut dice)
+            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
             .expect("second");
         encounter.end_turn().expect("end");
         assert_eq!(
@@ -2069,6 +2262,7 @@ mod tests {
                 id(2),
                 &profile(attack, Agility::NotAgile, dice_count, face, bonus),
                 modifiers,
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2158,6 +2352,7 @@ mod tests {
             id(2),
             &profile(0, Agility::NotAgile, 1, 8, 4),
             &[],
+            ShieldBlock::Declined,
             &mut dice,
         );
         assert_ne!(result, Err(EncounterError::HitPoints(HpError::NotAHit)));
@@ -2187,6 +2382,7 @@ mod tests {
             id(2),
             &profile(0, Agility::NotAgile, 1, 8, 4),
             &[],
+            ShieldBlock::Declined,
             &mut dice,
         );
         assert_ne!(result, Err(EncounterError::HitPoints(HpError::NotAHit)));
@@ -2284,6 +2480,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 4),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2306,6 +2503,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 4, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2328,6 +2526,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 4, -5),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2347,6 +2546,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2363,7 +2563,8 @@ mod tests {
             hardness: 0,
             hit_points: 20,
             broken_threshold: 0,
-            shield_ac_bonus: 0,
+            // An AC bonus of 0 is InvalidShield. The strike still leaves these Hit Points.
+            shield_ac_bonus: 1,
         };
         let target = participant(2, Side::Pc, creature(20, 11, 0, false, Some(shield)));
         let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 11), target], &[14, 10, 11, 4]);
@@ -2374,6 +2575,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 4, 0),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2399,6 +2601,7 @@ mod tests {
                     id(2),
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &modifiers,
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("overflow"),
@@ -2428,6 +2631,7 @@ mod tests {
                     id(2),
                     &profile(0, Agility::NotAgile, 1, 4, 2_147_483_647),
                     &[],
+                    ShieldBlock::Declined,
                     &mut dice,
                 )
                 .expect_err("overflow"),
@@ -2486,7 +2690,7 @@ mod tests {
 
     /// Player Core pg. 410, "Getting Knocked Out".
     #[test]
-    fn with_dying_rules_a_strike_to_0_sets_dying_1_and_a_pending_report() {
+    fn with_dying_rules_a_strike_to_0_sets_dying1_and_a_pending_report() {
         let (mut encounter, mut dice) = begin(
             vec![
                 combatant(1, Side::Pc, 0, 20, 11, false),
@@ -2502,6 +2706,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
@@ -2531,6 +2736,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut crit_dice,
             )
             .expect("crit strike");
@@ -2566,6 +2772,7 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
+                ShieldBlock::Declined,
                 &mut inconsistent_dice,
             ),
             Err(EncounterError::HitPoints(HpError::InconsistentVital))
@@ -2596,11 +2803,131 @@ mod tests {
                 id(2),
                 &profile(0, Agility::NotAgile, 1, 8, 12),
                 &[],
+                ShieldBlock::Declined,
                 &mut dice,
             )
             .expect("strike");
         assert_eq!(vital(&encounter, 2), Vital::Dead);
         assert!(!matches!(vital(&encounter, 2), Vital::Dying(_)));
         assert_eq!(take_report(&mut encounter, 2), None);
+    }
+
+    /// Player Core, "Raise a Shield". Player Core, "Step 2: Act".
+    #[test]
+    fn a_second_raise_only_spends_an_action() {
+        let shield = ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        };
+        let (mut encounter, _) = begin(
+            vec![participant(
+                1,
+                Side::Pc,
+                creature(20, 11, 0, false, Some(shield)),
+            )],
+            &[10],
+        );
+        encounter.start_turn().expect("start");
+        {
+            let member = encounter
+                .members
+                .iter_mut()
+                .find(|member| member.participant.id == id(1))
+                .expect("member");
+            member.participant.state.shield_raised = true;
+            member.participant.state.actions_remaining = 3;
+        }
+        encounter.raise_shield(id(1)).expect("raise");
+        let state = encounter.state(id(1)).expect("state");
+        let defender = encounter.creature(id(1)).expect("creature");
+        assert!(state.shield_raised);
+        assert_eq!(state.actions_remaining, 2);
+        let modifier = crate::shield::shield_ac_modifier(state, defender).expect("bonus");
+        assert_eq!(modifier.value(), 2);
+        let total = crate::positioning::armor_class(
+            None,
+            None,
+            crate::positioning::OffGuard::No,
+            crate::positioning::AttackKind::Melee,
+            &[modifier],
+        )
+        .expect("armor class");
+        assert_eq!(total.get(Statistic::ArmorClass), 2);
+        assert_ne!(total.get(Statistic::ArmorClass), 4);
+    }
+
+    /// Player Core, "Raise a Shield". Player Core, "Step 2: Act".
+    #[test]
+    fn another_combatant_cannot_raise_on_this_turn() {
+        let shield = ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        };
+        let (mut encounter, dice) = begin(
+            vec![
+                pc(1, 0, 20, 11),
+                participant(2, Side::Pc, creature(20, 11, 0, false, Some(shield))),
+            ],
+            &[10, 8],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        {
+            let member = encounter
+                .members
+                .iter_mut()
+                .find(|member| member.participant.id == id(2))
+                .expect("member");
+            member.participant.state.actions_remaining = 3;
+            member.participant.state.shield_raised = false;
+        }
+        let error = encounter.raise_shield(id(2)).expect_err("other turn");
+        assert_eq!(error, EncounterError::NotYourTurn);
+        let state = encounter.state(id(2)).expect("state");
+        assert_eq!(state.actions_remaining, 3);
+        assert!(!state.shield_raised);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, Strike. Player Core, "Shield Block".
+    #[test]
+    fn a_legal_shield_block_changes_shield_hit_points() {
+        let shield = ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        };
+        let (mut encounter, mut dice) = begin(
+            vec![
+                participant(1, Side::Pc, creature(30, 11, 0, false, Some(shield))),
+                participant(2, Side::Pc, creature(20, 11, 0, false, None)),
+            ],
+            &[10, 8, 11, 8],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.raise_shield(id(1)).expect("raise");
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("attacker"), id(2));
+        let outcome = encounter
+            .strike(
+                id(2),
+                id(1),
+                &profile(0, Agility::NotAgile, 1, 8, 4),
+                &[],
+                ShieldBlock::Requested,
+                &mut dice,
+            )
+            .expect("strike");
+        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
+        assert_eq!(hit_points(&encounter, 1), 23);
+        assert_eq!(
+            encounter.state(id(1)).expect("state").shield_hit_points,
+            Some(13)
+        );
+        assert_eq!(dice.remaining(), 0);
     }
 }

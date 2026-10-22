@@ -97,9 +97,9 @@ pub enum FoldError {
     DamageDie,
     /// The contribution list was empty.
     Empty,
-    /// Hit Points or Speed would fail [`CharacterBuild::try_new`].
+    /// Hit Points, Speed, or the shield would fail [`CharacterBuild::try_new`].
     ///
-    /// Player Core, Hit Points and Speed.
+    /// Player Core, Hit Points, Speed, and "Shield Statistics".
     Statistics,
 }
 
@@ -178,15 +178,24 @@ pub enum TemplateError {
     /// Rules 2347 define Speed. Rules 2356 define a square as 5 feet. Player Core has no
     /// explicit multiple-of-5 rule.
     SpeedNotMultipleOfFive,
+    /// Hardness is below 0, Hit Points are below 1, the AC bonus is below 1, the broken
+    /// threshold is below 0, or the broken threshold is not below the shield's Hit Points.
+    ///
+    /// Player Core, "Shield Statistics".
+    InvalidShield,
 }
 
 impl CharacterBuild {
-    /// Rejects non-positive Hit Points, a negative Speed, and a Speed that is not a multiple of 5.
-    /// Speed 0 is stored.
+    /// Rejects non-positive Hit Points, a negative Speed, a Speed that is not a multiple of 5,
+    /// and a shield with hardness below 0, Hit Points below 1, an AC bonus below 1, a broken
+    /// threshold below 0, or a broken threshold that is not below its Hit Points. Speed 0 is
+    /// stored.
     ///
-    /// Player Core, "Getting Knocked Out" and Speed. The multiple-of-5 check is validation (DEV-21).
+    /// Player Core, "Getting Knocked Out", Speed, and "Shield Statistics". The multiple-of-5
+    /// check is validation (DEV-21).
     pub fn try_new(parts: BuildParts) -> Result<Self, TemplateError> {
         check_statistics(parts.hit_points, parts.speed_feet)?;
+        check_shield(parts.shield.as_ref())?;
         Ok(Self { parts })
     }
 }
@@ -201,6 +210,24 @@ fn check_statistics(hit_points: i32, speed_feet: i32) -> Result<(), TemplateErro
     // A speed that is not a whole number of 5-foot squares cannot be spent on the grid (DEV-21).
     if speed_feet % 5 != 0 {
         return Err(TemplateError::SpeedNotMultipleOfFive);
+    }
+    Ok(())
+}
+
+/// Rejects a shield that cannot be wielded as stored statistics.
+///
+/// Player Core, "Shield Statistics".
+fn check_shield(shield: Option<&ShieldTemplate>) -> Result<(), TemplateError> {
+    let Some(shield) = shield else {
+        return Ok(());
+    };
+    let invalid = shield.hardness < 0
+        || shield.hit_points < 1
+        || shield.shield_ac_bonus < 1
+        || shield.broken_threshold < 0
+        || shield.broken_threshold >= shield.hit_points;
+    if invalid {
+        return Err(TemplateError::InvalidShield);
     }
     Ok(())
 }
@@ -272,10 +299,11 @@ pub fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
 ///
 /// An empty list, a sum past `i32`, or a damage die the strike cannot store is
 /// [`FoldError`]. A negative reach sum cannot be stored, so it is [`FoldError::Overflow`].
-/// Hit Points of 0 or less, a negative Speed, or a Speed that is not a multiple of 5 is
-/// [`FoldError::Statistics`]. Speed 0 is accepted.
+/// Hit Points of 0 or less, a negative Speed, a Speed that is not a multiple of 5, or a
+/// shield rejected by [`CharacterBuild::try_new`] is [`FoldError::Statistics`]. Speed 0 is
+/// accepted.
 ///
-/// Player Core, Hit Points and Speed.
+/// Player Core, Hit Points, Speed, and "Shield Statistics".
 pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError> {
     if ordered.is_empty() {
         return Err(FoldError::Empty);
@@ -345,6 +373,7 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
     let damage_faces = Faces::try_from_i32(damage_faces).map_err(|_| FoldError::DamageDie)?;
     let reach_feet = ReachFeet::new(reach_feet).map_err(|_| FoldError::Overflow)?;
     check_statistics(hit_points, speed_feet).map_err(|_| FoldError::Statistics)?;
+    check_shield(shield.as_ref()).map_err(|_| FoldError::Statistics)?;
 
     Ok(Creature {
         hit_points,
@@ -2153,5 +2182,133 @@ mod tests {
         .expect("penalty");
         assert_eq!(damage_dealt(5, &[armor_class], false).expect("damage"), 5);
         assert_eq!(dice.remaining(), 1);
+    }
+
+    fn with_shield(shield: ShieldTemplate) -> BuildParts {
+        let mut parts = fighter_parts();
+        parts.shield = Some(shield);
+        parts
+    }
+
+    fn steel_shield() -> ShieldTemplate {
+        ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        }
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn negative_hardness_is_rejected() {
+        let mut shield = steel_shield();
+        shield.hardness = -1;
+        assert_eq!(
+            CharacterBuild::try_new(with_shield(shield)).expect_err("hardness"),
+            TemplateError::InvalidShield
+        );
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn a_zero_shield_bonus_is_rejected() {
+        let mut shield = steel_shield();
+        shield.shield_ac_bonus = 0;
+        assert_eq!(
+            CharacterBuild::try_new(with_shield(shield)).expect_err("bonus"),
+            TemplateError::InvalidShield
+        );
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn a_negative_shield_bonus_is_rejected() {
+        let mut shield = steel_shield();
+        shield.shield_ac_bonus = -1;
+        assert_eq!(
+            CharacterBuild::try_new(with_shield(shield)).expect_err("bonus"),
+            TemplateError::InvalidShield
+        );
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn a_broken_threshold_at_maximum_is_rejected() {
+        let mut shield = steel_shield();
+        shield.broken_threshold = 20;
+        assert_eq!(
+            CharacterBuild::try_new(with_shield(shield)).expect_err("threshold"),
+            TemplateError::InvalidShield
+        );
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn shield_hit_points_of_0_are_rejected() {
+        let shield = ShieldTemplate {
+            hardness: 5,
+            hit_points: 0,
+            broken_threshold: -1,
+            shield_ac_bonus: 2,
+        };
+        assert_eq!(
+            CharacterBuild::try_new(with_shield(shield)).expect_err("hit points"),
+            TemplateError::InvalidShield
+        );
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn a_negative_broken_threshold_is_rejected() {
+        let mut shield = steel_shield();
+        shield.broken_threshold = -1;
+        assert_eq!(
+            CharacterBuild::try_new(with_shield(shield)).expect_err("threshold"),
+            TemplateError::InvalidShield
+        );
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn a_folded_invalid_shield_is_rejected() {
+        let layer = Contribution {
+            hit_points: 12,
+            speed_feet: 25,
+            damage_dice: 1,
+            damage_faces: 8,
+            reach_feet: 5,
+            shield: Some(ShieldTemplate {
+                hardness: -1,
+                hit_points: 20,
+                broken_threshold: 10,
+                shield_ac_bonus: 2,
+            }),
+            ..Contribution::default()
+        };
+        let result = fold_contributions(&[layer]);
+        assert!(matches!(result, Err(FoldError::Statistics)));
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn a_valid_steel_shield_still_derives() {
+        let creature = derive(&build(with_shield(steel_shield())));
+        let shield = creature.shield.expect("shield");
+        assert_eq!(shield.hardness, 5);
+        assert_eq!(shield.hit_points, 20);
+        assert_eq!(shield.broken_threshold, 10);
+        assert_eq!(shield.shield_ac_bonus, 2);
+    }
+
+    /// Player Core, "Shield Statistics".
+    #[test]
+    fn the_authored_buckler_still_derives() {
+        let creature = derive(&build(with_shield(buckler())));
+        let shield = creature.shield.expect("buckler");
+        assert_eq!(shield.hardness, 3);
+        assert_eq!(shield.hit_points, 8);
+        assert_eq!(shield.broken_threshold, 4);
+        assert_eq!(shield.shield_ac_bonus, 1);
     }
 }
