@@ -33,3 +33,18 @@ Rules 2302, PC 406: "If the combined penalties on an attack would reduce the dam
 - Frightened (Player Core p.444) and sickened (Player Core p.446) only give a status penalty equal to their value. Neither one ever gives a bonus.
 - Ruling: reject at construction any bonus tagged frightened or sickened, at any rank including 0 (InvalidValuedCondition). This extends R-03 and is not a deviation.
 - This replaces the sentence "a frightened status bonus keeps its declared value" from the #36 review. Scenarios that tested bonus-versus-penalty with a made-up frightened bonus should use a condition whose modifiers are not derived from its value instead (for example condition 10). A bonus and a penalty of the same type from that condition both apply (Player Core p.400, Rules 2282).
+
+## R-05 A readied attack keeps the multiple attack penalty it had at Ready time (FIX-16, 2026-10-22)
+- Ready (Player Core p.417, AoN Actions 2299): if the readied action is an attack, it takes the multiple attack penalty the creature had when it used Ready. Multiple Attack Penalty (Player Core p.402, Rules 2289) applies only on your own turn.
+- Ruling for the dice-and-checks amendment: an attack-trait check made as a readied action SHALL use the penalty frozen when Ready resolved (0, -5 or -10; with an agile current weapon, 0, -4 or -8). The weapon used for the readied attack sets agile, and the snapshot stores the attack count, not the number. Any other reaction attack keeps a penalty of 0. A readied attack does not add to any own-turn count.
+- Scenarios: (1) a Strike, then Ready, then the readied Strike with a non-agile weapon fires: -5. (2) Ready as the first action, then the readied Strike: 0. (3) Strike twice, then Ready (the turn ends), then the readied agile Strike: -8. (4) after a -5 readied Strike, the reactor's next own turn begins with a penalty of 0. (5) a Reactive Strike on the same round has a penalty of 0.
+- This is RAW, not a deviation. It replaces "a reaction always has a penalty of 0" for readied attacks only.
+
+## R-06 Temporary HP (DEV-13, confirmed 2026-10-22)
+- Player Core p.410 (Rules 2321): temp HP from a new source doesn't stack, and the creature chooses which amount to keep. We always keep the higher amount and its duration (DEV-13, intentional).
+- Edge cases: if the amounts are equal, keep the existing amount and its duration. Damage removes temp HP first and the rest goes to HP. Healing never restores temp HP. Temp HP doesn't count toward max HP or toward the massive damage threshold (2x max HP, Player Core p.412, Rules 2332, which compares the blow's damage, not HP lost). When temp HP expires, unused points vanish. Temp HP of 0 means no temp HP.
+- Example: a creature with 5 temp HP gains 3 and keeps 5. Then 7 damage takes 5 temp HP and 2 HP.
+
+## R-07 Minimum damage happens before critical doubling (DEV-14, confirmed 2026-10-22)
+- The order stays as in R-02: dice plus modifiers, then penalties, then the floor of 1 (only if penalties caused a total of 0 or less, Player Core p.406, Rules 2302) or a clamp at 0, then doubling on a crit (Player Core p.407, Rules 2307).
+- So the smallest crit when the floor applies deals 2. A total clamped at 0 (because a negative modifier, not a penalty, brought it there) deals 0 even on a crit. This is intentional (DEV-14). RAW gives no order.
