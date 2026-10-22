@@ -442,13 +442,29 @@ mod tests {
     /// (DEV-39, proposed). The shield is wielded, and a broken one still cannot be raised.
     #[test]
     fn a_broken_shield_cannot_be_raised() {
-        let creature = creature(20, 18, 0, false, Some(steel()));
-        let mut state = state_for(&creature);
+        let built = creature(20, 18, 0, false, Some(steel()));
+        let mut state = state_for(&built);
         state.shield_hit_points = Some(10);
-        let error = raise_shield(&mut state, &creature).expect_err("broken");
+        let error = raise_shield(&mut state, &built).expect_err("broken");
         assert_eq!(error, ShieldError::Broken);
         assert_eq!(state.actions_remaining, 3);
         assert!(!state.shield_raised);
+
+        let defender = participant(1, creature(30, 18, 0, false, Some(steel())));
+        let (mut encounter, _) = begin(vec![defender], &[10]);
+        encounter.start_turn().expect("start");
+        encounter.raise_shield(id(1)).expect("raise");
+        encounter
+            .shield_block(id(1), 15, DegreeOfSuccess::Success)
+            .expect("break the shield");
+        encounter.end_turn().expect("end");
+        encounter.start_turn().expect("next turn");
+        let error = encounter.raise_shield(id(1)).expect_err("broken");
+        assert_eq!(error, EncounterError::Broken);
+        let encounter_state = encounter.state(id(1)).expect("state");
+        assert_eq!(encounter_state.actions_remaining, 3);
+        assert!(!encounter_state.shield_raised);
+        assert_eq!(encounter_state.shield_hit_points, Some(10));
     }
 
     /// Player Core, Broken. Player Core, "Shield Statistics".
@@ -855,7 +871,6 @@ mod tests {
         let creature = creature(30, 11, 0, false, Some(steel()));
         let mut state = raised(&creature, 20);
         state.actions_remaining = 2;
-        let dice = ScriptedDice::new([15]);
         blow(
             &mut state,
             &creature,
@@ -869,7 +884,6 @@ mod tests {
         assert!(!broken(13, 10));
         assert!(!state.reaction_ready);
         assert_eq!(state.actions_remaining, 2);
-        assert_eq!(dice.remaining(), 1);
         assert_eq!(creature.shield.expect("shield").hit_points, 20);
         assert_ne!(state.shield_hit_points, Some(18));
     }
@@ -908,6 +922,19 @@ mod tests {
         assert_eq!(state.hit_points, 30);
         assert_eq!(state.shield_hit_points, Some(20));
         assert!(!state.reaction_ready);
+
+        let mut one = raised(&creature, 20);
+        blow(
+            &mut one,
+            &creature,
+            1,
+            DegreeOfSuccess::Success,
+            ShieldBlock::Requested,
+        )
+        .expect("one damage");
+        assert_eq!(one.hit_points, 30);
+        assert_eq!(one.shield_hit_points, Some(20));
+        assert!(!one.reaction_ready);
     }
 
     /// Player Core, "Shield Block". Player Core, Shields.
@@ -947,6 +974,20 @@ mod tests {
         assert_eq!(state.shield_hit_points, Some(10));
         assert!(broken(10, 10));
         assert_ne!(state.shield_hit_points, Some(0));
+
+        let mut boundary = raised(&creature, 11);
+        blow(
+            &mut boundary,
+            &creature,
+            6,
+            DegreeOfSuccess::Success,
+            ShieldBlock::Requested,
+        )
+        .expect("remainder 1");
+        assert_eq!(boundary.hit_points, 29);
+        assert_eq!(boundary.shield_hit_points, Some(10));
+        assert!(broken(10, 10));
+        assert!(!boundary.reaction_ready);
     }
 
     /// Player Core, "Shield Block". Player Core, "Shield Statistics".
@@ -1156,6 +1197,19 @@ mod tests {
         assert_eq!(state.hit_points, 30);
         assert_eq!(state.shield_hit_points, Some(20));
         assert!(state.reaction_ready);
+
+        let negative = blow(
+            &mut state,
+            &creature,
+            -1,
+            DegreeOfSuccess::Failure,
+            ShieldBlock::Requested,
+        )
+        .expect_err("negative miss");
+        assert_eq!(negative, AttackBlowError::HitPoints(HpError::NotAHit));
+        assert_eq!(state.hit_points, 30);
+        assert_eq!(state.shield_hit_points, Some(20));
+        assert!(state.reaction_ready);
     }
 
     /// Player Core, "Shield Block". Player Core, Strike.
@@ -1290,11 +1344,9 @@ mod tests {
             ShieldBlock::Requested,
         );
         assert_eq!(result, Ok(()));
-        assert_eq!(i64::from(2_147_483_647i32) - i64::from(5), 2_147_483_642);
         assert_eq!(state.vital, Vital::Dead);
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.shield_hit_points, Some(0));
-        assert!(state.shield_hit_points.expect("shield") >= 0);
     }
 
     /// Player Core, "Massive Damage".
@@ -1448,13 +1500,13 @@ mod tests {
     /// Player Core, "Getting Knocked Out". Player Core, "Shield Block".
     #[test]
     fn an_inconsistent_vital_writes_nothing() {
-        let creature = creature(9, 11, 0, true, Some(steel()));
-        let mut state = raised(&creature, 20);
+        let built = creature(9, 11, 0, true, Some(steel()));
+        let mut state = raised(&built, 20);
         state.hit_points = 0;
         state.vital = Vital::Alive;
         let error = blow(
             &mut state,
-            &creature,
+            &built,
             12,
             DegreeOfSuccess::Success,
             ShieldBlock::Requested,
@@ -1467,6 +1519,39 @@ mod tests {
         assert_eq!(state.hit_points, 0);
         assert_eq!(state.shield_hit_points, Some(20));
         assert!(state.reaction_ready);
+
+        let defender = participant(1, creature(9, 11, 0, true, Some(steel())));
+        let attacker = participant(2, creature(20, 11, 0, false, None));
+        let (mut encounter, mut dice) = begin(vec![defender, attacker], &[10, 8, 11, 8]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.raise_shield(id(1)).expect("raise");
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("attacker"), id(2));
+        encounter
+            .strike(
+                id(2),
+                id(1),
+                &profile(8, 1),
+                &[],
+                ShieldBlock::Declined,
+                &mut dice,
+            )
+            .expect("drop to 0");
+        encounter.set_vital_for_test(id(1), Vital::Alive);
+        let before = encounter.state(id(1)).expect("state").clone();
+        assert_eq!(before.hit_points, 0);
+        assert_eq!(before.vital, Vital::Alive);
+        assert!(before.shield_raised);
+        assert_eq!(before.shield_hit_points, Some(20));
+        assert!(before.reaction_ready);
+        let rolled_back = encounter
+            .shield_block(id(1), 12, DegreeOfSuccess::Success)
+            .expect_err("rollback");
+        assert_eq!(
+            rolled_back,
+            EncounterError::HitPoints(HpError::InconsistentVital)
+        );
+        assert_eq!(encounter.state(id(1)).expect("state"), &before);
     }
 
     /// Player Core, "Shield Block".

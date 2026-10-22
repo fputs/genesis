@@ -2836,9 +2836,12 @@ mod tests {
                 .iter_mut()
                 .find(|member| member.participant.id == id(1))
                 .expect("member");
-            member.participant.state.shield_raised = true;
-            member.participant.state.actions_remaining = 3;
+            raise_combatant_shield(&mut member.participant.state, &member.participant.creature)
+                .expect("already raised");
         }
+        let before = encounter.state(id(1)).expect("state");
+        assert!(before.shield_raised);
+        assert_eq!(before.actions_remaining, 3);
         encounter.raise_shield(id(1)).expect("raise");
         let state = encounter.state(id(1)).expect("state");
         let defender = encounter.creature(id(1)).expect("creature");
