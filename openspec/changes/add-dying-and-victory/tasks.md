@@ -62,8 +62,8 @@ This change merges after `add-encounter-turns` at `b89d7a4`. Do not change that 
 
 ## 11. Proof
 
-- [ ] 11.1 Add one bullet under `### Added` in `## [Unreleased]` of root `CHANGELOG.md` for dying, recovery, temporary Hit Points, and victory, and one **BREAKING** bullet under `### Changed` for replacing `Vital::EnterDying`. Link both to the implementation pull request. This spec pull request does not add them. Verify both bullets are in those sections
-- [ ] 11.2 Run the AGENTS.md proof commands and verify each exits 0:
+- [x] 11.1 Add one bullet under `### Added` in `## [Unreleased]` of root `CHANGELOG.md` for dying, recovery, temporary Hit Points, and victory, and one **BREAKING** bullet under `### Changed` for replacing `Vital::EnterDying`. Link both to the implementation pull request. This spec pull request does not add them. Verify both bullets are in those sections
+- [x] 11.2 Run the AGENTS.md proof commands and verify each exits 0:
 
 ```
 cargo fmt --all --check

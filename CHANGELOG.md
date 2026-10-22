@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Dying, recovery checks, temporary Hit Points, and which side has won. ([#57](https://github.com/fputs/genesis/pull/57))
 - Initiative, the three-action turn, and Strike. ([#52](https://github.com/fputs/genesis/pull/52))
 - Modifier stacking for circumstance, item, status, and untyped penalties, and a damage minimum of 1 before critical doubling. ([#25](https://github.com/fputs/genesis/pull/25))
 - 5-foot grid movement for Stride and Step, diagonal cost across a turn, and range-increment data. ([#26](https://github.com/fputs/genesis/pull/26))
@@ -20,6 +21,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** `Vital::EnterDying` is replaced by Alive, Unconscious, Dying of 1, 2, or 3, and Dead. ([#57](https://github.com/fputs/genesis/pull/57))
 - **BREAKING:** pr-hygiene skips archive-last while a pull request is a draft and fails a ready implementation pull request whose own OpenSpec change is still active. ([#43](https://github.com/fputs/genesis/pull/43))
 - **BREAKING:** A frightened or sickened bonus is rejected at construction. ([#40](https://github.com/fputs/genesis/pull/40))
 - **BREAKING:** Frightened and sickened modifiers with no rank or a non-status type are rejected at construction, and the attack check total's internal terms use reserved sources. ([#37](https://github.com/fputs/genesis/pull/37))
