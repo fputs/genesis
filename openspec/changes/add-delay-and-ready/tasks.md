@@ -32,7 +32,7 @@ Each scenario under this change has one test. The test name is the scenario titl
 
 ## 7. Changelog, proof, and archive
 
-- [ ] 7.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for Delay and Ready, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
+- [x] 7.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for Delay and Ready, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
 - [ ] 7.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
