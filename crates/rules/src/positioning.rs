@@ -2710,6 +2710,24 @@ mod tests {
         assert_held(&dice);
     }
 
+    /// Player Core, Prone. Player Core, "Off-Guard".
+    #[test]
+    fn prone_off_guard_applies_to_melee_and_ranged() {
+        let dice = held_die();
+        let mut defender = placed(1, 0, 0, Side::Enemy);
+        defender.posture = Posture::Prone;
+        let attacker = placed(2, 0, 1, Side::Pc);
+        assert_eq!(
+            off_guard(&defender, &attacker, AttackKind::Melee, &[], OffGuard::No),
+            Ok(true)
+        );
+        assert_eq!(
+            off_guard(&defender, &attacker, AttackKind::Ranged, &[], OffGuard::No),
+            Ok(true)
+        );
+        assert_held(&dice);
+    }
+
     /// Player Core, "Off-Guard".
     #[test]
     fn a_standing_defender_with_no_flank_is_not_off_guard() {
