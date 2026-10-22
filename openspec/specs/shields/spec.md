@@ -300,9 +300,10 @@ On a legal Shield Block, apply_resolved_blow SHALL receive the blow minus hardne
 
 ### Requirement: An illegal block writes nothing
 
-The checks SHALL run in this order: NotAHit, NegativeAmount, Declined, then Requested checks for NotConscious, NoShield, NotRaised, Broken, and NoReaction, then amount 0, then the remainder. Declined SHALL skip those Requested checks and SHALL pass the full amount to apply_resolved_blow. A Requested check that fails SHALL return that error, write nothing, and spend nothing. Broken SHALL cover a destroyed shield. A second requested block in the same round SHALL return NoReaction.
+The checks SHALL run in this order: NotAHit, NegativeAmount, Declined, then Requested checks for NotConscious, Delayed, NoShield, NotRaised, Broken, and NoReaction, then amount 0, then the remainder. Declined SHALL skip those Requested checks and SHALL pass the full amount to apply_resolved_blow. A failure SHALL return that error, write nothing, and spend nothing. Broken SHALL cover a destroyed shield. A second requested block in the same round SHALL return NoReaction. A direct blow skips it.
 
 **Source**: https://2e.aonprd.com/Feats.aspx?ID=5212 (Player Core pg. 262, Shield Block)
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 
 #### Scenario: Declining the block leaves the shield intact
 
@@ -361,6 +362,15 @@ The checks SHALL run in this order: NotAHit, NegativeAmount, Declined, then Requ
 - **AND** CombatantId(1)'s reaction stays ready
 - **AND** CombatantId(2) still has 2 actions
 - **AND** the second natural and the second damage die are unused
+
+#### Scenario: A delayed creature is rejected before the shield is read
+
+- **GIVEN** Side::Pc CombatantId(1) at (0, 0), Delayed, Alive at 30 Hit Points, Armor Class 18, reaction ready, and no shield, and Side::Enemy CombatantId(2) at (0, 1) whose turn is open with 3 actions, Perception +0, scripted initiative naturals 15 then 10, and a scripted natural 10 and a damage die of 5
+- **WHEN** CombatantId(2) Strikes CombatantId(1) with attack bonus +8 and ShieldBlock::Requested
+- **THEN** the result is Delayed
+- **AND** current Hit Points stay 30 and the reaction stays ready
+- **AND** CombatantId(2) still has 3 actions
+- **AND** the natural 10 and the damage die are unused
 
 ### Requirement: A miss is NotAHit before the other checks
 
