@@ -76,6 +76,7 @@ pub enum OffGuard { Yes, No }
 pub enum PositioningError {
     Immobilized,
     NotProne,
+    /// Standing Leap belongs to `add-crawl-and-leap`. This is not `UnsupportedSize`.
     Unsupported,
     ProneRestrictsMovement,
     RequirementNotMet,
@@ -227,7 +228,7 @@ With the prone off-guard −2 included, the six Armor Class nets are:
 
 A later Take Cover merges the same way with the benefit already stored, so stored `Greater` then caller standard stays `Greater` at +4. Query time uses the same per-attack max, so stored `Standard` plus caller `Greater` is +4 without taking the action again.
 
-Stand does not end Take Cover. It drops only the prone-only part (R-11, extending DEV-24). R-11 is recorded in `docs/designer/rules-rulings.md` by a parallel docs pull request. This change does not edit that file.
+Stand does not end Take Cover. It drops only the prone-only part (R-11, extending DEV-24). R-11 is on main in `docs/designer/rules-rulings.md`. This change does not edit that file.
 
 | Stored before Stand | Stored after Stand |
 |---|---|
@@ -305,7 +306,7 @@ Designer rulings 1 through 9 are in the spec. Nothing in this change is waiting 
 
 ## Risks / Trade-offs
 
-- [Implementation needs `Side` from `add-encounter-turns`] → this module does not declare a stand-in enum. The implementation pull request starts once `Side` is in the crate.
+- [Implementation needs `Side` from `add-encounter-turns`] → this module does not declare a stand-in enum. The implementation pull request starts once #47 is merged to main.
 - [Reach stands in for a wielded melee weapon] → a creature with only a ranged attack is not in this crate. The template's strike is melee.
 - [Prone off-guard skips partner errors] → `flanks` still reports those errors. `off_guard` returns true first so a bad partner list cannot hide prone.
 - [Take Cover can outlive prone] → Stand keeps `Greater` and turns `StandardPlusGreaterVsRanged` into `Standard`. `GreaterVsRanged` alone becomes `None`. Prone off-guard ends because the posture changed.

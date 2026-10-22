@@ -13,7 +13,7 @@ A strike on the grid cannot yet tell whether the defender is off-guard from bein
 - A creature threatens when the target is inside the supplied reach and `Readiness::Able` (DEV-25's `able_to_act`). The creature stays in its square. Stand is not blocked by an occupant (DEV-27). Another creature ending a move in that square is grid-movement's `OccupiedEnd`.
 - Drop Prone and Stand each name 1 action with the move trait. Change 8 treats any `PostureChange` with `ActionTrait::Move` as the reactive trigger (FIX-06). They do not spend actions and do not resolve Reactive Strike. There is no trigger flag. Leap while prone returns `ProneRestrictsMovement` and no distance. A standing Leap returns `Unsupported`. Stride and Step stay in grid-movement. Crawl, and the distance of a standing Leap, are `add-crawl-and-leap`.
 - Hidden off-guard is change 10 only (FIX-14). This change does not take a hidden input.
-- DEV-23 through DEV-32 are cited from `docs/designer/rules-deviations.md` on main. This change does not edit that file or any other file under `docs/designer/`. R-11 is cited from `docs/designer/rules-rulings.md` and lands in a parallel docs pull request.
+- DEV-23 through DEV-32 are cited from `docs/designer/rules-deviations.md` on main. This change does not edit that file or any other file under `docs/designer/`. R-11 is on main in `docs/designer/rules-rulings.md`.
 
 Out of this change: resolving Reactive Strike, shields, Seek, hidden, undetected, and concealed; walls and cover geometry; Crawl and a standing Leap's distance; action spending and turn order.
 
@@ -31,4 +31,4 @@ Out of this change: resolving Reactive Strike, shields, Seek, hidden, undetected
 
 ## Impact
 
-New module `crates/rules/src/positioning.rs`, re-exported from the crate root. It imports `Side` and does not define it. Implementation starts once that type is in the crate. Callers pass squares, reach, `Side`, posture, and cover in. Prone and the Take Cover benefit are returned values, not fields of `Creature` or `CombatantState`. `crates/rules` gains no dependency. The spec-only pull request does not add a changelog bullet and does not edit `docs/designer/`. The implementation pull request adds the Unreleased changelog bullet.
+New module `crates/rules/src/positioning.rs`, re-exported from the crate root. It imports `Side` and does not define it. Implementation starts once `add-encounter-turns` (#47) is merged to main. Callers pass squares, reach, `Side`, posture, and cover in. Prone and the Take Cover benefit are returned values, not fields of `Creature` or `CombatantState`. `crates/rules` gains no dependency. The spec-only pull request does not add a changelog bullet and does not edit `docs/designer/`. The implementation pull request adds the Unreleased changelog bullet.

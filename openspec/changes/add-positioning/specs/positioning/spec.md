@@ -747,7 +747,7 @@ Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Mobility::Immo
 
 ### Requirement: Stand drops only the prone part of Take Cover
 
-Stand SHALL drop only the prone-only part of Take Cover (R-11 extends DEV-24; docs/designer/rules-rulings.md, parallel docs pull request). StandardPlusGreaterVsRanged SHALL become Standard at plus 2, and prone off-guard SHALL end. GreaterVsRanged alone SHALL end. Greater from standard cover SHALL stay Greater at plus 4.
+Stand SHALL drop only the prone-only part of Take Cover (R-11 extends DEV-24; docs/designer/rules-rulings.md on main). StandardPlusGreaterVsRanged SHALL become Standard at plus 2, and prone off-guard SHALL end. GreaterVsRanged alone SHALL end. Greater from standard cover SHALL stay Greater at plus 4.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
