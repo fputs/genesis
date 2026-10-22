@@ -68,8 +68,9 @@ pub use positioning::{
 };
 pub use reactive::{ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike};
 pub use ready::{
-    ObservedAction, ReactiveStrikeInput, ReadyActivity, ReadyError, ReadyStrike, ReadySuccess,
-    ReadyTrigger, ResolvedReaction, StoredReady, StrikeRange, ready_cost,
+    ObservedAction, ReactionField, ReactionPlace, ReactiveStrikeInput, ReadyActivity,
+    ReadyEncounter, ReadyError, ReadyStrike, ReadySuccess, ReadyTrigger, ResolvedReaction,
+    StoredReady, StrikeRange, ready_cost,
 };
 pub use shield::{
     AttackBlowError, ShieldBlock, ShieldError, apply_attack_blow, lower_raised_shield,

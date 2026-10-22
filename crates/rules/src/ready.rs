@@ -5,12 +5,12 @@
 //!
 //! Player Core, "Ready".
 
-use crate::check::DegreeOfSuccess;
+use crate::check::{ArithmeticOverflow, DegreeOfSuccess};
 use crate::combatant::{CombatantId, HpError};
 use crate::encounter::{Agility, StrikeProfile};
-use crate::grid::{GridError, Size, Square, in_reach};
+use crate::grid::{GridError, MapBounds, Occupant, Size, Square, Terrain, in_reach};
 use crate::modifiers::Modifier;
-use crate::positioning::{ActionCost, ActionTrait, PositioningError};
+use crate::positioning::{ActionCost, ActionTrait, CoverBenefit, PositioningError};
 use crate::reactive::{ReactiveError, ReactiveStrike};
 
 const CONCENTRATE: &[ActionTrait] = &[ActionTrait::Concentrate];
@@ -31,7 +31,8 @@ pub enum StrikeRange {
 
 /// The one action Ready stores.
 ///
-/// Delay and Return are named so a triggered free action is rejected as its own error.
+/// [`ReadyActivity::NoFire`] is the only encoding for an action Ready does not fire.
+/// Delay and Return already have triggers, so both are that one variant.
 ///
 /// Player Core, "Ready".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,12 +52,12 @@ pub enum ReadyActivity {
     Stride,
     /// A Step to one square the caller supplies. Player Core, "Step".
     Step,
-    /// Dismiss a stored cover benefit. Player Core, "Take Cover".
+    /// Dismiss a cover benefit the caller passes in. Player Core, "Take Cover".
     Dismiss,
-    /// Delay already has the trigger "your turn begins". Player Core, Delay.
-    Delay,
-    /// Return from Delay already has a trigger. Player Core, Delay.
-    ReturnFromDelay,
+    /// Delay or Return. Ready does not store either, and nothing fires.
+    ///
+    /// Player Core, "Ready". Player Core, Delay.
+    NoFire,
 }
 
 /// What the caller observed. `Other` is Seek or any action this set does not name.
@@ -156,8 +157,46 @@ pub enum ReadySuccess {
         /// Feet the move cost. Player Core, "Stride".
         distance_feet: u32,
     },
-    /// The stored cover benefit was dismissed. Player Core, "Take Cover".
-    Dismiss,
+    /// The cover benefit the caller passed in was dismissed. Player Core, "Take Cover".
+    Dismiss {
+        /// Cover after dismiss. This is none. Player Core, "Take Cover".
+        benefit: Option<CoverBenefit>,
+    },
+}
+
+/// Where one creature stands for a single [`crate::encounter::Encounter::resolve_reactions`] call.
+///
+/// The encounter does not store the square, the size, or the cover.
+///
+/// Player Core, "Grid Movement". Player Core, "Ready".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReactionPlace {
+    /// The creature this place describes. Player Core, Encounter Mode.
+    pub id: CombatantId,
+    /// Square the creature occupies. Player Core, "Grid Movement".
+    pub square: Square,
+    /// Size used for reach and movement. Player Core, "Size, Space, and Reach".
+    pub size: Size,
+    /// Cover Dismiss clears. Player Core, "Take Cover".
+    pub cover: Option<CoverBenefit>,
+}
+
+/// Squares, sizes, cover, and the grid for one trigger.
+///
+/// The caller passes this the same way it passes Reactive Strike inputs.
+/// Nothing in it is written onto the encounter.
+///
+/// Player Core, "Ready". Player Core, "Grid Movement".
+#[derive(Clone, Copy, Debug)]
+pub struct ReactionField<'a> {
+    /// One entry per creature whose square this call needs. Player Core, "Grid Movement".
+    pub places: &'a [ReactionPlace],
+    /// Map the readied move is measured on. Player Core, "Grid Movement".
+    pub bounds: MapBounds,
+    /// Terrain listings. Unlisted squares are open. Player Core, "Terrain".
+    pub terrain: &'a [(Square, Terrain)],
+    /// Other creatures on the map. Player Core, "Moving Through a Creature's Space".
+    pub occupants: &'a [Occupant],
 }
 
 /// One reaction `resolve_reactions` ran, in initiative order.
@@ -219,7 +258,7 @@ pub enum ReadyError {
     NotConscious,
     /// The readied cost is not one action, or Dismiss was not free. Player Core, "Ready".
     NotASingleAction,
-    /// Delay and Return already have triggers. Player Core, "Ready".
+    /// Delay or Return was submitted. Ready does not fire either. Player Core, "Ready".
     TriggeredFreeAction,
     /// The trigger names the readier. Player Core, "Ready".
     TriggerSubjectIsSelf,
@@ -253,6 +292,63 @@ pub enum ReadyError {
     DamageOverflow(crate::modifiers::ModifierError),
     /// Applying Hit Points failed. Player Core, Hit Points.
     HitPoints(HpError),
+    /// The encounter rejected the step for a reason Ready does not rename.
+    ///
+    /// Player Core, Encounter Mode.
+    Encounter(ReadyEncounter),
+}
+
+/// An encounter failure Ready reports under its own name.
+///
+/// Each variant is that encounter error. Ready does not fold it into a different failure.
+///
+/// Player Core, Encounter Mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadyEncounter {
+    /// Two participants share an id. Player Core, Encounter Mode.
+    DuplicateCombatant,
+    /// The roster had nobody to roll. Player Core, "Step 1: Roll Initiative".
+    EmptyRoster,
+    /// Perception cannot be added to a d20 of 20. Player Core, "Step 1: Roll Initiative".
+    PerceptionOutOfRange,
+    /// A turn is already open. Player Core, "Step 1: Start Your Turn".
+    TurnInProgress,
+    /// The cost was not 1, 2, or 3. Player Core, Activities.
+    InvalidActionCost,
+    /// The creature has no shield. Player Core, "Raise a Shield".
+    NoShield,
+    /// The shield is not raised. Player Core, "Shield Block".
+    NotRaised,
+    /// The shield is broken. Player Core, Broken.
+    Broken,
+    /// The shield is destroyed. Player Core, "Shield Statistics".
+    Destroyed,
+    /// The blow amount is negative. Player Core, "Shield Block".
+    NegativeAmount,
+    /// The target is not Alive. Player Core, "Shield Block".
+    TargetNotConscious,
+    /// The target is the actor. Player Core, Strike.
+    SelfTarget,
+    /// Every combatant is dead. Player Core, "Step 1: Start Your Turn".
+    NoLivingCombatant,
+    /// The attack count cannot increase past `u8`. Player Core, "Multiple Attack Penalty".
+    AttackCountOverflow,
+    /// The aider has not prepared. Player Core, Aid.
+    NotPrepared,
+    /// The aider has no Aid modifier. Player Core, Aid.
+    NoAidModifier,
+    /// The other creature is not an ally. Player Core, Aid.
+    NotAnAlly,
+    /// Preparation names a different ally. Player Core, Aid.
+    NotThePreparedAlly,
+    /// The Aid modifier plus 20 does not fit in `i32`. Player Core, Aid.
+    AidOverflow(ArithmeticOverflow),
+    /// The roster has no creature. Player Core, Encounter Mode.
+    NoCreature,
+    /// Return was asked of a creature who is not delayed. Player Core, Delay.
+    NotDelayed,
+    /// Delay or Return was not at its trigger. Player Core, Delay.
+    TriggerNotMet,
 }
 
 /// Which stored action a fire check is comparing.
@@ -277,7 +373,7 @@ impl ReadyActivity {
             Self::Stride => Some(ActivityKind::Stride),
             Self::Step => Some(ActivityKind::Step),
             Self::Dismiss => Some(ActivityKind::Dismiss),
-            Self::Delay | Self::ReturnFromDelay => None,
+            Self::NoFire => None,
         }
     }
 }
@@ -298,10 +394,7 @@ pub fn ready_cost() -> ActionCost {
 ///
 /// Player Core, "Ready".
 pub(crate) fn single_action(activity: ReadyActivity, cost: ActionCost) -> Result<(), ReadyError> {
-    if matches!(
-        activity,
-        ReadyActivity::Delay | ReadyActivity::ReturnFromDelay
-    ) {
+    if matches!(activity, ReadyActivity::NoFire) {
         return Err(ReadyError::TriggeredFreeAction);
     }
     let dismiss = matches!(activity, ReadyActivity::Dismiss);
@@ -360,7 +453,6 @@ pub(crate) fn stored_agility(activity: ReadyActivity) -> Option<Agility> {
         ReadyActivity::Stride
         | ReadyActivity::Step
         | ReadyActivity::Dismiss
-        | ReadyActivity::Delay
-        | ReadyActivity::ReturnFromDelay => None,
+        | ReadyActivity::NoFire => None,
     }
 }
