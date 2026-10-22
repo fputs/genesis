@@ -59,12 +59,6 @@ When an Aid modifier is on the build, derive SHALL copy that modifier and an Aid
 - **WHEN** the Aid check is resolved against DC 15
 - **THEN** the numeric total 20 is a success, the natural 20 makes it a critical success, and the circumstance is Plus2
 
-#### Scenario: A natural 20 below master grants plus 2
-
-- **GIVEN** an aid modifier of +0, AidRank::BelowMaster, and a scripted natural 20
-- **WHEN** the Aid check is resolved against DC 15
-- **THEN** the numeric total 20 is a success, the natural 20 makes it a critical success, and the circumstance is Plus2
-
 #### Scenario: A total of exactly 15 succeeds
 
 - **GIVEN** an aid modifier of +5, AidRank::BelowMaster, and a scripted natural 10
@@ -76,6 +70,12 @@ When an Aid modifier is on the build, derive SHALL copy that modifier and an Aid
 - **GIVEN** an aid modifier of +14, AidRank::Master, and a scripted natural 1
 - **WHEN** the Aid check is resolved against DC 15
 - **THEN** the numeric total 15 is a success before the natural 1, the natural 1 makes it a failure, and the circumstance is Zero
+
+#### Scenario: The Aid check at modifier 2147483628 rolls nothing
+
+- **GIVEN** an aid modifier of 2147483628, AidRank::BelowMaster, and a scripted natural 20
+- **WHEN** the Aid check is resolved against DC 15
+- **THEN** no roll is returned and the scripted 20 is still unused
 
 #### Scenario: No prepared flag is required
 

@@ -24,7 +24,7 @@ prepare_to_aid SHALL name one ally. It SHALL spend 1 action through spend_action
 
 **Rule**: You prepare to help, usually by using an action during your turn. The GM can require more actions for a long task and decides whether the help is possible. https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416)
 **Why not**: Phase 1 has no GM and no long-task clock.
-**Substitute**: Preparation is exactly one action on your turn and names one ally. A second call on that turn spends another action and stays Prepared. (DEV-51, proposed)
+**Substitute**: Preparation is exactly one action on your turn and names one ally. A second call on that turn spends another action and names the ally from that call. This cost is not DEV-51. DEV-51 is the trigger, narrowed to an attack roll.
 **Intent**: The preparatory action is real, and its cost does not change from task to task.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
@@ -32,15 +32,21 @@ prepare_to_aid SHALL name one ally. It SHALL spend 1 action through spend_action
 
 #### Scenario: Preparing spends one action
 
-- **GIVEN** Alive CombatantId(1) with Perception +0, aid modifier +7, a scripted natural 10, their turn open with 3 actions, and AidPreparation::NotPrepared
+- **GIVEN** Alive Pc CombatantId(1) with Perception +0, aid modifier +7, a scripted natural 10, their turn open with 3 actions, and AidPreparation::NotPrepared, and Alive Pc CombatantId(2)
 - **WHEN** CombatantId(1) prepares for CombatantId(2)
 - **THEN** the prepare succeeds, 2 actions remain, preparation names CombatantId(2), and the scripted 10 is still unused
 
 #### Scenario: Preparing again only spends an action
 
-- **GIVEN** Alive CombatantId(1) whose turn is open with 3 actions, aid modifier +7, and preparation naming CombatantId(2)
+- **GIVEN** Alive Pc CombatantId(1) whose turn is open with 3 actions, aid modifier +7, and preparation naming Alive Pc CombatantId(2)
 - **WHEN** CombatantId(1) prepares for CombatantId(2)
 - **THEN** 2 actions remain and preparation names CombatantId(2)
+
+#### Scenario: Preparing again for a new ally replaces the name
+
+- **GIVEN** Alive Pc CombatantId(1), Alive Pc CombatantId(2), and Alive Pc CombatantId(3), with CombatantId(1)'s turn open, 3 actions, aid modifier +7, preparation naming CombatantId(2), a ready reaction, and a scripted natural 10
+- **WHEN** CombatantId(1) prepares for CombatantId(3) and then aids CombatantId(2)
+- **THEN** 2 actions remain, preparation names CombatantId(3), the aid error is NotThePreparedAlly, the reaction stays ready, and the scripted 10 is still unused
 
 #### Scenario: Preparing off turn is NotYourTurn
 
@@ -64,15 +70,39 @@ prepare_to_aid SHALL name one ally. It SHALL spend 1 action through spend_action
 
 ### Requirement: No aid modifier is checked before the action is spent
 
-prepare_to_aid SHALL check NoAidModifier after TurnNotOpen, NotYourTurn, NotConscious, and InsufficientActions, and before the action is spent. NoAidModifier SHALL leave the action count unchanged and SHALL leave preparation NotPrepared.
+prepare_to_aid SHALL check NoAidModifier after the named-ally checks and before the action is spent. NoAidModifier SHALL leave the action count unchanged and SHALL leave preparation NotPrepared.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
 
 #### Scenario: Preparing with no aid modifier does not spend the action
 
-- **GIVEN** an Alive open turn with 3 actions, no aid modifier, and NotPrepared
-- **WHEN** that combatant prepares for an ally
+- **GIVEN** an Alive open turn with 3 actions, no aid modifier, and NotPrepared, and an Alive same-Side ally
+- **WHEN** that combatant prepares for that ally
 - **THEN** the error is NoAidModifier, 3 actions remain, and preparation stays NotPrepared
+
+### Requirement: The named ally is checked before the action is spent
+
+prepare_to_aid SHALL check the named ally before spending the action. That check follows TurnNotOpen, NotYourTurn, NotConscious, and InsufficientActions, and it precedes NoAidModifier. The order SHALL be UnknownCombatant, then SelfTarget, then NotAnAlly. Each refusal SHALL leave the actions unchanged and SHALL leave preparation NotPrepared.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
+
+#### Scenario: Preparing for an enemy is NotAnAlly
+
+- **GIVEN** Alive Pc CombatantId(1) with their turn open, 3 actions, aid modifier +7, and NotPrepared, and Alive Enemy CombatantId(2), and a scripted natural 10
+- **WHEN** CombatantId(1) prepares for CombatantId(2)
+- **THEN** the error is NotAnAlly, 3 actions remain, preparation is NotPrepared, and the scripted 10 is still unused
+
+#### Scenario: Preparing for an unknown ally is UnknownCombatant
+
+- **GIVEN** Alive Pc CombatantId(1) with their turn open, 3 actions, aid modifier +7, and NotPrepared, and a scripted natural 10
+- **WHEN** CombatantId(1) prepares for CombatantId(9)
+- **THEN** the error is UnknownCombatant, 3 actions remain, preparation is NotPrepared, and the scripted 10 is still unused
+
+#### Scenario: Preparing for yourself is SelfTarget
+
+- **GIVEN** Alive Pc CombatantId(1) with their turn open, 3 actions, aid modifier +7, and NotPrepared, and a scripted natural 10
+- **WHEN** CombatantId(1) prepares for CombatantId(1)
+- **THEN** the error is SelfTarget, 3 actions remain, preparation is NotPrepared, and the scripted 10 is still unused
 
 ### Requirement: Preparation lasts until the next start or a resolved aid
 
@@ -145,7 +175,7 @@ aid SHALL be usable while a turn is open, including another creature's turn. It 
 
 #### Scenario: A success returns plus 1
 
-- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::Master, attack count 0, a ready reaction, and prepared for Alive Pc CombatantId(2), and CombatantId(2)'s turn open with 3 actions, and a scripted natural 10
+- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::Master, 0 actions, attack count 0, a ready reaction, and prepared for Alive Pc CombatantId(2), and CombatantId(2)'s turn open with 3 actions, and a scripted natural 10
 - **WHEN** CombatantId(1) aids CombatantId(2)
 - **THEN** the total is 17, the degree is success, and the circumstance is Plus1
 - **AND** CombatantId(1) still has 0 actions, attack count 0, the reaction is not ready, and preparation is NotPrepared
@@ -184,15 +214,15 @@ aid SHALL be usable while a turn is open, including another creature's turn. It 
 
 ### Requirement: Aid and Reactive Strike share one reaction
 
-Aid and Reactive Strike SHALL spend the same reaction. After that reaction has been spent on a reactive strike, aid SHALL return NoReaction and SHALL draw no die, and preparation SHALL stay. The reverse SHALL be the same flag: Aid that returned Ok has spent the reaction, so a later Reactive Strike is NoReaction. That reverse scenario lives in the reactive-strike spec (PR #55).
+Aid and Reactive Strike SHALL spend the same reaction. After spend_reaction has spent it, aid SHALL return NoReaction and SHALL draw no die, and preparation SHALL stay. The scenario calls spend_reaction and SHALL NOT depend on the reactive-strike API. The reverse SHALL be the same flag: Aid that returned Ok has spent the reaction, so a later Reactive Strike is NoReaction. That reverse scenario lives in the reactive-strike spec (PR #55).
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
 
-#### Scenario: Aid after a reactive strike is NoReaction
+#### Scenario: Aid with the reaction already spent is NoReaction
 
-- **GIVEN** a Prepared Alive aider naming an Alive same-Side ally, with the reaction already spent by a reactive strike, and a scripted natural 10
-- **WHEN** that aider aids that ally while a turn is open
+- **GIVEN** a Prepared Alive aider naming an Alive same-Side ally, whose reaction spend_reaction has already spent, a turn open, and a scripted natural 10
+- **WHEN** that aider aids that ally
 - **THEN** the error is NoReaction, preparation still names that ally, and the scripted 10 is still unused
 
 ### Requirement: Aid has no attack trait
@@ -261,15 +291,15 @@ Same-type circumstance modifiers SHALL keep the highest bonus and the worst pena
 
 #### Scenario: Two aid bonuses keep the higher
 
-- **GIVEN** circumstance bonuses of +2 and +1 from two aiders
-- **WHEN** they are totaled
-- **THEN** the applied circumstance bonus is +2
+- **GIVEN** a natural 10, attack bonus +0, and circumstance bonuses of +2 and +1 from two aiders
+- **WHEN** attack_check_total is called with both
+- **THEN** the total is 12
 
 #### Scenario: A circumstance bonus and penalty both apply
 
-- **GIVEN** an Aid circumstance bonus of +2 and an Aid circumstance penalty of -1
-- **WHEN** they are totaled
-- **THEN** the circumstance net is +1
+- **GIVEN** a natural 10, attack bonus +0, an Aid circumstance bonus of +2, and an Aid circumstance penalty of -1
+- **WHEN** attack_check_total is called with both
+- **THEN** the total is 11
 
 ### Requirement: Same Side may aid
 

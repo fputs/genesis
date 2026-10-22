@@ -10,7 +10,7 @@ Aid on the creature is a baked modifier and a DC 15 check. The fight cannot spen
 - The check stays the baked aid modifier against DC 15 (DEV-02, DEV-04). Success is +1 circumstance, failure adds nothing, and a critical failure is a −1 circumstance penalty. A critical success is +2 below master, +3 at master, and +4 at legendary (`AidRank::{BelowMaster, Master, Legendary}`). This follows the book and supersedes DEV-03. The designer ledger is updated in a later docs pull request.
 - `prepare_to_aid` names one ally. That preparation ends at the aider's next `start_turn`, or when `aid` returns `Ok`, whichever comes first (proposed DEV-50).
 - The circumstance is returned for that one check. It is not stored on the ally. `Zero` adds no modifier. `Minus1` is a circumstance penalty. Same-type circumstance modifiers keep the highest bonus and the worst penalty, and a bonus and a penalty both apply (Rules 2281, Rules 2282).
-- An aider who is not `Vital::Alive` returns `NotConscious` and draws no die. `TurnNotOpen` wins over that error. A dead ally does not.
+- An aider who is not `Vital::Alive` returns `NotConscious` and draws no die. `TurnNotOpen` wins over that error. A dead ally is not an error.
 - The book's trigger is an ally about to use an action that requires a skill check or attack roll. This change narrows that trigger to an attack roll (proposed DEV-51). Willing is the same `Side`, which is DEV-17 and DEV-26, not a new id. You cannot aid yourself. Distance, a shifted DC, and a repeat penalty are not modeled.
 - The build still does not store preparation. Omitting the rank stores `AidRank::BelowMaster`.
 
