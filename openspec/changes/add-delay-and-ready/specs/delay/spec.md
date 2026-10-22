@@ -16,11 +16,11 @@ The same participants, scripted dice, Delay, and return SHALL produce the same o
 
 - **GIVEN** CombatantId(1) and CombatantId(2), both Alive, Perception +0, scripted initiative naturals 15 then 10, and CombatantId(1) has 4 temporary Hit Points with 2 ticks
 - **WHEN** CombatantId(1)'s turn starts, CombatantId(1) Delays, CombatantId(2)'s turn starts and ends, and CombatantId(1) returns, and the same steps are resolved again from the same start
-- **THEN** both results have order CombatantId(2) then CombatantId(1), round 1, CombatantId(1) open with 3 actions and the reaction ready, and 4 temporary Hit Points with 2 ticks
+- **THEN** both results have order CombatantId(2) then CombatantId(1), round 1, CombatantId(1) open with 3 actions and the reaction ready, CombatantId(1)'s initiative total 15, CombatantId(2)'s total 10, and 4 temporary Hit Points with 2 ticks
 
 ### Requirement: Delay is a free action at the start of your turn
 
-Delay SHALL be legal only on that creature's open turn when the start granted 3 actions, the attack count is 0, and the reaction is ready. It SHALL spend no action and no reaction. It SHALL set actions to 0, close the turn, and mark the creature delayed.
+Delay SHALL be legal only on the open turn `start_turn` just granted, with 3 actions, attack count 0, and the reaction ready. A turn opened by return SHALL be TriggerNotMet. Delay SHALL spend no action and no reaction. It SHALL set actions to 0, close the turn, and mark the creature delayed.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
@@ -46,35 +46,44 @@ Delay SHALL be legal only on that creature's open turn when the start granted 3 
 
 ### Requirement: Return changes place and keeps the rolled total
 
-Return SHALL be a free action at the end of another creature's turn. It SHALL place every returned creature immediately after that creature, lowest CombatantId first. The lowest id SHALL hold the open turn and SHALL have 3 actions. The Perception total SHALL stay the rolled number. Return SHALL NOT spend the reaction.
+Return SHALL be a free action at the end of another creature's turn. Returned creatures SHALL be inserted immediately after that creature, enemies before PCs, then lower CombatantId (DEV-52, DEV-05). The first SHALL open with 3 actions. Each initiative total SHALL stay on its creature. Return SHALL NOT spend the reaction.
 
 **Rule**: When several creatures return at the end of the same turn, the book does not order them. https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 **Why**: Two inserts at one anchor need one order or the replay changes.
-**Substitute**: Lowest CombatantId acts first. (DEV-52, proposed)
-**Intent**: The same ids always produce the same order.
+**Substitute**: Enemies before PCs, then lower CombatantId, the same tiebreak as initiative (DEV-05, DEV-52).
+**Intent**: The same ids and sides always produce the same order.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
 
 #### Scenario: Return acts after the creature who just ended
 
-- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), Perception +0, scripted initiative naturals 15 then 10 then 5, CombatantId(1) has Delayed, and CombatantId(2)'s turn has ended
+- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), all Side::Pc, Perception +0, scripted initiative naturals 15 then 10 then 5, CombatantId(1) has Delayed, and CombatantId(2)'s turn has ended
 - **WHEN** CombatantId(1) returns
 - **THEN** the order is CombatantId(2), CombatantId(1), CombatantId(3)
-- **AND** the initiative totals are 15, 10, and 5
+- **AND** CombatantId(1)'s initiative total is 15, CombatantId(2)'s is 10, and CombatantId(3)'s is 5
 - **AND** the round is 1, CombatantId(1)'s turn is open, and CombatantId(1) has 3 actions and the reaction ready
 
 #### Scenario: Two returns at one end go by the lower id
 
-- **GIVEN** CombatantId(1), CombatantId(2), CombatantId(3), and CombatantId(4), Perception +0, scripted initiative naturals 20 then 15 then 10 then 5, CombatantId(1) and CombatantId(3) are delayed, and CombatantId(4)'s turn has just ended
+- **GIVEN** CombatantId(1), CombatantId(2), CombatantId(3), and CombatantId(4), all Side::Pc, Perception +0, scripted initiative naturals 20 then 15 then 10 then 5, CombatantId(1) and CombatantId(3) are delayed, and CombatantId(4)'s turn has just ended
 - **WHEN** CombatantId(3) and CombatantId(1) return together
 - **THEN** the order is CombatantId(2), CombatantId(4), CombatantId(1), CombatantId(3)
-- **AND** the open turn is CombatantId(1)
+- **AND** the round is 1 and the open turn is CombatantId(1)
+- **AND** CombatantId(1)'s initiative total is 20, CombatantId(2)'s is 15, CombatantId(3)'s is 10, and CombatantId(4)'s is 5
 - **AND** CombatantId(3) is not delayed and is not the open turn
+
+#### Scenario: An enemy returns before a pc
+
+- **GIVEN** Side::Pc CombatantId(1) with initiative total 20, Side::Pc CombatantId(2) with total 15, Side::Enemy CombatantId(3) with total 10, and Side::Pc CombatantId(4) with total 5, CombatantId(1) and CombatantId(3) delayed, and CombatantId(4)'s turn just ended
+- **WHEN** CombatantId(1) and CombatantId(3) return together
+- **THEN** the order is CombatantId(2), CombatantId(4), CombatantId(3), CombatantId(1)
+- **AND** the round is 1 and the open turn is CombatantId(3)
+- **AND** CombatantId(3)'s initiative total is 10 and CombatantId(1)'s is 20
 
 ### Requirement: The reaction is available while delayed and cannot be spent
 
-The start SHALL regain the reaction before Delay. While the creature is delayed, that flag SHALL stay true, and a spend SHALL return Delayed and SHALL NOT clear it. After return, the first spend SHALL succeed and the second SHALL be NoReaction.
+The start SHALL regain the reaction before Delay. While the creature is delayed, that flag SHALL stay true. Every reaction precheck SHALL return Delayed after NotConscious and before any action or die is spent. That covers Shield Block on a Strike, Reactive Strike, Aid, and readied fire. A spend SHALL NOT clear the flag. After return, the first spend SHALL succeed and the second SHALL be NoReaction.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
@@ -86,6 +95,31 @@ The start SHALL regain the reaction before Delay. While the creature is delayed,
 - **WHEN** CombatantId(1) spends a reaction
 - **THEN** the error is Delayed, the reaction is still ready, and the natural 8 is unused
 
+#### Scenario: A shield block while delayed spends nothing
+
+- **GIVEN** Side::Pc CombatantId(1) and Side::Enemy CombatantId(2), Perception +0, scripted initiative naturals 15 then 10, CombatantId(1) Alive at 30 Hit Points with Armor Class 18, a steel shield at 20 Hit Points that the start lowered, reaction ready, and Delayed, and CombatantId(2)'s turn open with 3 actions
+- **WHEN** CombatantId(2) Strikes CombatantId(1) with attack bonus +8, ShieldBlock::Requested, a scripted natural 10, and damage 1d8+4 with a die of 5
+- **THEN** the error is Delayed
+- **AND** CombatantId(2) still has 3 actions
+- **AND** the natural 10 and the damage die are unused
+- **AND** CombatantId(1)'s reaction stays ready and CombatantId(1) stays delayed
+
+#### Scenario: A reactive strike while delayed spends nothing
+
+- **GIVEN** CombatantId(1) is Delayed at (0, 0) with melee reach 5, Medium, reaction ready, and attack bonus +8, and Alive CombatantId(2) at (0, 1), Medium, whose turn is open with 3 actions, and a scripted natural 10
+- **WHEN** CombatantId(1) makes a Reactive Strike against CombatantId(2) for a 1-action Manipulate cost
+- **THEN** the error is Delayed
+- **AND** CombatantId(2) still has 3 actions and the natural 10 is unused
+- **AND** CombatantId(1)'s reaction stays ready
+
+#### Scenario: Aid while delayed spends nothing
+
+- **GIVEN** Side::Pc CombatantId(1) is Delayed, reaction ready, aid modifier +7, AidRank::BelowMaster, and prepared for Side::Pc CombatantId(2), whose turn is open with 3 actions, and a scripted natural 10
+- **WHEN** CombatantId(1) aids CombatantId(2)
+- **THEN** the error is Delayed
+- **AND** CombatantId(2) still has 3 actions and the natural 10 is unused
+- **AND** CombatantId(1)'s reaction stays ready and the preparation stays
+
 #### Scenario: Return leaves one reaction
 
 - **GIVEN** CombatantId(1) Delayed with the reaction ready, and CombatantId(2)'s turn has ended
@@ -94,7 +128,7 @@ The start SHALL regain the reaction before Delay. While the creature is delayed,
 
 ### Requirement: Return does not repeat the start hook
 
-Return SHALL NOT change temporary Hit Points, their ticks, Hit Points, or wounded, and a shield the start already lowered SHALL stay down. A creature whose turn opens later in that same return SHALL also stay unticked. Persistent damage is not modeled (DEV-29) and SHALL NOT be added. Delay SHALL NOT add an end-of-turn damage step. A missed return SHALL arrive through the ordinary start, which still changes no Hit Points.
+Return SHALL NOT change temporary Hit Points, their ticks, Hit Points, or wounded, and a shield the start already lowered SHALL stay down. A later resume in that return SHALL also stay unticked. Phase 1 SHALL NOT add an end-of-turn step. Persistent damage (DEV-29) and frightened are not modeled; when they exist, they fire on Delay. Return never ticks. A missed arrival uses the ordinary start, which changes no Hit Points today and ticks once when DEV-32 is wired.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
@@ -124,7 +158,7 @@ Return SHALL NOT change temporary Hit Points, their ticks, Hit Points, or wounde
 
 ### Requirement: Missing the return plays the next turn at the old place
 
-If a creature is still delayed when its slot is reached, the delayed turn's actions SHALL stay lost. That arrival SHALL be the next turn at the original place, including the start hook. The order and the Perception total SHALL stay unchanged. A not-Alive arrival SHALL open with 0 actions and no reaction.
+If a creature is still delayed when its slot is reached, the delayed actions SHALL stay lost. That arrival SHALL be a real next turn at the original place, with the ordinary start. Order and each initiative total SHALL stay. A Dying arrival SHALL open with 0 actions and no reaction. A Dead arrival SHALL be skipped and the delayed mark SHALL clear. The next living creature SHALL open.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 
@@ -133,7 +167,7 @@ If a creature is still delayed when its slot is reached, the delayed turn's acti
 - **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), Perception +0, scripted initiative naturals 15 then 10 then 5, and CombatantId(1) has 4 temporary Hit Points with 3 ticks at 9 Hit Points
 - **WHEN** CombatantId(1)'s turn starts, CombatantId(1) Delays, CombatantId(2) and CombatantId(3) each start and end, and the next start is resolved
 - **THEN** the round is 2 and the order is CombatantId(1), CombatantId(2), CombatantId(3)
-- **AND** the initiative totals are 15, 10, and 5
+- **AND** CombatantId(1)'s initiative total is 15, CombatantId(2)'s is 10, and CombatantId(3)'s is 5
 - **AND** CombatantId(1)'s turn is open with 3 actions and the reaction ready
 - **AND** CombatantId(1) has 4 temporary Hit Points with 3 ticks
 
@@ -144,6 +178,60 @@ If a creature is still delayed when its slot is reached, the delayed turn's acti
 - **THEN** the round is 2, the initiative total is 10, the turn is open with 3 actions and the reaction ready
 - **AND** temporary Hit Points stay 4 and the ticks stay 2
 - **AND** Hit Points stay 9
+
+#### Scenario: Returning after the last creature acts in this round
+
+- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), all Side::Pc, Perception +0, scripted initiative naturals 15 then 10 then 5, and CombatantId(1) has Delayed
+- **WHEN** CombatantId(2) and CombatantId(3) each start and end, and CombatantId(1) returns
+- **THEN** the round is 1 and the order is CombatantId(2), CombatantId(3), CombatantId(1)
+- **AND** CombatantId(1)'s turn is open with 3 actions
+- **AND** CombatantId(1)'s initiative total is 15, CombatantId(2)'s is 10, and CombatantId(3)'s is 5
+- **WHEN** CombatantId(1) ends the turn and the next start is resolved
+- **THEN** the round is 2 and the open turn is CombatantId(2) with 3 actions
+
+#### Scenario: A mid-round return keeps the next turn in this round
+
+- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), all Side::Pc, Perception +0, scripted initiative naturals 15 then 10 then 5, and CombatantId(1) has Delayed
+- **WHEN** CombatantId(2)'s turn ends, CombatantId(1) returns, CombatantId(1)'s turn ends, and the next start is resolved
+- **THEN** the round is 1 and the open turn is CombatantId(3) with 3 actions
+- **AND** the order is CombatantId(2), CombatantId(1), CombatantId(3)
+
+#### Scenario: A second delay after return writes nothing
+
+- **GIVEN** Side::Pc CombatantId(1) and CombatantId(2), Perception +0, scripted initiative naturals 15 then 10, CombatantId(1) Delayed, and CombatantId(2)'s turn ended
+- **WHEN** CombatantId(1) returns and then Delays
+- **THEN** the error is TriggerNotMet
+- **AND** the order stays CombatantId(2), CombatantId(1), the round stays 1, and CombatantId(1) stays open with 3 actions and is not delayed
+
+#### Scenario: Ready ending the turn blocks delay
+
+- **GIVEN** Side::Pc CombatantId(1) and CombatantId(2), Perception +0, scripted initiative naturals 15 then 10, and CombatantId(1) has Readied a Strike and ended that turn
+- **WHEN** CombatantId(1) Delays
+- **THEN** the error is TurnNotOpen
+- **AND** CombatantId(1) is not delayed and the order is unchanged
+
+#### Scenario: A dying creature's missed turn opens with no actions
+
+- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), Perception +0, scripted initiative naturals 15 then 10 then 5, CombatantId(1) Delayed, then Dying(1) at 0 Hit Points
+- **WHEN** CombatantId(2) and CombatantId(3) each start and end, and the next start is resolved
+- **THEN** the round is 2 and the order is CombatantId(1), CombatantId(2), CombatantId(3)
+- **AND** CombatantId(1)'s turn is open with 0 actions and the reaction not ready
+- **AND** CombatantId(1) is not delayed
+
+#### Scenario: A dead creature's missed turn is skipped
+
+- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), Perception +0, scripted initiative naturals 15 then 10 then 5, CombatantId(1) Delayed, then Dead
+- **WHEN** CombatantId(2) and CombatantId(3) each start and end, and the next start is resolved
+- **THEN** the round is 2 and the open turn is CombatantId(2) with 3 actions
+- **AND** CombatantId(1) is not delayed and has 0 actions
+
+#### Scenario: A delayed creature knocked out stays delayed
+
+- **GIVEN** CombatantId(1) is Delayed, Alive, uses_dying_rules, 9 Hit Points, wounded 0, Armor Class 18, reaction ready, and CombatantId(2)'s turn is open with 3 actions and attack bonus +8
+- **WHEN** CombatantId(2) Strikes with ShieldBlock::Declined, a scripted natural 10, and damage 1d8+1 with a die of 8
+- **THEN** CombatantId(1) is Dying(1) at 0 Hit Points and stays delayed
+- **AND** CombatantId(1)'s reaction stays ready
+- **AND** CombatantId(2) has 2 actions
 
 ### Requirement: Delay does not change the attack count
 
