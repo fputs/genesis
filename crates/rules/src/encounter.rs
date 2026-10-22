@@ -916,6 +916,8 @@ impl Encounter {
     ///
     /// `initiative_move` is the dying report [`apply_resolved_blow`] stores on the copy.
     /// Hit Points, temporary Hit Points, and vital are the fields the design names.
+    /// `temp_rounds` is copied with the temporary Hit Points: spending the last of them
+    /// clears the round count, and leaving the old count in place would disagree with Strike.
     /// Copying the whole state would also be the actor's state; the report still has to
     /// move, because the critical-hit scenario takes it.
     fn commit_reactive_blow(
@@ -933,6 +935,7 @@ impl Encounter {
         let state = &mut member.participant.state;
         state.hit_points = updated.hit_points;
         state.temp_hit_points = updated.temp_hit_points;
+        state.temp_rounds = updated.temp_rounds;
         state.vital = updated.vital;
         state.initiative_move = updated.initiative_move;
         Ok(())
@@ -4560,6 +4563,41 @@ mod tests {
         assert_eq!(hit_points(&encounter, 2), 18);
         assert_eq!(wounded(&encounter, 2), 0);
         assert_eq!(vital(&encounter, 2), Vital::Alive);
+    }
+
+    /// Player Core, "Temporary Hit Points".
+    ///
+    /// Strike's `damage_removes_temporary_hit_points_then_hit_points` clears `temp_rounds`
+    /// when the same 5 temporary Hit Points take 7 damage. This reaction does the same.
+    #[test]
+    fn a_reactive_strike_clears_temp_rounds_when_temporary_hit_points_are_spent() {
+        let mut actor = with_temp(combatant(2, Side::Pc, 0, 20, 18, false), 5);
+        actor.state.temp_rounds = 3;
+        let (mut encounter, mut dice) = begin(
+            vec![with_reach(pc(1, 0, 20, 18), 5), actor],
+            &[10, 8, 10, 3],
+        );
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("temp rounds");
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(temp_hp(&encounter, 2), 0);
+        assert_eq!(hit_points(&encounter, 2), 18);
+        assert_eq!(encounter.state(id(2)).expect("state").temp_rounds, 0);
     }
 
     /// Player Core, Strike.
