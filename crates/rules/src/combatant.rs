@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::aid::{AidCircumstance, AidPreparation, AidRank, roll_aid};
+use crate::aid::{AidCircumstance, AidPreparation, AidRank, FittingAidModifier, roll_aid};
 use crate::check::{CheckRoll, DegreeOfSuccess};
 use crate::dice::{Dice, Faces};
 use crate::modifiers::{Modifier, ModifierError, Statistic, total};
@@ -733,7 +733,8 @@ pub fn stealth_dc_from_modifier(stealth_modifier: crate::check::DcModifier) -> i
 /// Aid check against DC 15 using the creature's Aid modifier and rank.
 ///
 /// `None` when the creature has no modifier, or when that modifier plus 20 does not fit in
-/// `i32`. Those cases draw no die. The roll does not use `CheckModifier`.
+/// `i32`. Those cases draw no die. A face outside `1..=20` that does not fit is also `None`.
+/// The roll does not use `CheckModifier`.
 ///
 /// Player Core, Aid. Player Core, "Step 4: Degree of Success".
 pub fn aid_check(
@@ -741,7 +742,8 @@ pub fn aid_check(
     creature: &Creature,
 ) -> Option<(CheckRoll, AidCircumstance)> {
     let modifier = creature.aid_modifier?;
-    roll_aid(dice, modifier, creature.aid_rank)
+    let modifier = FittingAidModifier::new(modifier).ok()?;
+    roll_aid(dice, modifier, creature.aid_rank).ok()
 }
 
 #[cfg(test)]
@@ -1488,10 +1490,26 @@ mod tests {
     /// Player Core, Aid.
     /// Player Core, "Step 4: Degree of Success".
     #[test]
+    fn a_total_of_14_fails_and_15_succeeds() {
+        let creature = derive(&build(fighter_with_aid_rank(5, AidRank::BelowMaster)));
+        let (miss, miss_bonus) = aid_check(&mut ScriptedDice::new([9]), &creature).unwrap();
+        assert_eq!(miss.total, 14);
+        assert_eq!(miss.degree, DegreeOfSuccess::Failure);
+        assert_eq!(miss_bonus, AidCircumstance::Zero);
+        let (hit, hit_bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
+        assert_eq!(hit.total, 15);
+        assert_eq!(hit.degree, DegreeOfSuccess::Success);
+        assert_eq!(hit_bonus, AidCircumstance::Plus1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
     fn a_natural_1_at_plus_14_drops_to_failure() {
         let creature = derive(&build(fighter_with_aid_rank(14, AidRank::Master)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([1]), &creature).unwrap();
         assert_eq!(roll.total, 15);
+        // Natural 10 is the numeric band: total 15 against DC 15 is a success before this natural 1 worsens it.
         assert_eq!(degree_of_success(10, 15, 15), DegreeOfSuccess::Success);
         assert_eq!(roll.degree, DegreeOfSuccess::Failure);
         assert_eq!(bonus, AidCircumstance::Zero);

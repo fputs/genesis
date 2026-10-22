@@ -3,7 +3,7 @@
 //! Player Core, "Step 1: Roll Initiative". Player Core, "Step 2: Act". Player Core, Strike.
 //! Player Core, Aid.
 
-use crate::aid::{AidOutcome, AidPreparation, roll_aid};
+use crate::aid::{AidOutcome, AidPreparation, FittingAidModifier, roll_aid};
 use crate::check::{
     ArithmeticOverflow, AttackTotalTerm, DegreeOfSuccess, MapInput, attack_check_total,
     degree_of_success, multiple_attack_penalty,
@@ -481,13 +481,17 @@ impl Encounter {
     ) -> Result<(), EncounterError> {
         self.require_active_alive(aider)?;
         let aider_index = self.member_index(aider)?;
-        let actions = self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .state
-            .actions_remaining;
+        let (actions, aider_side, has_aid_modifier) = {
+            let aider_member = self
+                .members
+                .get(aider_index)
+                .ok_or(EncounterError::UnknownCombatant)?;
+            (
+                aider_member.participant.state.actions_remaining,
+                aider_member.participant.side,
+                aider_member.participant.creature.aid_modifier.is_some(),
+            )
+        };
         if actions < 1 {
             return Err(EncounterError::InsufficientActions);
         }
@@ -495,12 +499,6 @@ impl Encounter {
         if aider == ally {
             return Err(EncounterError::SelfTarget);
         }
-        let aider_side = self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .side;
         let ally_side = self
             .members
             .get(ally_index)
@@ -510,15 +508,7 @@ impl Encounter {
         if aider_side != ally_side {
             return Err(EncounterError::NotAnAlly);
         }
-        if self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .creature
-            .aid_modifier
-            .is_none()
-        {
+        if !has_aid_modifier {
             return Err(EncounterError::NoAidModifier);
         }
         self.spend_actions(aider, 1)?;
@@ -553,25 +543,26 @@ impl Encounter {
         if self.open.is_none() {
             return Err(EncounterError::TurnNotOpen);
         }
-        let vital = self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .state
-            .vital;
+        let (vital, aider_side, preparation, modifier, reaction_ready, rank) = {
+            let aider_member = self
+                .members
+                .get(aider_index)
+                .ok_or(EncounterError::UnknownCombatant)?;
+            (
+                aider_member.participant.state.vital,
+                aider_member.participant.side,
+                aider_member.participant.state.aid_preparation,
+                aider_member.participant.creature.aid_modifier,
+                aider_member.participant.state.reaction_ready,
+                aider_member.participant.creature.aid_rank,
+            )
+        };
         if vital != Vital::Alive {
             return Err(EncounterError::NotConscious);
         }
         if aider == ally {
             return Err(EncounterError::SelfTarget);
         }
-        let aider_side = self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .side;
         let ally_side = self
             .members
             .get(ally_index)
@@ -581,56 +572,23 @@ impl Encounter {
         if aider_side != ally_side {
             return Err(EncounterError::NotAnAlly);
         }
-        match self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .state
-            .aid_preparation
-        {
+        match preparation {
             AidPreparation::Prepared { ally: named } if named != ally => {
                 return Err(EncounterError::NotThePreparedAlly);
             }
             AidPreparation::NotPrepared => return Err(EncounterError::NotPrepared),
             AidPreparation::Prepared { .. } => {}
         }
-        let modifier = match self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .creature
-            .aid_modifier
-        {
+        let modifier = match modifier {
             Some(modifier) => modifier,
             None => return Err(EncounterError::NoAidModifier),
         };
-        if modifier.checked_add(20).is_none() {
-            return Err(EncounterError::AidOverflow(
-                ArithmeticOverflow::SumDoesNotFit,
-            ));
-        }
-        let reaction_ready = self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .state
-            .reaction_ready;
+        let modifier = FittingAidModifier::new(modifier).map_err(EncounterError::AidOverflow)?;
         if !reaction_ready {
             return Err(EncounterError::NoReaction);
         }
-        let rank = self
-            .members
-            .get(aider_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .creature
-            .aid_rank;
-        let (roll, circumstance) = roll_aid(dice, modifier, rank).ok_or(
-            EncounterError::AidOverflow(ArithmeticOverflow::SumDoesNotFit),
-        )?;
+        let (roll, circumstance) =
+            roll_aid(dice, modifier, rank).map_err(EncounterError::AidOverflow)?;
         self.spend_reaction(aider)?;
         self.members
             .get_mut(aider_index)
@@ -3200,6 +3158,7 @@ mod tests {
         encounter.state(id(value)).expect("state").aid_preparation
     }
 
+    // `prepare_to_aid` spends an action and refuses a missing modifier, so those prepared states cannot be reached through it.
     fn set_prepared(encounter: &mut Encounter, aider: u32, ally: u32) {
         let member = encounter
             .members
@@ -3207,15 +3166,6 @@ mod tests {
             .find(|member| member.participant.id == id(aider))
             .expect("member");
         member.participant.state.aid_preparation = AidPreparation::Prepared { ally: id(ally) };
-    }
-
-    fn set_actions(encounter: &mut Encounter, value: u32, actions_remaining: u8) {
-        let member = encounter
-            .members
-            .iter_mut()
-            .find(|member| member.participant.id == id(value))
-            .expect("member");
-        member.participant.state.actions_remaining = actions_remaining;
     }
 
     fn dying_value() -> DyingValue {
@@ -3351,9 +3301,8 @@ mod tests {
             ],
             &[10, 8, 8],
         );
-        assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.set_vital_for_test(id(1), Vital::Dying(dying_value()));
-        set_actions(&mut encounter, 1, 0);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
         let error = encounter.prepare_to_aid(id(1), id(2)).expect_err("dying");
         assert_eq!(error, EncounterError::NotConscious);
         assert_eq!(actions(&encounter, 1), 0);
@@ -3835,10 +3784,15 @@ mod tests {
     #[test]
     fn an_unknown_ally_rolls_nothing() {
         let (mut encounter, mut dice) = begin(
-            vec![aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster))],
-            &[1, 8],
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+            ],
+            &[1, 1, 8],
         );
-        set_prepared(&mut encounter, 1, 2);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        encounter.end_turn().expect("end");
         assert!(reaction(&encounter, 1));
         assert!(encounter.turn_open().is_none());
         let error = encounter.aid(id(1), id(9), &mut dice).expect_err("unknown");
@@ -3858,7 +3812,9 @@ mod tests {
             ],
             &[1, 1, 10],
         );
-        set_prepared(&mut encounter, 1, 2);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        encounter.end_turn().expect("end");
         assert!(reaction(&encounter, 1));
         assert!(encounter.turn_open().is_none());
         let error = encounter.aid(id(1), id(2), &mut dice).expect_err("closed");
@@ -3876,10 +3832,17 @@ mod tests {
     /// Player Core, Unconscious.
     #[test]
     fn turnnotopen_wins_over_notconscious() {
-        let mut unconscious = pc(1, 0, 20, 11);
-        unconscious.state.vital = Vital::Unconscious;
-        let (mut encounter, mut dice) = begin(vec![unconscious, pc(2, 0, 20, 11)], &[1, 1, 8]);
-        set_prepared(&mut encounter, 1, 2);
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+            ],
+            &[1, 1, 8],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        encounter.set_vital_for_test(id(1), Vital::Unconscious);
+        encounter.end_turn().expect("end");
         assert!(encounter.turn_open().is_none());
         let error = encounter.aid(id(1), id(2), &mut dice).expect_err("closed");
         assert_eq!(error, EncounterError::TurnNotOpen);
@@ -4075,6 +4038,72 @@ mod tests {
             EncounterError::AidOverflow(ArithmeticOverflow::SumDoesNotFit)
         );
         assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid. Player Core, "Shield Block".
+    #[test]
+    fn a_reaction_spent_by_shield_block_still_reports_aidoverflow() {
+        let shield = ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        };
+        let parts = BuildParts {
+            hit_points: 30,
+            armor_class: 11,
+            perception: 0,
+            speed_feet: 25,
+            strike: MeleeStrike {
+                attack_bonus: 0,
+                damage_dice: DieCount::new(1).expect("dice"),
+                damage_faces: faces(8),
+                damage_bonus: 0,
+                reach_feet: ReachFeet::new(5).expect("reach"),
+                agile: false,
+            },
+            shield: Some(shield),
+            stealth_dc: None,
+            aid_modifier: Some(i32::MAX - 19),
+            aid_rank: Some(AidRank::BelowMaster),
+            uses_dying_rules: Some(false),
+        };
+        let aider = participant(
+            1,
+            Side::Pc,
+            derive(&CharacterBuild::try_new(parts).expect("build")),
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![aider, pc(2, 0, 20, 11), enemy(3, 0, 20, 11)],
+            &[10, 8, 6, 12, 8, 20],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        encounter.raise_shield(id(1)).expect("raise");
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("ally"), id(2));
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("attacker"), id(3));
+        encounter
+            .strike(
+                id(3),
+                id(1),
+                &profile(0, Agility::NotAgile, 1, 8, 4),
+                &[],
+                ShieldBlock::Requested,
+                &mut dice,
+            )
+            .expect("strike");
+        assert!(!reaction(&encounter, 1));
+        let error = encounter
+            .aid(id(1), id(2), &mut dice)
+            .expect_err("overflow");
+        assert_eq!(
+            error,
+            EncounterError::AidOverflow(ArithmeticOverflow::SumDoesNotFit)
+        );
+        assert_ne!(error, EncounterError::NoReaction);
         assert_eq!(dice.remaining(), 1);
     }
 }

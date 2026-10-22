@@ -2,7 +2,7 @@
 //!
 //! Player Core, Aid. Player Core, "Step 4: Degree of Success".
 
-use crate::check::{CheckRoll, DegreeOfSuccess, degree_of_success};
+use crate::check::{ArithmeticOverflow, CheckRoll, DegreeOfSuccess, degree_of_success};
 use crate::combatant::CombatantId;
 use crate::dice::Dice;
 
@@ -118,27 +118,49 @@ pub fn aid_circumstance_bonus(degree: DegreeOfSuccess, rank: AidRank) -> AidCirc
     }
 }
 
-/// Rolls one d20 Aid check when `modifier + 20` fits in `i32`.
+/// An Aid modifier for which `modifier + 20` fits in `i32`.
 ///
-/// `None` draws no die. The roll does not use `CheckModifier`. A d20 face is at most 20, so
-/// the precheck is enough for the total to fit.
+/// [`FittingAidModifier::new`] is the only check of that bound.
+///
+/// Player Core, Aid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FittingAidModifier(i32);
+
+impl FittingAidModifier {
+    /// Rejects a modifier for which `modifier + 20` does not fit in `i32`.
+    ///
+    /// Player Core, Aid.
+    pub(crate) fn new(modifier: i32) -> Result<Self, ArithmeticOverflow> {
+        match modifier.checked_add(AID_DIE) {
+            Some(_) => Ok(Self(modifier)),
+            None => Err(ArithmeticOverflow::SumDoesNotFit),
+        }
+    }
+
+    fn get(self) -> i32 {
+        self.0
+    }
+}
+
+/// Rolls one d20 Aid check for a modifier that fits with a face of 20.
+///
+/// A face outside `1..=20` whose sum does not fit is an error. It is not reported as that
+/// face alone.
 ///
 /// Player Core, Aid. Player Core, "Step 4: Degree of Success".
 pub(crate) fn roll_aid(
     dice: &mut impl Dice,
-    modifier: i32,
+    modifier: FittingAidModifier,
     rank: AidRank,
-) -> Option<(CheckRoll, AidCircumstance)> {
-    modifier.checked_add(AID_DIE)?;
+) -> Result<(CheckRoll, AidCircumstance), ArithmeticOverflow> {
     let natural = dice.d20();
-    let total = match i32::from(natural).checked_add(modifier) {
+    let total = match i32::from(natural).checked_add(modifier.get()) {
         Some(total) => total,
-        // The precheck accepted `modifier + 20`, and a d20 face is at most 20.
-        None => i32::from(natural),
+        None => return Err(ArithmeticOverflow::SumDoesNotFit),
     };
     let degree = degree_of_success(natural, total, AID_DC);
     let circumstance = aid_circumstance_bonus(degree, rank);
-    Some((
+    Ok((
         CheckRoll {
             natural,
             total,
@@ -154,7 +176,7 @@ mod tests {
     use super::*;
     use crate::check::{AttackTotalTerm, attack_check_total};
     use crate::combatant::{BuildParts, CharacterBuild, DieCount, MeleeStrike, ReachFeet, derive};
-    use crate::dice::{Faces, ScriptedDice};
+    use crate::dice::{Dice, Faces};
     use crate::modifiers::{
         BonusType, Modifier, PenaltyType, SourceId, Statistic, attack_modifiers,
     };
@@ -223,7 +245,6 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn the_next_check_does_not_keep_the_bonus() {
-        let dice = ScriptedDice::new([10]);
         let ally = ally();
         let before = ally.clone();
         let aided = attack_modifiers(0, false, AidCircumstance::Plus1.value()).expect("aid");
@@ -232,7 +253,6 @@ mod tests {
         assert_eq!(check_total(10, ally.strike.attack_bonus, &plain), 10);
         assert_eq!(ally.strike.attack_bonus, 0);
         assert_eq!(ally, before);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -240,11 +260,9 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn zero_adds_no_modifier() {
-        let dice = ScriptedDice::new([10]);
         let modifiers = attack_modifiers(0, false, AidCircumstance::Zero.value()).expect("aid");
         assert!(modifiers.is_empty());
         assert_eq!(check_total(10, 0, &modifiers), 10);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -252,13 +270,11 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn a_critical_failure_is_a_circumstance_penalty() {
-        let dice = ScriptedDice::new([10]);
         let modifiers = attack_modifiers(0, false, AidCircumstance::Minus1.value()).expect("aid");
         assert!(modifiers.iter().any(|modifier| {
             modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -1
         }));
         assert_eq!(check_total(10, 0, &modifiers), 9);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -266,12 +282,10 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn the_worse_circumstance_penalty_wins() {
-        let dice = ScriptedDice::new([10]);
         let mut modifiers =
             attack_modifiers(0, false, AidCircumstance::Minus1.value()).expect("aid");
         modifiers.push(circumstance_penalty(-2, 21));
         assert_eq!(check_total(10, 0, &modifiers), 8);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -279,12 +293,10 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn plus_1_plus_a_caller_circumstance_plus_2_totals_12() {
-        let dice = ScriptedDice::new([10]);
         let mut modifiers =
             attack_modifiers(0, false, AidCircumstance::Plus1.value()).expect("aid");
         modifiers.push(circumstance_bonus(AidCircumstance::Plus2.value(), 21));
         assert_eq!(check_total(10, 0, &modifiers), 12);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -292,12 +304,10 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn plus_4_plus_a_caller_circumstance_plus_2_totals_14() {
-        let dice = ScriptedDice::new([10]);
         let mut modifiers =
             attack_modifiers(0, false, AidCircumstance::Plus4.value()).expect("aid");
         modifiers.push(circumstance_bonus(AidCircumstance::Plus2.value(), 21));
         assert_eq!(check_total(10, 0, &modifiers), 14);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -305,12 +315,10 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn two_aid_bonuses_keep_the_higher() {
-        let dice = ScriptedDice::new([10]);
         let mut modifiers =
             attack_modifiers(0, false, AidCircumstance::Plus2.value()).expect("aid");
         modifiers.push(circumstance_bonus(AidCircumstance::Plus1.value(), 21));
         assert_eq!(check_total(10, 0, &modifiers), 12);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
@@ -318,11 +326,23 @@ mod tests {
     /// Player Core, Penalties.
     #[test]
     fn a_circumstance_bonus_and_penalty_both_apply() {
-        let dice = ScriptedDice::new([10]);
         let mut modifiers =
             attack_modifiers(0, false, AidCircumstance::Plus2.value()).expect("aid");
         modifiers.push(circumstance_penalty(AidCircumstance::Minus1.value(), 21));
         assert_eq!(check_total(10, 0, &modifiers), 11);
-        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// A face above 20 is not a d20. Reporting that face as the total would be a different sum.
+    #[test]
+    fn a_face_past_20_is_an_error_not_the_natural() {
+        struct WideDice;
+        impl Dice for WideDice {
+            fn roll(&mut self, _faces: Faces) -> u8 {
+                u8::MAX
+            }
+        }
+        let modifier = FittingAidModifier::new(i32::MAX - AID_DIE).expect("fits a d20");
+        let error = roll_aid(&mut WideDice, modifier, AidRank::BelowMaster).expect_err("face");
+        assert_eq!(error, ArithmeticOverflow::SumDoesNotFit);
     }
 }
