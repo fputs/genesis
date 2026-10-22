@@ -6,11 +6,11 @@ Workflow v2 archives a change once, as the last commit right before merge. `pr-h
 
 ## What Changes
 
-- **BREAKING** for a non-draft, non-exempt implementation pull request that has not archived. `pr-hygiene` fails it. A draft with the same commits stays green.
+- **BREAKING** for a non-draft, non-exempt implementation pull request whose `OpenSpec-Change:` line names a change still active on the head. `pr-hygiene` fails it. A draft with the same commits stays green. A pull request with no `OpenSpec-Change:` line does not fail because another change is active.
 - While `pull_request.draft` is true, archive-last does not run. The bullet check still runs.
-- When the pull request is not a draft, today's archive-last rules run. A non-exempt implementation pull request whose merge-base has an active change, and whose head removed none, fails with `archive commit is not last`.
-- The workflow also runs on `ready_for_review` and `converted_to_draft`. A push after ready re-runs the full check. Converting back to draft skips archive-last again.
-- Spec-drift fixture cleanup retries `ENOTEMPTY` on `.git/objects` (run 39705218352).
+- When the pull request is not a draft, today's archive-last rules run.
+- The workflow also runs on `ready_for_review` and `converted_to_draft`. A push after ready re-runs the full check. The bullet added before the archive still counts. Converting back to draft skips archive-last again.
+- Spec-drift fixture cleanup retries `ENOTEMPTY` on `.git/objects` through an injectable remover, at most 5 calls with backoff (run 39705218352).
 
 This pull request is the spec only. It does not change scripts, workflows, or the ruleset.
 

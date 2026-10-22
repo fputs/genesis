@@ -31,9 +31,9 @@ The agent implements in a draft. Archive-last does not run, so fixes do not rest
 
 A missing `pull_request.draft` field is not true, so existing fixtures keep today's rules.
 
-When the pull request is not a draft, a non-exempt implementation pull request fails if the merge-base has an active change id and the head removed none. Non-exempt means an implementation pull request that is not bullet-exempt. A tree whose merge-base has no active change is unchanged, so a crate edit with a new bullet and no OpenSpec directory still passes.
+When the pull request is not a draft, today's archive-last rules run. A non-exempt implementation pull request also fails if an `OpenSpec-Change:` body line names an id whose `openspec/changes/<id>/` directory is still on the head. Non-exempt means an implementation pull request that is not bullet-exempt. A pull request with no `OpenSpec-Change:` line does not fail because another change is active on the merge-base.
 
-A removed id still has to satisfy the archive-last requirements already in the spec: subject, dated directory, and the head commit performing the delete. Those scenarios stay as they are. They describe a run whose draft flag is not true.
+A removed id still has to satisfy the archive-last requirements already in the spec: subject, dated directory, and the head commit performing the delete. Those scenarios stay as they are. They describe a run whose draft flag is not true. Archive-last still does not read the body. The body line is only how this extra failure finds the pull request's own change.
 
 `synchronize` on a non-draft pull request runs the bullet check and archive-last again. A fix commit after the archive fails until a new archive commit is last and the agent marks ready again.
 
@@ -47,12 +47,11 @@ GitHub merge queues are available for organization-owned repositories. `fputs/ge
 
 ### 4. Retry `ENOTEMPTY` in spec-drift fixture teardown
 
-Run 39705218352 threw `ENOTEMPTY` from `rmdir` of `.git/objects` while `node:test` cleaned fixture git directories in parallel. The helper retries that error until the directory is gone, and fails the test only if it remains. `maxRetries` on `fs.rm` is enough. `--test-concurrency=1` alone is not: one recursive removal can still throw `ENOTEMPTY`.
+Run 39705218352 threw `ENOTEMPTY` from `rmdir` of `.git/objects` while `node:test` cleaned fixture git directories in parallel. Teardown calls an injectable remover so the test can throw `ENOTEMPTY` once without racing a real `rmdir`. On that error it retries with backoff, at most 5 calls, then fails the test with that error. `--test-concurrency=1` is not the fix, and `fs.rm` `maxRetries` is not the mechanism.
 
 ## Risks / Trade-offs
 
-- [A non-draft impl pull request fails while some other change is still active on the merge-base and this pull request removed none] → The archive commit removes this change before `gh pr ready`. A merge-base with no active change does not hit this rule.
-- [Ready is clicked before the archive commit] → The `ready_for_review` run fails. Convert back to draft, archive as the last commit, then mark ready again.
+- [Ready is clicked before the archive commit] → The `ready_for_review` run fails when the body names that change and it is still active. Convert back to draft, archive as the last commit, then mark ready again.
 - [Architect merges a draft] → GitHub does not offer merge on a draft. The enforced run is the non-draft head.
 
 ## Migration Plan
