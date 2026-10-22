@@ -66,17 +66,19 @@ npx @fission-ai/openspec@1.14.3 validate --all --strict
 
 ## How changes flow
 
-Work is OpenSpec-first.
+Work is OpenSpec-first. One change is one procedure family and one pull request.
 
-A spec is proposed as its own pull request: proposal, design, tasks, and spec deltas. Evan reviews and approves spec pull requests before implementation. He reviews specs only.
+A spec is its own pull request: proposal, design, tasks, and spec deltas. Designer and QA settle edge cases and tie rulings before coding is dispatched. The spec PR links [`docs/designer/rules-rulings.md`](docs/designer/rules-rulings.md) and does not copy that log. Evan reviews and merges spec pull requests. He reviews specs only.
 
-An implementation pull request follows that approved spec. The pull request body includes a line of the form `OpenSpec-Change: <id>`. The last commit of that pull request archives the change:
+An implementation pull request follows that approved spec. The body includes `OpenSpec-Change: <id>`. The router wakes Architect once per head SHA after CI finishes. Architect and QA review that head in parallel and post one combined numbered fix list. A red CI check is the send-back. They do not re-check format, the changelog bullet, archive order, or spec drift. Coding agents apply the whole list in one push. After two send-back rounds the PR escalates to Chief of Staff.
+
+Archive happens once, as the last commit right before merge:
 
 ```
 openspec archive <id> --yes
 ```
 
-Archiving moves the change under `openspec/changes/archive/` and updates `openspec/specs/`. One change is one procedure family and one pull request. A deviation from the spec stops the work and goes back to Evan as a spec amendment.
+That commit moves the change under `openspec/changes/archive/` and updates `openspec/specs/`. There is no separate archive pull request and no un-archive for a fix. Architect merges when CI is green and Architect and QA both pass at that same head. Chief of Staff spot-checks merged PRs daily. A small spec clarification is fixed in the implementation PR with a Designer citation. A behavior or scope change goes to Chief of Staff for Evan.
 
 ## License
 

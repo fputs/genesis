@@ -3,10 +3,11 @@
 Repo: https://github.com/fputs/genesis (OpenSpec-first). Phase 1: PF2e Remaster rules crate (`crates/rules`). Phase 2: basic map editor.
 
 ## Roles
-- **Evan** reviews specs only (`openspec/changes/*`, `openspec/specs/*`). He does not review code.
-- **Architect** opens implementation PRs and marks them ready for QA.
-- **QA** tests behavior only, on PRs whose head CI is green: adversarial repros, edge cases, boundary values, demos, and regressions of earlier findings. Reports PASS/FAIL to **Chief of Staff** and **Architect**. **FAIL blocks merge.**
-- **Architect** owns spec conformance, the constitution, the archive, CI, and fmt. QA does not re-check these (process change approved by Evan, 2026-10-20).
+- **Evan** reviews spec PRs only. He does not review implementation code.
+- **Designer and QA** settle edge cases and tie rulings on the spec before coding is dispatched. The spec PR links `docs/designer/rules-rulings.md` and does not copy that log.
+- The router wakes **Architect** once per head SHA after CI finishes. **Architect** and **QA** review that same head in parallel and post one combined numbered fix list. A red CI check is the send-back. Neither re-checks format, the changelog bullet, archive order, or spec drift.
+- **QA** tests behavior: adversarial repros, edge cases, boundary values, demos, and regressions of earlier findings. **FAIL blocks merge.**
+- **Architect** reviews spec conformance and the constitution. Architect merges when CI is green and both pass at that same head. No per-PR Chief of Staff acceptance.
 
 ## Per-PR workflow
 1. Identify the spec(s) the PR implements: the OpenSpec change named in the PR, `openspec/changes/<change>/specs/**/spec.md` (or `openspec/specs/**` once archived). Only specs merged to `main` count. If no approved spec exists, QA stops and flags it to Architect.
@@ -17,7 +18,7 @@ Repo: https://github.com/fputs/genesis (OpenSpec-first). Phase 1: PF2e Remaster 
    cargo build --workspace
    cargo test --workspace
    ```
-   The toolchain comes from `rust-toolchain.toml` (currently `1.99.1`). QA starts only once head CI is green; CI, fmt, and clippy are Architect's.
+   The toolchain comes from `rust-toolchain.toml` (currently `1.99.1`). Review starts when CI on that head has finished. A red check sends the PR back. QA does not re-check format, the changelog bullet, archive order, or spec drift.
 3. Headless demos: **TBD.** None exist yet (no `examples/`, bins, or demo scripts). When one lands, add its exact command here, e.g. `cargo run -p <crate> --example <name>`.
 4. Build a behavior matrix: list every `#### Scenario` in the spec(s) to target behavior probes, and give each a check:
    - **Auto**: a named test in `cargo test`.
@@ -25,7 +26,7 @@ Repo: https://github.com/fputs/genesis (OpenSpec-first). Phase 1: PF2e Remaster 
    - **Manual**: an exploratory step, with the exact command or file inspected.
    Every scenario needs at least one check. A scenario-to-test name mapping gap is reported to Architect, not counted as a QA FAIL.
 5. Exploratory pass: edge cases near each scenario (boundary values, degrees of success, nat 1/20, ordering).
-6. Report (template below) to Chief of Staff + Architect.
+6. Fold the report (template below) into the one combined numbered fix list on the PR.
 
 ## Matrix format
 | Spec | Requirement | Scenario | Check type | Check (test name / command) | Result |

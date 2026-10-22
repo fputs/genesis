@@ -26,13 +26,9 @@ Deferred: attributes, proficiency, saves, skills, spells, classes, and broader c
 
 2026-10-20: Phase 1 order revised: modifiers (circumstance, status, untyped stacking; minimal) moves to change 3, right after dice-and-checks, because encounter-core needs unconscious -4 status. creature-template gains uses_dying_rules (default false; without it a creature dies at 0 HP). RAW fixes vs v1 tracked in docs/designer/pf2e-citations.md.
 
-## 2026-10-20 — Workflow (Evan)
-
-2026-10-20: Workflow (Evan): Evan reviews only specs. Per change: (1) spec-only PR (proposal, design, tasks, spec deltas); Evan approves and merges it. (2) After merge, Architect launches implementation on its own PR, no further approval. (3) Implementation merges when CI is green, all tasks checked, v1-ported acceptance tests pass, Architect review against spec passes, and Chief of Staff accepts; Architect then merges and archives the change. Any deviation from spec stops work and goes back to Evan as a spec amendment. No force-push; only merged PR branches are deleted.
-
 ## 2026-10-20 — Changelog interim rules (Chief of Staff ruling)
 
-2026-10-20: Changelog interim rules (Chief of Staff ruling): (a) a CHANGELOG.md bullet is an Architect merge criterion for implementation PRs; (b) PRs touching only .cursor/**, README.md, Cargo.lock or rust-toolchain.toml are treated as docs-only and need no bullet.
+2026-10-20: Changelog interim rules (Chief of Staff ruling). (a) Revised 2026-10-21: the Unreleased bullet on an implementation PR is enforced by the `pr-hygiene` job. Reviewers do not re-check it. (b) PRs touching only .cursor/**, README.md, Cargo.lock, or rust-toolchain.toml are treated as docs-only and need no bullet.
 
 ## Backlog: end-of-Phase-1 changelog spec amendment
 
@@ -49,6 +45,16 @@ Characters are built by composition. The same build inputs always produce the sa
 
 `spec-drift-check` slots immediately after `add-dice-and-checks`. The relative order of the rules changes after `add-dice-and-checks` stays as recorded on 2026-10-20.
 
-## 2026-10-21 — Implementation archives in its last commit
+## 2026-10-21 — Workflow v2 (Evan)
 
-An implementation pull request's last commit is `openspec archive <id> --yes`. There is no separate archive pull request. This gate leaves `main` green.
+Evan reviews and merges spec PRs (proposal, design, tasks, spec deltas). After that merge, Architect launches implementation on its own PR.
+
+1. The router wakes Architect once per head SHA, after CI finishes.
+2. OpenSpec archive happens once, as the last commit right before merge (`openspec archive <id> --yes`). No un-archive and re-archive per fix. No separate archive pull request. That commit leaves `main` green.
+3. Architect and QA review in parallel at that same head and post one combined numbered fix list. A red CI check is the send-back. Reviewers do not re-check CI-gated items: format, the changelog bullet, archive order, spec drift.
+4. No per-PR Chief of Staff acceptance. Architect merges an implementation PR when CI is green and Architect and QA both pass at that same head. Chief of Staff spot-checks merged PRs daily.
+5. Coding agents apply the whole fix list in one push. After two send-back rounds the PR escalates to Chief of Staff.
+6. A small spec clarification is fixed in the implementation PR with a Designer citation. A behavior or scope change goes to Chief of Staff for Evan.
+7. Designer and QA settle edge cases and tie rulings on the spec before coding is dispatched. A spec PR links `docs/designer/rules-rulings.md` and does not copy the log.
+
+No force-push. Only merged PR branches are deleted.
