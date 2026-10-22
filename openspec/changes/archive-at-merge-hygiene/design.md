@@ -2,83 +2,59 @@
 
 ## Context
 
-See proposal.md for why. `.github/workflows/pr-hygiene.yml` runs `pr-hygiene` on pull_request `opened`, `synchronize`, `reopened`, and `edited` targeting `main`. It does not run on push. Permissions are `contents: read`. The script treats any event other than `pull_request` as a hard error. Archive-last compares active change ids on the merge-base with the head. Zero removals pass. A removal fails unless the head commit subject is `openspec archive <id> --yes` for each removed id, joined by ` && ` in ascending id order, and the first-parent diff stays on archive paths.
+See proposal.md for why. `pr-hygiene` runs on pull_request `opened`, `synchronize`, `reopened`, and `edited`. Archive-last passes when no active change id was removed, and fails when a removal is not the head commit `openspec archive <id> --yes`. The event payload includes `pull_request.draft`. `gh pr ready` sends `ready_for_review`. Converting back sends `converted_to_draft`. Both are `pull_request` actions, so the script's event name stays `pull_request`.
 
-The Main ruleset `25563418` requires status checks `ci`, `pr-hygiene`, and `spec-drift`. It also blocks deletion and non-fast-forward pushes. It has no merge queue. The repository is public, so GitHub merge queue is available. Pull requests may merge, squash, or rebase today.
-
-`scripts/spec-drift-check.mjs` runs the reference check only when the event is `pull_request`. Validation and the completed-change check run on every event. Run `39705218352` failed `node --test scripts/spec-drift-check.test.mjs` in `Copying to archive without removing the active change fails` with `ENOTEMPTY: directory not empty, rmdir '/tmp/spec-drift-4nhpSw/.git/objects'`. The throw is `fs.rm` in fixture teardown while `node:test` runs cases in parallel. Normative behavior is the delta specs.
+`gh api repos/fputs/genesis --jq .owner.type` returns `User`.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- A review push of an unarchived implementation pull request stays green on `pr-hygiene`.
-- A review push whose head is a fix after an archive commit stays green on archive-last.
-- The merge itself is blocked until archive-last holds, including when an archive commit exists and must be last.
-- The failure line stays `archive commit is not last`.
-- Spec-drift fixture teardown survives `ENOTEMPTY` on `.git/objects`.
+- A draft implementation pull request stays green without an archive commit.
+- `gh pr ready` runs today's archive-last rules, plus the non-exempt failure below.
+- A later push or a return to draft re-runs that same choice.
+- Spec-drift teardown survives `ENOTEMPTY` on `.git/objects`.
 
 **Non-Goals:**
 
-- Relaxing the spec-drift failure for a fully checked active change on pull_request. Leave the archive task unchecked until the one archive commit.
-- Requiring a spec-only, docs-only, or bullet-exempt pull request to archive at merge. Spec pull requests on main leave the change active. The implementation pull request archives it.
-- Reading the pull request body inside archive-last, or granting `pull-requests: read`.
-- Changing `scripts/pr-hygiene.test.mjs` cleanup. The observed flake is the spec-drift suite.
-- Editing `AGENTS.md` or `docs/producer/process.md`. They already say to archive once, as the last commit right before merge.
-- A new npm dependency, or any edit under `crates/rules`.
+- A merge queue, a ruleset edit, a merge-method change, or a `merge_group` trigger on `ci.yml` or `pr-hygiene.yml`.
+- Changing spec-drift's reference check or its completed-change check.
+- `pr-hygiene` fixture cleanup. The flake is the spec-drift suite.
+- Editing `AGENTS.md`. It already says to archive once, right before merge.
+- A new dependency, or any edit under `crates/rules`.
 
 ## Decisions
 
-### 1. The gate is `merge_group` on the existing `pr-hygiene` check
+### 1. Draft skips archive-last. Ready runs it.
 
-GitHub re-runs required checks at merge only through a merge queue. The Main ruleset already requires `pr-hygiene`. Adding a merge queue makes that check run again on `merge_group` after the review run is green. A failing queue run ejects the pull request, so the merge does not land.
+The agent implements in a draft. Archive-last does not run, so fixes do not restore and re-archive the change. The bullet check still runs. The final commit is `openspec archive <id> --yes`. The agent then runs `gh pr ready`. That `ready_for_review` run sees `draft: false` and applies archive-last. Architect merges that head.
 
-Rejected: treat "Ready for review" as the gate. Review on this repository happens on non-draft pull requests. Failing archive-last whenever `draft` is false is red for the whole review. That is the cycle in implementation PRs #25 and #28.
+A missing `pull_request.draft` field is not true, so existing fixtures keep today's rules.
 
-Rejected: a label. The ruleset blocks merge when a required check fails. A missing label does not. If the pull_request run passes without the label, GitHub allows the merge. A check that fails until the label is present is red during review.
+When the pull request is not a draft, a non-exempt implementation pull request fails if the merge-base has an active change id and the head removed none. Non-exempt means an implementation pull request that is not bullet-exempt. A tree whose merge-base has no active change is unchanged, so a crate edit with a new bullet and no OpenSpec directory still passes.
 
-The merge group head is a merge commit when the queue method is `MERGE`: first parent is the queue base, second parent is the pull request head. Archive-last and the bullet diff use that second parent and its first parent. They do not use the group head (its subject is a merge subject such as `Merge pull request`) and they do not use the runner's checkout merge. A group head that does not have exactly two parents fails closed, so a squash or rebase queue cannot pass by skipping the parent check.
+A removed id still has to satisfy the archive-last requirements already in the spec: subject, dated directory, and the head commit performing the delete. Those scenarios stay as they are. They describe a run whose draft flag is not true.
 
-DevOps adds one `merge_queue` rule to ruleset `25563418` and leaves deletion, non-fast-forward, and the required checks `ci`, `pr-hygiene`, and `spec-drift` in place:
+`synchronize` on a non-draft pull request runs the bullet check and archive-last again. A fix commit after the archive fails until a new archive commit is last and the agent marks ready again.
 
-- `merge_method`: `MERGE`
-- `max_entries_to_build`: `1`
-- `max_entries_to_merge`: `1`
-- `min_entries_to_merge`: `1`
-- `min_entries_to_merge_wait_minutes`: `0`
-- `grouping_strategy`: `ALLGREEN`
-- `check_response_timeout_minutes`: `60`
+### 2. `converted_to_draft` is a trigger
 
-One pull request per group keeps the second parent unambiguous. `MERGE` keeps the archive commit as that parent.
+`ready_for_review` is the edge that turns the check on. GitHub does not send `edited` when someone converts a pull request back to a draft, so the red ready check would stick. `converted_to_draft` re-runs the job with `draft: true` and archive-last does not fail.
 
-`.github/workflows/ci.yml` also triggers on `merge_group`. The queue will not finish while required checks `ci` and `spec-drift` are unreported. Cargo steps stay. The file gains no `edited` type and no skip `if`.
+### 3. Merge queue is rejected
 
-### 2. The pull_request run does not apply archive-last
+GitHub merge queues are available for organization-owned repositories. `fputs/genesis` is owned by the user account `fputs` (`owner.type` is `User`), so this repository cannot enable a queue. A queue would also replace Architect's API merge, which checks the head sha before merging. The draft flag is already on the pull_request payload, needs no new permission, and does not change that merge.
 
-On `pull_request` the script still runs the bullet check. It does not log `archive commit is not last`. Scenarios that already describe a bad or missing archive move to the merge-time run: the fixture sets the event to `merge_group` and builds a two-parent group head whose second parent is the commit the scenario already built.
+### 4. Retry `ENOTEMPTY` in spec-drift fixture teardown
 
-### 3. Which pull request must archive
-
-A non-exempt implementation pull request is an implementation pull request that is not bullet-exempt. That is a diff that includes root `Cargo.toml`, a path under `crates/`, or a path under `.github/workflows/`, together with any path outside the exempt set. `Cargo.lock` and `rust-toolchain.toml` are code paths and bullet-exempt, so a lockfile-only pull request passes the merge run with no removal. A `scripts/` diff is not an implementation pull request.
-
-When that non-exempt diff removed no active id, the merge-time run fails with `archive commit is not last`. When it did remove ids, the existing archive-last rules apply: subject, dated directory, allowed paths, and the head commit performing the delete. The pull request body stays unread.
-
-### 4. spec-drift on the queue
-
-`merge_group` is not `pull_request`, so the reference check stays skipped, the same as push. Validation and the completed-change check still run on the group checkout. A fully checked active change fails the queue. The job does not fetch a pull request body and does not gain permissions.
-
-### 5. Retry `ENOTEMPTY` in spec-drift fixture teardown
-
-Node's `fs.rm({ recursive: true })` throws `ENOTEMPTY` on `.git/objects` when parallel cleanups overlap. `maxRetries` retries that code. The spec-drift helper uses that option, or a loop with the same effect, and fails the test only if the directory is still present afterward. One test calls the helper with a first attempt that returns `ENOTEMPTY` and a second that succeeds. Setting `--test-concurrency=1` alone does not meet the requirement: a single recursive removal can still throw `ENOTEMPTY`.
+Run 39705218352 threw `ENOTEMPTY` from `rmdir` of `.git/objects` while `node:test` cleaned fixture git directories in parallel. The helper retries that error until the directory is gone, and fails the test only if it remains. `maxRetries` on `fs.rm` is enough. `--test-concurrency=1` alone is not: one recursive removal can still throw `ENOTEMPTY`.
 
 ## Risks / Trade-offs
 
-- [The ruleset is never updated] → The implementation task updates ruleset `25563418` in the same change. Until that rule exists, `merge_group` does not run and review CI is the only gate.
-- [spec-drift on `merge_group` starts requiring a body] → It must not. The event is not `pull_request`. The scenario is "A merge group skips the reference check".
-- [Every task box is checked before the archive commit] → spec-drift stays red on pull_request until that one archive commit. That is one archive, not a re-archive per fix.
-- [The queue lands a merge commit instead of a squash] → `MERGE` is required so the group head has two parents and the archive commit remains the pull request head. A one-parent group head fails closed.
-- [GitHub batches several pull requests into one group head] → `max_entries_to_merge` is 1, so the second parent is that pull request's head.
+- [A non-draft impl pull request fails while some other change is still active on the merge-base and this pull request removed none] → The archive commit removes this change before `gh pr ready`. A merge-base with no active change does not hit this rule.
+- [Ready is clicked before the archive commit] → The `ready_for_review` run fails. Convert back to draft, archive as the last commit, then mark ready again.
+- [Architect merges a draft] → GitHub does not offer merge on a draft. The enforced run is the non-draft head.
 
 ## Migration Plan
 
-DevOps ships the script, the tests, both workflow triggers, and the ruleset rule together. Rollback is a revert of that implementation plus deletion of the `merge_queue` rule from ruleset `25563418`. After the rule is active, an in-flight implementation pull request stays green through review without an archive commit. The queue enforces archive-last when someone merges.
+DevOps ships the script, its fixtures, and the two new pull_request types together. Rollback is a revert of that implementation. In-flight pull requests that are already ready keep today's archive-last behavior.

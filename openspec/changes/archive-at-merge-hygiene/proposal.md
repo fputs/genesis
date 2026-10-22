@@ -2,17 +2,17 @@
 
 ## Why
 
-Workflow v2 archives an OpenSpec change once, as the last commit right before merge, and forbids un-archive/re-archive on each fix. `pr-hygiene` still applies archive-last on every pull request head, so a fix after that commit is red until the change is restored and archived again. Implementation PRs #25 and #28 did that restore step on every fix. The check should stay green through review and block only the merge.
+Workflow v2 archives a change once, as the last commit right before merge. `pr-hygiene` still applies archive-last on every head, so a fix after that commit is red until the change is restored and archived again. The agent should keep the pull request a draft while fixing, archive as the final commit, then run `gh pr ready`.
 
 ## What Changes
 
-- **BREAKING** for a non-exempt implementation pull request that merges without an archive commit. The merge queue rejects it. Review pushes stay green without one.
-- On `pull_request`, `pr-hygiene` still enforces the Unreleased bullet and does not fail with `archive commit is not last`. An unarchived implementation pull request passes. A commit after an archive commit does not fail archive-last on that run.
-- On `merge_group`, archive-last is required. The pull request head is the second parent of the merge group head. When an archive commit exists, it must be that head. A non-exempt implementation pull request that removed no active change id fails with `archive commit is not last`.
-- `.github/workflows/ci.yml` also runs on `merge_group` so the required `ci` and `spec-drift` checks report on the queue. Cargo steps stay. `merge_group` skips the spec-drift reference check and still fails a fully checked active change.
-- Spec-drift fixture cleanup retries `ENOTEMPTY` when deleting a temporary git directory, including `.git/objects`. Run 39705218352 failed `Copying to archive without removing the active change fails` on that race.
+- **BREAKING** for a non-draft, non-exempt implementation pull request that has not archived. `pr-hygiene` fails it. A draft with the same commits stays green.
+- While `pull_request.draft` is true, archive-last does not run. The bullet check still runs.
+- When the pull request is not a draft, today's archive-last rules run. A non-exempt implementation pull request whose merge-base has an active change, and whose head removed none, fails with `archive commit is not last`.
+- The workflow also runs on `ready_for_review` and `converted_to_draft`. A push after ready re-runs the full check. Converting back to draft skips archive-last again.
+- Spec-drift fixture cleanup retries `ENOTEMPTY` on `.git/objects` (run 39705218352).
 
-This pull request is the spec only. It does not change the scripts, the workflows, or the ruleset.
+This pull request is the spec only. It does not change scripts, workflows, or the ruleset.
 
 ## Capabilities
 
@@ -22,12 +22,12 @@ None.
 
 ### Modified Capabilities
 
-- `pr-hygiene`: archive-last runs on the merge queue, not on review heads. A non-exempt implementation pull request must archive before merge. When an archive commit exists, it is last.
-- `spec-drift-check`: `merge_group` skips the change-id reference check and still fails a fully checked active change. Fixture teardown retries `ENOTEMPTY`.
+- `pr-hygiene`: archive-last is skipped on a draft and enforced once the pull request is ready.
+- `spec-drift-check`: fixture teardown retries `ENOTEMPTY`.
 
 ## Impact
 
-- DevOps edits `scripts/pr-hygiene.mjs`, `scripts/pr-hygiene.test.mjs`, `scripts/spec-drift-check.test.mjs`, `.github/workflows/pr-hygiene.yml`, and the triggers of `.github/workflows/ci.yml`.
-- DevOps adds a merge queue to the Main ruleset (`25563418`): merge method `MERGE`, one pull request per group. Required checks stay `ci`, `pr-hygiene`, and `spec-drift`.
-- No new dependency. `crates/rules` is untouched. `AGENTS.md` already says to archive once, right before merge, so it needs no amendment.
+- DevOps edits `scripts/pr-hygiene.mjs`, `scripts/pr-hygiene.test.mjs`, `.github/workflows/pr-hygiene.yml`, and `scripts/spec-drift-check.test.mjs`.
+- No ruleset change, no `ci.yml` change, and no new dependency. `crates/rules` is untouched.
+- `gh api repos/fputs/genesis --jq .owner.type` is `User`. Merge queue is not available on a user-owned repository.
 - The implementation pull request adds its Unreleased bullet before the archive commit, then runs `openspec archive archive-at-merge-hygiene --yes`.
