@@ -3171,7 +3171,7 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core, Penalties.
+    /// Player Core pg. 400, Penalties.
     #[test]
     fn an_internal_circumstance_penalty_and_a_caller_circumstance_penalty_total_minus_3() {
         let dice = script();
@@ -3183,9 +3183,9 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core, Penalties.
-    /// Player Core, "Multiple Attack Penalty".
-    /// Player Core, "Range Penalty".
+    /// Player Core pg. 400, Penalties.
+    /// Player Core pg. 402, "Multiple Attack Penalty".
+    /// Player Core pg. 403, "Range Penalty".
     /// Player Core pg. 398, Duplicate Effects.
     ///
     /// Substitute: rule, Duplicate Effects keys a repeated effect on its source; why not,

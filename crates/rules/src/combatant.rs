@@ -461,22 +461,6 @@ pub struct CombatantState {
     pub vital: Vital,
 }
 
-impl CombatantState {
-    /// Whether the reaction can be spent.
-    ///
-    /// Player Core, "Reactions in Encounters".
-    pub(crate) fn reaction_available(&self) -> bool {
-        self.reaction_ready
-    }
-
-    /// Sets whether the reaction can be spent.
-    ///
-    /// Player Core, "Reactions in Encounters".
-    pub(crate) fn set_reaction_available(&mut self, available: bool) {
-        self.reaction_ready = available;
-    }
-}
-
 /// Initializes state from a creature. Actions and the reaction stay unset for encounter-core.
 ///
 /// Player Core, Encounter Mode.
@@ -507,6 +491,11 @@ pub enum HpError {
     ///
     /// Player Core, Strike. `add-dying-and-victory` returns this from its resolved-blow path.
     NotAHit,
+    /// The amount is negative, so it is not damage. Hit Points stay unchanged.
+    ///
+    /// Player Core, "Damage Rolls". `damage_dealt` does not return a negative total, so this
+    /// names a direct call that passes one. It is not an overflow.
+    NegativeAmount,
 }
 
 /// Damage after modifiers on the damage statistic. The result is never negative.
