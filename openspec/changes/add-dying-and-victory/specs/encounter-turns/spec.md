@@ -2,7 +2,7 @@
 
 ## REMOVED Requirements
 
-### Requirement: Reaching 0 Hit Points does not apply the later rules
+### Requirement: Reaching 0 Hit Points floors at 0
 
 **Reason**: Strike damage goes through apply_resolved_blow, so massive damage and the dying value are dying-and-victory.
 **Migration**: Requirement "Strike damage uses resolved blows".
@@ -18,16 +18,16 @@ A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's re
 
 #### Scenario: Without dying rules, 0 Hit Points is death
 
-- **GIVEN** a creature with 9 Hit Points, `uses_dying_rules` false, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+1 with a scripted damage die of 8
+- **GIVEN** a creature with 9 Hit Points, uses_dying_rules false, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+1 with a scripted damage die of 8
 - **WHEN** the Strike is resolved
 - **THEN** current Hit Points are 0
 - **AND** the combatant is dead
 - **AND** wounded stays 0
 - **AND** the Creature still has 9 Hit Points
 
-#### Scenario: With dying rules, 0 Hit Points does not move initiative
+#### Scenario: With dying rules, a Strike to 0 sets Dying(1) and a pending report
 
-- **GIVEN** a creature with maximum Hit Points 9, current Hit Points 9, and `uses_dying_rules` true, acting after the striker, and a Strike of attack bonus +0 against Armor Class 11, natural 11, and damage 1d8+1 with a damage die of 8
+- **GIVEN** a creature with maximum Hit Points 9, current Hit Points 9, and uses_dying_rules true, acting after the striker, and a Strike of attack bonus +0 against Armor Class 11, natural 11, and damage 1d8+1 with a damage die of 8
 - **WHEN** that Strike is resolved and the report is taken
 - **THEN** vital is Dying(1)
 - **AND** wounded stays 0
@@ -36,7 +36,7 @@ A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's re
 
 #### Scenario: A massive Strike leaves no dying value
 
-- **GIVEN** `uses_dying_rules` true, maximum Hit Points 10, current Hit Points 10, no pending report, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+12 with a scripted damage die of 8
+- **GIVEN** uses_dying_rules true, maximum Hit Points 10, current Hit Points 10, no pending report, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+12 with a scripted damage die of 8
 - **WHEN** the Strike is resolved and the report is taken
 - **THEN** vital is Dead
 - **AND** no dying value is stored
@@ -52,71 +52,9 @@ A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's re
 
 ## MODIFIED Requirements
 
-### Requirement: The start step changes nothing
-
-The start step SHALL run before actions are regained. It SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
-
-#### Scenario: A start with dying entered rolls nothing
-
-- **GIVEN** a creature at vital Dying(1), at 0 Hit Points, and a scripted natural 8
-- **WHEN** that creature's turn starts
-- **THEN** the scripted 8 is still unused
-- **AND** Hit Points stay 0
-- **AND** wounded stays 0
-- **AND** the creature has 3 actions
-
-#### Scenario: An unconscious creature's start rolls nothing
-
-- **GIVEN** a creature at vital Unconscious, at 0 Hit Points, and a scripted natural 8
-- **WHEN** that creature's turn starts
-- **THEN** the scripted 8 is still unused
-- **AND** Hit Points stay 0
-- **AND** wounded stays 0
-- **AND** the creature has 3 actions
-
-### Requirement: A dead combatant is skipped
-
-A dead combatant SHALL remain in the order and SHALL NOT start a turn. The next living combatant SHALL start instead. A creature at Dying(1) or Unconscious SHALL still start a turn.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
-
-#### Scenario: A dead combatant in the middle is skipped
-
-- **GIVEN** the order CombatantId(1), CombatantId(2), CombatantId(3), with CombatantId(2) already dead
-- **WHEN** the first turn starts and ends, and the next turn starts
-- **THEN** the first start is CombatantId(1)
-- **AND** the next start is CombatantId(3)
-- **AND** the round is still 1
-- **AND** CombatantId(2) has 0 actions
-
-#### Scenario: The only living combatant starts the next round
-
-- **GIVEN** CombatantId(1) alive and CombatantId(2) dead, with CombatantId(1) earlier in the order
-- **WHEN** CombatantId(1) starts and ends a turn, and a start is requested
-- **THEN** the round is 2
-- **AND** the started combatant is CombatantId(1)
-
-#### Scenario: No living combatant returns an error
-
-- **GIVEN** every combatant is already dead and the round is 1
-- **WHEN** a start is requested
-- **THEN** the result is a typed error
-- **AND** the round stays 1
-- **AND** the order is unchanged
-
-#### Scenario: Dying and unconscious creatures still start a turn
-
-- **GIVEN** the order CombatantId(1) at Dying(1), CombatantId(2) Dead, and CombatantId(3) Unconscious
-- **WHEN** each living turn starts
-- **THEN** CombatantId(1) starts with 3 actions
-- **AND** CombatantId(3) starts with 3 actions
-- **AND** CombatantId(2) does not start
-
 ### Requirement: Strike damage removes temporary Hit Points first
 
-Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder SHALL reduce current Hit Points. Damage of 0 SHALL leave both unchanged. When the temporary amount reaches 0, its rounds SHALL be 0.
+Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder SHALL reduce current Hit Points. Damage of 0 SHALL leave both unchanged. One helper SHALL apply that amount. apply_dice_damage SHALL stay unchanged. When the temporary amount reaches 0, its rounds SHALL be 0.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2321 (Player Core pg. 410, Temporary Hit Points)
 

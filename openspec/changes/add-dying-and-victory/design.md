@@ -4,7 +4,7 @@
 
 `CombatantState` stores current Hit Points, `temp_hit_points` (always 0 today), `wounded` (always 0), and `Vital::{Alive, Dead, EnterDying}`. `dying_entered` is a bool, not a dying value. `apply_dice_damage` and `apply_healing` subtract or add Hit Points and then mark 0 Hit Points as `Dead` or `EnterDying`. They do not spend temporary Hit Points, set a dying value, or end the encounter. `ac_modifiers` and `perception_modifiers` already take unconscious as a status −4, without a condition id. `Statistic` has no Reflex. `flat_check` rolls one bare d20. See proposal.md for why.
 
-`add-encounter-turns` merges first. It defines `Side::{Pc, Enemy}` on each participant and owns initiative, turn order, and Strike. This change uses that `Side` for victory. It owns the semantics of R-08, R-10, and temporary Hit Point ticks. The encounter-turns delta routes Strike damage through `apply_resolved_blow` and retargets `Vital::EnterDying` to `Dying(1)` and `Unconscious`. `wire-dying-into-turns` only calls `start_of_turn` and `take_initiative_move`. That follow-up, not this change, removes the interim Armor Class workaround (DEV-36 in `docs/designer/rules-deviations.md`): until then, Strike still compares the target's baked Armor Class.
+`add-encounter-turns` merges first. It defines `Side::{Pc, Enemy}` on each participant and owns initiative, turn order, and Strike. This change uses that `Side` for victory. It owns the semantics of R-08, R-10, and temporary Hit Point ticks. The encounter-turns delta removes "Reaching 0 Hit Points floors at 0", routes a hitting Strike through `apply_resolved_blow`, and records rounds when temporary Hit Points reach 0. It does not change the not-Alive turn rule. `wire-dying-into-turns` only calls `start_of_turn` and `take_initiative_move`. That follow-up, not this change, removes the interim Armor Class workaround (DEV-36 in `docs/designer/rules-deviations.md`): until then, Strike still compares the target's baked Armor Class.
 
 `FactionId` stays the grid movement faction. Victory does not read it.
 
@@ -61,7 +61,7 @@ The 10-minute natural wake-up is not modeled. Positive healing is the only way U
 
 `apply_dice_damage` rolls, calls `damage_dealt`, and on `Ok` calls `apply_resolved_blow`. An overflowing total returns `HpError::Overflow` and writes nothing. The die already drawn stays drawn.
 
-`apply_resolved_blow(state, creature, amount, degree)` is the one resolution path. `degree` is a `DegreeOfSuccess`. `CriticalSuccess` is a critical blow. `Success` is an ordinary blow. `Failure` and `CriticalFailure` return a typed error and write nothing. `apply_dice_damage` keeps the existing `critical: bool` and maps true to `CriticalSuccess` and false to `Success`. The function does not roll. Tests use it for a resolved 0 and for `2147483647`. There is not a helper per test. `reflex_modifiers` keeps `unconscious: bool`, the same argument `perception_modifiers` and `ac_modifiers` already take on main. A separate consciousness enum on Reflex alone would split the three producers.
+`apply_resolved_blow(state, creature, amount, degree)` is the one resolution path. `degree` is a `DegreeOfSuccess`. `CriticalSuccess` is a critical blow. `Success` is an ordinary blow. `Failure` and `CriticalFailure` return `HpError::NotAHit` and write nothing. `add-encounter-turns` defines that variant. This change does not declare it. `apply_dice_damage` keeps the existing `critical: bool` and maps true to `CriticalSuccess` and false to `Success`. The function does not roll. Tests use it for a resolved 0 and for `2147483647`. There is not a helper per test. `reflex_modifiers` keeps `unconscious: bool`, the same argument `perception_modifiers` and `ac_modifiers` already take on main. A separate consciousness enum on Reflex alone would split the three producers.
 
 Then, for a resolved amount:
 
@@ -157,7 +157,7 @@ The query is pure and not terminal. A later heal can make `Victory` become `Ongo
 
 ### Errors and purity
 
-`HpError` gains `NonPositiveHealing`, `Dead`, `NegativeTemporaryHitPoints`, `ZeroTemporaryDuration`, and `InconsistentVital`, beside the existing `Overflow`. Healing a Dead combatant and granting temporary Hit Points to a Dead combatant both return `Dead`. No string errors. Library code does not panic. Arithmetic is checked. No new dependency, no `unsafe`, no clock, no global dice. `Creature` and `CharacterBuild` are only borrowed for reading.
+`HpError` gains `NonPositiveHealing`, `Dead`, `NegativeTemporaryHitPoints`, `ZeroTemporaryDuration`, and `InconsistentVital`, beside the existing `Overflow`. `NotAHit` is not one of those variants. `add-encounter-turns` defines it, and `apply_resolved_blow` returns it. Healing a Dead combatant and granting temporary Hit Points to a Dead combatant both return `Dead`. No string errors. Library code does not panic. Arithmetic is checked. No new dependency, no `unsafe`, no clock, no global dice. `Creature` and `CharacterBuild` are only borrowed for reading.
 
 ## Risks / Trade-offs
 

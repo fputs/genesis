@@ -667,15 +667,21 @@ An amount of 0 SHALL be no temporary Hit Points and SHALL NOT replace a positive
 
 ### Requirement: A resolved blow takes a degree
 
-apply_resolved_blow SHALL take a DegreeOfSuccess. CriticalSuccess SHALL be a critical blow. Success SHALL be an ordinary blow. Failure and CriticalFailure SHALL return a typed error and SHALL NOT write. apply_dice_damage SHALL keep its critical bool and SHALL map true to CriticalSuccess and false to Success.
+apply_resolved_blow SHALL take a DegreeOfSuccess. CriticalSuccess SHALL be a critical blow. Success SHALL be an ordinary blow. Failure and CriticalFailure SHALL return NotAHit, defined by add-encounter-turns, and SHALL NOT write. This change SHALL NOT declare NotAHit. apply_dice_damage SHALL keep its critical bool and SHALL map true to CriticalSuccess and false to Success.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2307 (Player Core pg. 407, Doubling and Halving)
 
 #### Scenario: A failure degree is not a blow
 
-- **GIVEN** vital Dying(1) and current Hit Points 0
+- **GIVEN** vital Dying(1), current Hit Points 0, and no pending report
 - **WHEN** apply_resolved_blow is called with amount 1 and DegreeOfSuccess::Failure
-- **THEN** the result is a typed error, no die is rolled, and vital is still Dying(1)
+- **THEN** the result is NotAHit, no die is drawn, the take is None, and vital is still Dying(1)
+
+#### Scenario: A critical failure degree is not a blow
+
+- **GIVEN** vital Dying(1), current Hit Points 0, and no pending report
+- **WHEN** apply_resolved_blow is called with amount 1 and DegreeOfSuccess::CriticalFailure
+- **THEN** the result is NotAHit, no die is drawn, the take is None, and vital is still Dying(1)
 
 ### Requirement: The dead cannot gain temporary Hit Points
 

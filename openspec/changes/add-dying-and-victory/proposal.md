@@ -31,7 +31,7 @@ Out of scope: initiative order, choosing a Strike target, multiple attack penalt
 
 - `creature-template`: At 0 Hit Points with `uses_dying_rules`, damage resolution records dying as `dying-and-victory` specifies, except massive damage kills. This capability still does not choose the dying value.
 - `modifiers`: Reflex is its own statistic. Unconscious is a reserved condition id and a status penalty of −4 on Armor Class, Perception, and Reflex, stacking as R-09 specifies.
-- `encounter-turns`: Strike damage calls `apply_resolved_blow` with the Strike's degree. `note_hit_points` is not the dying result. Text that named `Vital::EnterDying` names `Dying(1)` and `Unconscious`. This change merges after `add-encounter-turns`.
+- `encounter-turns`: A hitting Strike calls `apply_resolved_blow` with its degree. `note_hit_points` is removed. The requirement "Reaching 0 Hit Points floors at 0" is replaced by resolved blows. The not-Alive turn rule is left as `add-encounter-turns` wrote it. `HpError::NotAHit` comes from that change and is not declared here. This change merges after `add-encounter-turns`.
 
 ## Impact
 
