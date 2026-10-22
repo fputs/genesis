@@ -68,7 +68,7 @@ The multiple attack penalty SHALL apply once per check through its reserved sour
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2290 (Player Core pg. 403, Range Penalty)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
+**Source**: Player Core pg. 398, Duplicate Effects
 
 #### Scenario: A caller source 1 does not collapse an internal term
 

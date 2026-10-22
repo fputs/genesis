@@ -87,7 +87,7 @@ The degree after the natural 20 or natural 1 selects damage. `strike` does not t
 
 `StrikeProfile.damage_dice` is a `DieCount` (`u8`) and `damage_faces` is `Faces` (at most 255). The sum of that many faces fits in `i32` (at most 255 times 255). The sum still uses `checked_add`. Adding `damage_bonus` uses `checked_add`. A failure is `DamageOverflow(ModifierError::Overflow)`. `damage_dealt`'s `Err` is `DamageOverflow` of that `ModifierError`, so the cause is kept. Dice already drawn stay drawn. Actions, Hit Points, temporary Hit Points, and the attack count stay as they were.
 
-`HpError` gains `NotAHit`. Resolving a blow whose degree is `Failure` or `CriticalFailure` returns `HpError::NotAHit` before any damage die is drawn, and it leaves Hit Points and the rest of the state unchanged. `add-dying-and-victory` references `HpError::NotAHit` and does not define its own miss error. `NotAHit` is the miss result, not an `EncounterError::HitPoints` failure: Strike still spends the action, reports that degree, and records damage 0.
+`HpError` gains `NotAHit`. This change does not add `apply_blow` or any other public damage function beside `apply_dice_damage`. `apply_resolved_blow` in `add-dying-and-victory` is the resolved-blow path. It returns `HpError::NotAHit` for `Failure` and `CriticalFailure` and does not define its own miss error.
 
 ```rust
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,19 +95,11 @@ pub enum HpError {
     Overflow,
     NotAHit,
 }
-
-pub fn apply_blow(
-    state: &mut CombatantState,
-    creature: &Creature,
-    dice: &mut impl Dice,
-    faces: Faces,
-    bonus: i32,
-    modifiers: &[Modifier],
-    degree: DegreeOfSuccess,
-) -> Result<(), HpError>;
 ```
 
-On success, one `pub(crate)` helper applies the dealt amount to temporary Hit Points first and the remainder to current Hit Points, floored at 0 (R-06, the damage sentence only). It does not roll. It returns `Result<(), HpError>`. An overflow `Err` becomes `HitPoints(HpError)` with that cause, and the strike writes no Hit Points, spends no action, and does not increment the count. `apply_dice_damage` is left alone, including for a state whose temporary Hit Points are 0. Do not add a second damage formula. The Strike helper is interim. `add-dying-and-victory` reroutes Strike through its single blow path and removes `note_hit_points`. This change does not promise that `note_hit_points` survives. Do not choose a dying value, do not change wounded, do not move the initiative entry, and do not treat a blow of at least twice maximum Hit Points as its own result. Those belong to `add-dying-and-victory` and `wire-dying-into-turns`. Until `wire-dying-into-turns`, a Strike against a target whose vital is neither Alive nor Dead uses the baked Armor Class (DEV-36).
+`strike` short-circuits when the check degree is `Failure` or `CriticalFailure`. It spends the action, reports that degree, and records damage 0. It draws no damage die. Hit Points, temporary Hit Points, wounded, and vital stay unchanged. `NotAHit` is not an `EncounterError::HitPoints` failure.
+
+On success, one `pub(crate)` helper applies the dealt amount to temporary Hit Points first and the remainder to current Hit Points, floored at 0 (R-06, the damage sentence only). It does not roll. It returns `Result<(), HpError>`. An overflow `Err` becomes `HitPoints(HpError)` with that cause, and the strike writes no Hit Points, spends no action, and does not increment the count. `apply_dice_damage` is left alone, including for a state whose temporary Hit Points are 0. Do not add a second damage formula. The Strike helper is interim. `add-dying-and-victory` reroutes Strike through `apply_resolved_blow` and removes `note_hit_points`. This change does not promise that `note_hit_points` survives. Do not choose a dying value, do not change wounded, do not move the initiative entry, and do not treat a blow of at least twice maximum Hit Points as its own result. Those belong to `add-dying-and-victory` and `wire-dying-into-turns`. Until `wire-dying-into-turns`, a Strike against a target whose vital is neither Alive nor Dead uses the baked Armor Class (DEV-36).
 
 Damage follows `damage_dealt`: dice plus the baked bonus, then penalties, then the floor of 1 only when penalties reduce a pre-penalty total of at least 1, or a clamp at 0 otherwise, then doubling. R-07 and DEV-14 are this order. The smallest floored crit is 2. A clamped 0 stays 0 on a crit.
 
@@ -242,7 +234,7 @@ impl Encounter {
 
 The three setters exist so tests can reach a round of `u32::MAX`, an attack count of 255, and an active creature that leaves Alive mid-turn. Each setter assigns that field. The round increment and the attack-count increment do not gain a `#[cfg(test)]` branch. The setters are not public. The mid-turn test copies the vital that a 0 Hit Point Strike produced, so the test does not name a dying variant.
 
-Scenario errors map to those variants: duplicate id `DuplicateCombatant`; empty roster `EmptyRoster`; Perception 2147483628 `PerceptionOutOfRange`; a second start `TurnInProgress`; end with no open turn `TurnNotOpen`; a strike by someone other than the active id `NotYourTurn`; a cost of 0 or greater than 3 `InvalidActionCost`; a cost the creature cannot pay `InsufficientActions`; a Strike with 0 actions `InsufficientActions`; a second reaction `NoReaction`; a reaction, action, free action, or Strike for a non-Alive creature `NotConscious`; a dead target `TargetDead`; striking oneself `SelfTarget`; an id that is not in the encounter `UnknownCombatant`; every combatant dead `NoLivingCombatant`; a `u8` attack-count increment that does not fit `AttackCountOverflow`; a round increment that does not fit `RoundOverflow`; an attack-total `Err` `AttackOverflow` of that `ModifierError`; a damage sum or `damage_dealt` `Err` `DamageOverflow` of that `ModifierError`; the Hit Point helper's `Err` `HitPoints` of that `HpError`.
+Scenario errors map to those variants: duplicate id `DuplicateCombatant`; empty roster `EmptyRoster`; Perception 2147483628 `PerceptionOutOfRange`; a second start `TurnInProgress`; end with no open turn `TurnNotOpen`; a strike by someone other than the active id `NotYourTurn`; a cost of 0 or greater than 3 `InvalidActionCost`; a cost the creature cannot pay `InsufficientActions`; a Strike with 0 actions `InsufficientActions`; a second reaction `NoReaction`; a reaction, action, free action, or Strike for a non-Alive creature `NotConscious`; a dead target `TargetDead`; striking oneself `SelfTarget`; an id that is not in the encounter `UnknownCombatant`; every combatant dead `NoLivingCombatant`; a `u8` attack-count increment that does not fit `AttackCountOverflow`; a round increment that does not fit `RoundOverflow`; an attack-total `Err` `AttackOverflow` of that `ModifierError`; a damage sum or `damage_dealt` `Err` `DamageOverflow` of that `ModifierError`; the Hit Point helper's overflow `Err` `HitPoints` of that `HpError`. `NotAHit` is not that helper's error.
 
 `round`, `order`, and `turn_open` are readable. `state` and `creature` are borrowed by id. Every public item gets a `///` comment citing the Player Core section when it states a rule. No `unwrap`, `expect`, `panic!`, or unchecked indexing outside tests. Sums use checked arithmetic.
 
