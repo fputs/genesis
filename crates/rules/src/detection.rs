@@ -343,11 +343,11 @@ pub fn off_guard_against(relation: Relation, other: OffGuard) -> OffGuard {
 /// Resolves the flat check to affect `subject`, or rejects an undetected choice.
 ///
 /// An observed creature that is not concealed, and every area effect, is affected and draws no die.
-/// Hidden and concealed roll once, at DC 11. A concealed failure and a hidden failure report the
-/// action spent and the attack counting for the multiple attack penalty. `counts_for_map` names
-/// that attack case: the caller applies it only when the action has the attack trait. This function
-/// does not read the attack trait, does not call `spend_actions` or Strike, and does not change
-/// the relation.
+/// A target that is only concealed rolls at DC 5; hidden (with or without concealed) rolls once at
+/// DC 11. A concealed failure and a hidden failure report the action spent and the attack counting
+/// for the multiple attack penalty. `counts_for_map` names that attack case: the caller applies it
+/// only when the action has the attack trait. This function does not read the attack trait, does
+/// not call `spend_actions` or Strike, and does not change the relation.
 ///
 /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
 /// Player Core pg. 402, "Multiple Attack Penalty". Player Core pg. 400, "Checks (Flat Checks)".
@@ -379,13 +379,12 @@ pub fn resolve_targeting(
     };
     let effect = fallback_unlisted_critical(roll.degree, false, false);
     let affected = effect == DegreeOfSuccess::Success;
-    let not_affected = !affected;
     Ok(TargetingResult {
         affected,
         dc: Some(roll.dc),
         degree: Some(roll.degree),
-        action_spent: not_affected,
-        counts_for_map: not_affected,
+        action_spent: !affected,
+        counts_for_map: !affected,
     })
 }
 
@@ -1311,6 +1310,8 @@ mod tests {
         assert_eq!(result.dc, Some(11));
         assert_eq!(result.degree, Some(DegreeOfSuccess::Failure));
         assert!(!result.affected);
+        assert!(result.action_spent);
+        assert!(result.counts_for_map);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1342,6 +1343,8 @@ mod tests {
         assert!(result.affected);
         assert_eq!(result.dc, None);
         assert_eq!(result.degree, None);
+        assert!(!result.action_spent);
+        assert!(!result.counts_for_map);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1359,6 +1362,8 @@ mod tests {
         let (result, dice) = run_target(&detections, 1, 2, true, &[4]);
         let result = result.expect("area");
         assert!(result.affected);
+        assert!(!result.action_spent);
+        assert!(!result.counts_for_map);
         assert_eq!(dice.remaining(), 1);
     }
 
