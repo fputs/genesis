@@ -115,6 +115,20 @@ pub enum ReactiveError {
     HitPoints(crate::combatant::HpError),
 }
 
+/// Whether the cost can trigger Reactive Strike.
+///
+/// A bool would hide Step, Release, and a cost with none of the trigger traits
+/// behind one value. Callers match the variant.
+///
+/// Player Core, "Step". Player Core, "Release". Player Core, "Reactive Strike".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TriggerClass {
+    /// Step, Release, or a cost that lacks move, manipulate, and ranged.
+    NotATrigger,
+    /// A move, manipulate, or ranged cost other than Step and Release.
+    Triggers,
+}
+
 /// Step, Release, or a cost that lacks move, manipulate, and ranged.
 ///
 /// Step is rejected before the trait slice is read. Release is the only manipulate
@@ -125,19 +139,23 @@ pub(crate) fn not_a_trigger(
     cost: ActionCost,
     identity: ActionIdentity,
     move_action: Option<MoveAction>,
-) -> bool {
+) -> TriggerClass {
     if matches!(move_action, Some(MoveAction::Step)) {
-        return true;
+        return TriggerClass::NotATrigger;
     }
     if matches!(identity, ActionIdentity::Release) {
-        return true;
+        return TriggerClass::NotATrigger;
     }
-    !traits(cost).iter().any(|name| {
+    if traits(cost).iter().any(|name| {
         matches!(
             name,
             ActionTrait::Move | ActionTrait::Manipulate | ActionTrait::Ranged
         )
-    })
+    }) {
+        TriggerClass::Triggers
+    } else {
+        TriggerClass::NotATrigger
+    }
 }
 
 /// Traits carried by an action cost, including a free action.

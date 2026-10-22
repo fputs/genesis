@@ -16,8 +16,8 @@ use crate::grid::{Size, Square};
 use crate::modifiers::{Modifier, ModifierError, Statistic};
 use crate::positioning::{ActionCost, MoveAction};
 use crate::reactive::{
-    ActionIdentity, ReactiveError, ReactiveOutcome, ReactiveStrike, attack_bonus_fits, disruption,
-    not_a_trigger, outside_reach, reactive_attack_total,
+    ActionIdentity, ReactiveError, ReactiveOutcome, ReactiveStrike, TriggerClass,
+    attack_bonus_fits, disruption, not_a_trigger, outside_reach, reactive_attack_total,
 };
 use crate::shield::{
     AttackBlowError, PlannedBlow, ShieldBlock, ShieldError, lower_raised_shield, plan_attack_blow,
@@ -691,7 +691,7 @@ impl Encounter {
         if matches!(availability, ReactiveStrike::Unavailable) {
             return Err(ReactiveError::Unavailable);
         }
-        if not_a_trigger(cost, identity, move_action) {
+        if not_a_trigger(cost, identity, move_action) == TriggerClass::NotATrigger {
             return Err(ReactiveError::NotATrigger);
         }
         let reach = self
