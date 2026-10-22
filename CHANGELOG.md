@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Seek, Hide, targeting flat checks, and off-guard while hidden or undetected. ([#60](https://github.com/fputs/genesis/pull/60))
 - Dying, recovery checks, temporary Hit Points, and which side has won. ([#57](https://github.com/fputs/genesis/pull/57))
 - Prone, flanking, off-guard, and Take Cover. ([#50](https://github.com/fputs/genesis/pull/50))
 - Initiative, the three-action turn, and Strike. ([#52](https://github.com/fputs/genesis/pull/52))
