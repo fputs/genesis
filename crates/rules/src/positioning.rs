@@ -1032,6 +1032,20 @@ mod tests {
         assert_held(&dice);
     }
 
+    /// Player Core, Prone. Player Core, "Off-Guard".
+    #[test]
+    fn a_prone_attacker_and_an_off_guard_defender() {
+        let dice = held_die();
+        let modifiers = attack_penalty(Posture::Prone).expect("prone penalty");
+        let attack = total(&modifiers).expect("attack total");
+        assert_eq!(attack.get(Statistic::Attack), -2);
+        assert_eq!(
+            ac_value(None, None, OffGuard::Yes, AttackKind::Melee, &[]),
+            -2
+        );
+        assert_held(&dice);
+    }
+
     /// Player Core, Prone. Player Core, Penalties.
     #[test]
     fn prone_penalty_and_an_untyped_penalty_total_minus_7() {
