@@ -1187,12 +1187,14 @@ mod tests {
         let next_penalty = multiple_attack_penalty(next_own_turn);
         assert_eq!(next_penalty, multiple_attack_penalty(next_own_turn));
         let mut dice = ScriptedDice::new([15, 10]);
-        let (map, total, _) = attack_outcome(&mut dice, readied_penalty, 8, 18);
+        let (map, total, degree) = attack_outcome(&mut dice, readied_penalty, 8, 18);
         assert_eq!(map, -5);
         assert_eq!(total, 18);
-        let (map, total, _) = attack_outcome(&mut dice, next_penalty, 8, 18);
+        assert_eq!(degree, DegreeOfSuccess::Success);
+        let (map, total, degree) = attack_outcome(&mut dice, next_penalty, 8, 18);
         assert_eq!(map, 0);
         assert_eq!(total, 18);
+        assert_eq!(degree, DegreeOfSuccess::Success);
     }
 
     /// Player Core, "Multiple Attack Penalty".
@@ -1208,9 +1210,10 @@ mod tests {
         let penalty = multiple_attack_penalty(input);
         assert_eq!(penalty, multiple_attack_penalty(input));
         let mut dice = ScriptedDice::new([10]);
-        let (map, total, _) = attack_outcome(&mut dice, penalty, 8, 18);
+        let (map, total, degree) = attack_outcome(&mut dice, penalty, 8, 18);
         assert_eq!(map, 0);
         assert_eq!(total, 18);
+        assert_eq!(degree, DegreeOfSuccess::Success);
     }
 
     /// Player Core, "Multiple Attack Penalty".
@@ -1299,6 +1302,23 @@ mod tests {
             attack_outcome(&mut dice, penalty, 8, 18),
             (-10, 13, DegreeOfSuccess::Failure)
         );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    ///
+    /// The frozen count is below the prior field, so a `max` of the two would be −10.
+    #[test]
+    fn a_frozen_count_below_the_current_prior_count_takes_minus_5() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 3,
+            current_weapon_agile: false,
+            readied_attack_count: Some(1),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        assert_eq!(penalty, -5);
     }
 
     /// Player Core, "Multiple Attack Penalty".
