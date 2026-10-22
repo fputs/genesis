@@ -16,10 +16,10 @@ At 0 Hit Points the state is only dead or a valueless "enter dying" mark, so a f
 - Healing that restores Hit Points on a dying creature removes dying, increases wounded by 1, and leaves them Alive at the healed Hit Points. Healing an Unconscious creature makes them Alive and does not change wounded. Healing never restores temporary Hit Points and does not revive the dead. All damage is lethal (DEV-29).
 - Temporary Hit Points follow ruling R-06 (DEV-13): keep the higher amount and its duration; on a tie keep the existing amount and its duration; damage removes them first; healing never restores them; they are excluded from maximum Hit Points and from the massive-damage threshold; unused points vanish when the duration expires; 0 means none. Duration ticks at the recipient's start of turn, which is DEV-32. RAW counts from the source's turn.
 - Victory is a pure query. The team identifier is `Side` from `add-encounter-turns`. A Side is defeated when none of its combatants is Alive (DEV-30). The query is not terminal.
-- Newly gaining dying sets a report the caller can take once. This change does not reorder combatants, roll initiative, or resolve Strike. Follow-up change `wire-dying-into-turns` calls the hook from encounter turns.
+- Newly gaining dying sets a report the caller can take once. This change does not reorder combatants or roll initiative. Strike stays in `add-encounter-turns` and calls `apply_resolved_blow`. Follow-up change `wire-dying-into-turns` calls the hook from encounter turns.
 - **BREAKING**: `Vital::EnterDying` and `dying_entered` are replaced by `Alive`, `Unconscious`, `Dying` of 1, 2, or 3, and `Dead`. Healing a dead combatant, or a non-positive amount, returns a typed error and leaves the state unchanged.
 
-Out of scope: initiative order, Strike, multiple attack penalty, positioning beyond the existing off-guard input, dropping held items, doomed, nonlethal and the other DEV-29 effects, Treat Wounds, hero points, and saving throws other than producing the Reflex penalty. R-09 closes how the unconscious −4 meets R-01 through R-04. DEV-28 through DEV-32 and R-08 through R-10 are cited from the docs change that lands them; this change does not edit those files.
+Out of scope: initiative order, choosing a Strike target, multiple attack penalty, positioning beyond the existing off-guard input, dropping held items, doomed, nonlethal and the other DEV-29 effects, Treat Wounds, hero points, and saving throws other than producing the Reflex penalty. R-09 closes how the unconscious −4 meets R-01 through R-04. DEV-28 through DEV-32 and R-08 through R-10 are cited from `docs/designer/rules-deviations.md` and `docs/designer/rules-rulings.md`. This change does not edit those files.
 
 ## Capabilities
 
@@ -31,9 +31,10 @@ Out of scope: initiative order, Strike, multiple attack penalty, positioning bey
 
 - `creature-template`: At 0 Hit Points with `uses_dying_rules`, damage resolution records dying as `dying-and-victory` specifies, except massive damage kills. This capability still does not choose the dying value.
 - `modifiers`: Reflex is its own statistic. Unconscious is a reserved condition id and a status penalty of −4 on Armor Class, Perception, and Reflex, stacking as R-09 specifies.
+- `encounter-turns`: Strike damage calls `apply_resolved_blow` with the Strike's degree. `note_hit_points` is not the dying result. Text that named `Vital::EnterDying` names `Dying(1)` and `Unconscious`. This change merges after `add-encounter-turns`.
 
 ## Impact
 
 - New module `crates/rules/src/dying.rs`, re-exported from `lib.rs`. `apply_dice_damage` and `apply_healing` stay the damage and healing entries and call dying resolution. `reflex_modifiers`, `Statistic::Reflex`, and `ConditionId::UNCONSCIOUS` land in `modifiers.rs`. No new crate and no new dependency. `crates/rules` stays free of Bevy, serde, files, network, clock, and global randomness. Callers inject `Dice`. Combatants stay `CombatantId`. Victory takes `Side::{Pc, Enemy}` from `add-encounter-turns` and does not take `FactionId`.
 - This pull request is the spec only. The implementation pull request adds the Unreleased changelog bullet. Archive is the last commit of that implementation pull request, not of this one.
-- `add-encounter-turns` merges first and exports `Side`. This change does not import that change's turn order, Strike, or encounter value. `wire-dying-into-turns` is the follow-up that calls `start_of_turn` and `take_initiative_move`.
+- `add-encounter-turns` merges first and exports `Side`. This change owns the semantics of R-08, R-10, and temporary Hit Point ticks. Its encounter-turns delta routes Strike damage through `apply_resolved_blow`. `wire-dying-into-turns` only calls `start_of_turn` and `take_initiative_move`, and that follow-up, not this change, removes the interim Armor Class workaround (DEV-36).

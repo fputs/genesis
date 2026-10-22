@@ -69,9 +69,9 @@ Vital SHALL be Alive, Unconscious, Dying of 1, 2, or 3, or Dead. Unconscious SHA
 - **WHEN** healing of 4 is applied
 - **THEN** vital is Alive, current Hit Points are 4, and wounded is still 1
 
-### Requirement: Nonzero Hit Points cannot be dying or unconscious
+### Requirement: Inconsistent vital and Hit Points are rejected
 
-Dying or Unconscious with current Hit Points other than 0 SHALL be rejected. The operation SHALL return a typed error, draw no die, and write nothing. A successful change to Dying SHALL set current Hit Points to 0 in the same step.
+Alive at 0 current Hit Points SHALL be rejected. Dying or Unconscious with current Hit Points other than 0 SHALL be rejected. The operation SHALL return InconsistentVital, draw no die, and write nothing. A successful change to Dying SHALL set current Hit Points to 0 in the same step.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 
@@ -79,20 +79,26 @@ Dying or Unconscious with current Hit Points other than 0 SHALL be rejected. The
 
 - **GIVEN** vital Dying(1), current Hit Points 4, and a scripted d8 of 1
 - **WHEN** that blow is applied
-- **THEN** the result is a typed error, the die is unused, vital is still Dying(1), and current Hit Points stay 4
+- **THEN** the result is InconsistentVital, the die is unused, vital is still Dying(1), and current Hit Points stay 4
 
 #### Scenario: Unconscious at nonzero Hit Points is rejected
 
 - **GIVEN** vital Unconscious, current Hit Points 4, and a scripted d8 of 1
 - **WHEN** that blow is applied
-- **THEN** the result is a typed error, the die is unused, vital is still Unconscious, and current Hit Points stay 4
+- **THEN** the result is InconsistentVital, the die is unused, vital is still Unconscious, and current Hit Points stay 4
+
+#### Scenario: Alive at 0 Hit Points is rejected
+
+- **GIVEN** vital Alive, current Hit Points 0, and a scripted d8 of 1
+- **WHEN** that blow is applied
+- **THEN** the result is InconsistentVital, the die is unused, vital is still Alive, and current Hit Points stay 0
 
 ### Requirement: Dying applies the unconscious penalty
 
 Dying and Unconscious SHALL take the unconscious penalty. Armor Class, Perception, and Reflex SHALL each include a status penalty of -4 in separate collections. Armor Class SHALL also include off-guard at -2 circumstance from ac_modifiers, totaling -6 with no other modifier. Perception and Reflex SHALL stay at -4. Alive and Dead SHALL NOT take the penalty. This change SHALL NOT apply prone or blinded (DEV-31) and SHALL NOT drop held items (DEV-12).
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 446, Unconscious)
-**Source**: DEV-31 and the DEV-12 amendment are cited. The ledger edits land in a separate docs change.
+**Source**: DEV-31 and DEV-12 in docs/designer/rules-deviations.md
 
 #### Scenario: A dying creature takes -4 on three statistics
 
@@ -139,7 +145,7 @@ Damage greater than 0 to an Unconscious creature with uses_dying_rules SHALL app
 
 - **GIVEN** vital Unconscious, current Hit Points 0, wounded 1, uses_dying_rules, maximum Hit Points 9, and a scripted d8 of 1 for non-critical damage 1d8
 - **WHEN** that blow is applied and the initiative report is taken
-- **THEN** vital is Dying(2), wounded is still 1, current Hit Points stay 0, and the report is set
+- **THEN** vital is Dying(2), wounded is still 1, current Hit Points stay 0, and the take is Some(InitiativeMove::Pending)
 
 ### Requirement: Recovery checks use DC 10 plus dying
 
@@ -303,8 +309,9 @@ When an Alive or Unconscious creature gains dying, the value SHALL be 1 plus wou
 
 ### Requirement: Damage while dying increases dying
 
-A blow whose damage is greater than 0 against a creature that is already Dying SHALL increase dying by 1, or by 2 when the blow is critical, even when temporary Hit Points absorb the whole blow (R-10). A resolved blow of 0 SHALL NOT change dying. A die that DEV-14 floors to 1 SHALL count as damage 1. The blow's critical flag SHALL NOT also apply a save critical failure.
+A blow whose damage is greater than 0 against a creature that is already Dying SHALL increase dying by 1, or by 2 when the blow is critical, even when temporary Hit Points absorb the whole blow (R-10). A resolved blow of 0 SHALL NOT change dying. A damage penalty SHALL floor that blow to 1 under Rules 2302. A baked negative bonus SHALL clamp to 0. The blow's degree SHALL NOT also apply a save critical failure.
 
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, Damage Rolls)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2327 (Player Core pg. 411, Taking Damage while Dying)
 **Source**: Ruling R-10 in docs/designer/rules-rulings.md
 
@@ -323,14 +330,20 @@ A blow whose damage is greater than 0 against a creature that is already Dying S
 #### Scenario: A resolved blow of 0 does not increase dying
 
 - **GIVEN** vital Dying(1) and current Hit Points 0
-- **WHEN** apply_resolved_blow is called with amount 0 and not critical
+- **WHEN** apply_resolved_blow is called with amount 0 and DegreeOfSuccess::Success
 - **THEN** no die is rolled, the damage is 0, and vital is still Dying(1)
 
-#### Scenario: A floored die of 1 increases dying
+#### Scenario: A damage penalty floors to 1 and increases dying
 
-- **GIVEN** vital Dying(1), current Hit Points 0, and a scripted d4 rolling 1 with a bonus of -5
+- **GIVEN** vital Dying(1), current Hit Points 0, a scripted d4 rolling 1, and an untyped damage penalty of -5
 - **WHEN** that blow is applied
-- **THEN** the damage is 1 under DEV-14 and vital is Dying(2)
+- **THEN** the damage is 1 under Rules 2302 and vital is Dying(2)
+
+#### Scenario: A baked negative bonus deals 0 while dying
+
+- **GIVEN** vital Dying(1), current Hit Points 0, and a scripted d4 rolling 1 with a baked bonus of -5
+- **WHEN** that blow is applied
+- **THEN** the damage is 0 and vital is still Dying(1)
 
 #### Scenario: Temporary Hit Points do not block the dying increase
 
@@ -477,7 +490,7 @@ A positive heal on a Dying combatant SHALL add that amount, cap it at maximum Hi
 
 ### Requirement: Healing cannot revive the dead
 
-Healing a dead combatant SHALL return a typed error and SHALL NOT change Hit Points, wounded, temporary Hit Points, or death.
+Healing a dead combatant SHALL return the Dead error and SHALL NOT change Hit Points, wounded, temporary Hit Points, or death.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2320 (Player Core pg. 410, Healing)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2329 (Player Core pg. 411, Death)
@@ -486,7 +499,7 @@ Healing a dead combatant SHALL return a typed error and SHALL NOT change Hit Poi
 
 - **GIVEN** vital Dead at 0 current Hit Points, wounded 1, and 0 temporary Hit Points
 - **WHEN** healing of 5 is applied
-- **THEN** the result is a typed error, current Hit Points stay 0, wounded stays 1, and vital stays Dead
+- **THEN** the result is the Dead error, current Hit Points stay 0, wounded stays 1, and vital stays Dead
 
 ### Requirement: Non-positive healing is rejected
 
@@ -585,8 +598,9 @@ Healing SHALL add to current Hit Points only and SHALL leave temporary Hit Point
 
 The hook SHALL reduce the recipient's stored duration by 1 before recovery (R-06, DEV-32). RAW counts that duration from the source's turn; ticking at the recipient's start is the engineering simplification. At 0 ticks, leftover temporary Hit Points SHALL vanish, their rounds SHALL be 0, and current Hit Points SHALL stay unchanged.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2321 (Player Core pg. 410, Temporary Hit Points)
-**Source**: Ruling R-06 (DEV-13) and DEV-32 in docs/designer. DEV-32 lands in a separate docs change.
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2242 (Player Core pg. 302, Durations)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Start Your Turn)
+**Source**: Ruling R-06 (DEV-13) in docs/designer/rules-rulings.md and DEV-32 in docs/designer/rules-deviations.md
 
 #### Scenario: Unused temporary Hit Points vanish on expiry
 
@@ -651,6 +665,30 @@ An amount of 0 SHALL be no temporary Hit Points and SHALL NOT replace a positive
 - **WHEN** a grant of -1 is applied
 - **THEN** the result is a typed error and the pool is still 5
 
+### Requirement: A resolved blow takes a degree
+
+apply_resolved_blow SHALL take a DegreeOfSuccess. CriticalSuccess SHALL be a critical blow. Success SHALL be an ordinary blow. Failure and CriticalFailure SHALL return a typed error and SHALL NOT write. apply_dice_damage SHALL keep its critical bool and SHALL map true to CriticalSuccess and false to Success.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2307 (Player Core pg. 407, Doubling and Halving)
+
+#### Scenario: A failure degree is not a blow
+
+- **GIVEN** vital Dying(1) and current Hit Points 0
+- **WHEN** apply_resolved_blow is called with amount 1 and DegreeOfSuccess::Failure
+- **THEN** the result is a typed error, no die is rolled, and vital is still Dying(1)
+
+### Requirement: The dead cannot gain temporary Hit Points
+
+Granting temporary Hit Points to a Dead combatant SHALL return the Dead error and SHALL NOT change the pool.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2329 (Player Core pg. 411, Death)
+
+#### Scenario: A grant to the dead leaves the pool empty
+
+- **GIVEN** vital Dead and 0 temporary Hit Points
+- **WHEN** 5 temporary Hit Points for 2 rounds are granted
+- **THEN** the result is the Dead error and the pool stays 0 with 0 rounds
+
 ### Requirement: A zero duration is not a pool
 
 A grant of temporary Hit Points with 0 start-of-turn ticks SHALL return a typed error and SHALL NOT change the current pool.
@@ -702,7 +740,7 @@ Once damage is resolved, a Dead combatant SHALL stay Dead. The die SHALL be cons
 #### Scenario: Maximum Hit Points and a maximum blow are not massive
 
 - **GIVEN** uses_dying_rules, maximum Hit Points 2147483647, current Hit Points 2147483647, and wounded 0
-- **WHEN** apply_resolved_blow is called with amount 2147483647 and not critical
+- **WHEN** apply_resolved_blow is called with amount 2147483647 and DegreeOfSuccess::Success
 - **THEN** the result is Ok, current Hit Points are 0, vital is Dying(1), and no die is rolled
 
 ### Requirement: One Side wins
@@ -710,7 +748,7 @@ Once damage is resolved, a Dead combatant SHALL stay Dead. The die SHALL be cons
 Victory SHALL query combatant id, Side, and state. Side SHALL be Side::Pc or Side::Enemy from add-encounter-turns. A Side SHALL be defeated when none of its combatants is Alive (DEV-30). Fewer than two present Sides SHALL be Ongoing. Exactly one Side with an Alive combatant SHALL be Victory for that Side. Both Sides present and none Alive SHALL be MutualDefeat. Roster order SHALL NOT change the result. Equal rosters SHALL return the same outcome.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2426 (Player Core pg. 435, End the Encounter)
-**Source**: DEV-30, cited here. The ledger row lands in a separate docs change.
+**Source**: DEV-30 in docs/designer/rules-deviations.md
 
 #### Scenario: One side with no conscious combatant loses
 
@@ -794,7 +832,7 @@ The victory query SHALL be pure and SHALL NOT store a winner. It SHALL be read a
 
 ### Requirement: Knockout sets an initiative report
 
-Newly gaining dying SHALL set a report the caller can take once. Taking it SHALL clear it. Death SHALL clear a stale report. Healing SHALL NOT clear it. Massive damage, reaching 0 without uses_dying_rules, and damage while already dying SHALL NOT create a report. This change SHALL NOT reorder combatants.
+Newly gaining dying SHALL set InitiativeMove::Pending. take_initiative_move SHALL return that value once and then None. Death SHALL clear a stale report. Healing that leaves the creature Alive SHALL clear the report. Massive damage, reaching 0 without uses_dying_rules, and damage while already dying SHALL NOT create a report. This change SHALL NOT reorder combatants.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 
@@ -802,44 +840,44 @@ Newly gaining dying SHALL set a report the caller can take once. Taking it SHALL
 
 - **GIVEN** uses_dying_rules, maximum Hit Points 9, current Hit Points 9, and a scripted d8 of 8 for non-critical damage 1d8+1
 - **WHEN** that blow is applied and the report is taken, then taken again
-- **THEN** the first take is true and the second take is false
+- **THEN** the first take is Some(InitiativeMove::Pending) and the second take is None
 
 #### Scenario: Massive damage does not report an initiative move
 
 - **GIVEN** uses_dying_rules, maximum Hit Points 10, current Hit Points 10, no pending report, and a scripted d8 of 8 for non-critical damage 1d8+12
 - **WHEN** that blow is applied and the report is taken
-- **THEN** the take is false
+- **THEN** the take is None
 
 #### Scenario: Death at 0 without dying rules does not report an initiative move
 
 - **GIVEN** uses_dying_rules false, maximum Hit Points 9, current Hit Points 9, and a scripted d8 of 8 for damage 1d8+1
 - **WHEN** that blow is applied and the report is taken
-- **THEN** the die is consumed, vital is Dead, and the take is false
+- **THEN** the die is consumed, vital is Dead, and the take is None
 
 #### Scenario: Damage while dying does not create an initiative report
 
 - **GIVEN** vital Dying(1), current Hit Points 0, no pending report, and a scripted d8 of 1 for non-critical damage 1d8
 - **WHEN** that blow is applied and the report is taken
-- **THEN** vital is Dying(2) and the take is false
+- **THEN** vital is Dying(2) and the take is None
 
 #### Scenario: Two dropped combatants each report once
 
 - **GIVEN** two combatants, each with uses_dying_rules, maximum Hit Points 9, current Hit Points 9, and wounded 0
 - **WHEN** each takes a scripted d8 of 8 for non-critical damage 1d8+1, and each report is taken twice
-- **THEN** each first take is true and each second take is false
+- **THEN** each first take is Some(InitiativeMove::Pending) and each second take is None
 - **AND** taking one combatant's report does not clear the other's
 
-#### Scenario: Healing does not clear the initiative report
+#### Scenario: Healing to Alive clears the initiative report
 
 - **GIVEN** uses_dying_rules, maximum Hit Points 10, current Hit Points 10, and wounded 0
 - **WHEN** a scripted d8 of 8 for non-critical damage 1d8+2 is applied, healing of 4 is applied, and the report is taken
-- **THEN** vital is Alive at 4 Hit Points and the take is true
+- **THEN** vital is Alive at 4 Hit Points and the take is None
 
 #### Scenario: Death clears a stale initiative report
 
 - **GIVEN** uses_dying_rules, maximum Hit Points 10, current Hit Points 10, and wounded 0
-- **WHEN** a scripted d8 of 8 for non-critical damage 1d8+2 is applied, healing of 4 is applied, then a scripted d8 of 8 for non-critical damage 1d8+12 is applied, and the report is taken
-- **THEN** vital is Dead and the take is false
+- **WHEN** a scripted d8 of 8 for non-critical damage 1d8+2 is applied, then a scripted d8 of 8 for non-critical damage 1d8+12 is applied, and the report is taken
+- **THEN** vital is Dead and the take is None
 
 ### Requirement: The start-of-turn hook does not run the turn
 
