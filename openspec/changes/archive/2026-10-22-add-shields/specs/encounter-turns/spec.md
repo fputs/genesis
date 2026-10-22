@@ -4,7 +4,7 @@
 
 ### Requirement: Strike damage uses resolved blows
 
-A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's result and that degree to apply_resolved_blow. CriticalSuccess SHALL be a critical blow and Success an ordinary blow. The Strike SHALL NOT call note_hit_points. Dying, massive damage, temporary Hit Points, and the initiative report SHALL follow dying-and-victory. The Strike SHALL keep the target's baked Armor Class. The Strike SHALL NOT reorder combatants. Shield Hit Points SHALL stay unchanged unless a legal Shield Block is requested.
+A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's result and that degree to apply_resolved_blow. CriticalSuccess SHALL be a critical blow and Success an ordinary blow. The Strike SHALL NOT call note_hit_points. Dying, massive damage, temporary Hit Points, and the initiative report SHALL follow dying-and-victory. The Strike SHALL keep the target's baked Armor Class. The Strike SHALL NOT reorder combatants. Only a legal Shield Block SHALL change shield Hit Points.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2332 (Player Core pg. 412, Massive Damage)

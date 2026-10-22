@@ -140,6 +140,8 @@ enum ModifierSource {
     UnconsciousArmorClass,
     UnconsciousPerception,
     UnconsciousReflex,
+    /// A raised shield's circumstance bonus to Armor Class. Player Core, "Raise a Shield".
+    RaisedShield,
     /// Player Core, "Range Penalty".
     RangePenalty,
     /// The attack check total's circumstance penalty. Player Core, Penalties.
@@ -158,6 +160,7 @@ impl ModifierSource {
             | Self::UnconsciousArmorClass
             | Self::UnconsciousPerception
             | Self::UnconsciousReflex
+            | Self::RaisedShield
             | Self::RangePenalty
             | Self::AttackCircumstance => None,
         }
@@ -954,6 +957,7 @@ fn source_ord(source: ModifierSource) -> (u8, u32) {
         ModifierSource::RangePenalty => (8, 0),
         ModifierSource::AttackCircumstance => (9, 0),
         ModifierSource::UnconsciousReflex => (10, 0),
+        ModifierSource::RaisedShield => (11, 0),
     }
 }
 
@@ -1086,6 +1090,23 @@ pub fn ac_modifiers(
         );
     }
     Ok(modifiers)
+}
+
+/// Circumstance bonus from a raised shield. Callers cannot build this source.
+///
+/// Sequence 11, sort key `(11, 0)`, Armor Class, no condition. A bonus that is not
+/// positive is [`ModifierError`].
+///
+/// Player Core, "Raise a Shield". Player Core, Bonuses.
+pub(crate) fn raised_shield_modifier(bonus: i32) -> Result<Modifier, ModifierError> {
+    Modifier::bonus_from(
+        BonusType::Circumstance,
+        bonus,
+        ModifierSource::RaisedShield,
+        11,
+        None,
+        Statistic::ArmorClass,
+    )
 }
 
 /// Modifiers on Perception from this change. Unconscious is a status −4.
@@ -1357,6 +1378,7 @@ mod tests {
             on_own_turn: true,
             prior_attack_trait_checks_this_turn: 1,
             current_weapon_agile: false,
+            readied_attack_count: None,
         })
     }
 
@@ -1365,6 +1387,7 @@ mod tests {
             on_own_turn: true,
             prior_attack_trait_checks_this_turn: 1,
             current_weapon_agile: true,
+            readied_attack_count: None,
         })
     }
 
@@ -4099,6 +4122,7 @@ mod tests {
             ModifierSource::RangePenalty => (8, 0),
             ModifierSource::AttackCircumstance => (9, 0),
             ModifierSource::UnconsciousReflex => (10, 0),
+            ModifierSource::RaisedShield => (11, 0),
         }
     }
 

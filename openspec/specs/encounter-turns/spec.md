@@ -876,7 +876,7 @@ In the encounter module, no public free function SHALL take a mutable participan
 
 ### Requirement: Strike damage uses resolved blows
 
-A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's result and that degree to apply_resolved_blow. CriticalSuccess SHALL be a critical blow and Success an ordinary blow. The Strike SHALL NOT call note_hit_points. Dying, massive damage, temporary Hit Points, and the initiative report SHALL follow dying-and-victory. The Strike SHALL keep the target's baked Armor Class. The Strike SHALL NOT reorder combatants. Shield Hit Points SHALL stay unchanged.
+A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's result and that degree to apply_resolved_blow. CriticalSuccess SHALL be a critical blow and Success an ordinary blow. The Strike SHALL NOT call note_hit_points. Dying, massive damage, temporary Hit Points, and the initiative report SHALL follow dying-and-victory. The Strike SHALL keep the target's baked Armor Class. The Strike SHALL NOT reorder combatants. Only a legal Shield Block SHALL change shield Hit Points.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2332 (Player Core pg. 412, Massive Damage)
@@ -914,3 +914,11 @@ A Strike whose degree is Success or CriticalSuccess SHALL pass damage_dealt's re
 - **WHEN** that Strike is resolved
 - **THEN** the shield still has 20 Hit Points
 - **AND** the shield is not raised
+
+#### Scenario: A legal Shield Block changes shield Hit Points
+
+- **GIVEN** CombatantId(1) with 30 current Hit Points, maximum 30, baked Armor Class 11, and a raised steel shield at 20 Hit Points, and CombatantId(2) with attack bonus +0, both Perception +0, scripted initiative naturals 10 then 8
+- **WHEN** CombatantId(1) has raised that shield, and CombatantId(2) Strikes with a natural 11, damage 1d8+4 with a damage die of 8, and ShieldBlock::Requested
+- **THEN** the degree is success
+- **AND** CombatantId(1)'s current Hit Points are 23
+- **AND** shield Hit Points are 13

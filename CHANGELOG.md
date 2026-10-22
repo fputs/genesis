@@ -10,6 +10,8 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Raise a Shield and Shield Block. ([#61](https://github.com/fputs/genesis/pull/61))
+- Seek, Hide, targeting flat checks, and off-guard while hidden or undetected. ([#60](https://github.com/fputs/genesis/pull/60))
 - Dying, recovery checks, temporary Hit Points, and which side has won. ([#57](https://github.com/fputs/genesis/pull/57))
 - Prone, flanking, off-guard, and Take Cover. ([#50](https://github.com/fputs/genesis/pull/50))
 - Initiative, the three-action turn, and Strike. ([#52](https://github.com/fputs/genesis/pull/52))
@@ -22,6 +24,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- A readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved. ([#64](https://github.com/fputs/genesis/pull/64))
 - **BREAKING:** `Vital::EnterDying` is replaced by Alive, Unconscious, Dying of 1, 2, or 3, and Dead. ([#57](https://github.com/fputs/genesis/pull/57))
 - **BREAKING:** pr-hygiene skips archive-last while a pull request is a draft and fails a ready implementation pull request whose own OpenSpec change is still active. ([#43](https://github.com/fputs/genesis/pull/43))
 - **BREAKING:** A frightened or sickened bonus is rejected at construction. ([#40](https://github.com/fputs/genesis/pull/40))

@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, creature templates, encounters, and dying.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, and shields.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -7,12 +7,14 @@
 
 mod check;
 mod combatant;
+mod detection;
 mod dice;
 mod dying;
 mod encounter;
 mod grid;
 mod modifiers;
 mod positioning;
+mod shield;
 
 pub use check::{
     ArithmeticOverflow, AttackTotalTerm, CheckModifier, CheckRoll, DcModifier, DegreeOfSuccess,
@@ -26,6 +28,11 @@ pub use combatant::{
     ReachError, ReachFeet, ShieldTemplate, TemplateError, Vital, aid_check, aid_circumstance_bonus,
     apply_dice_damage, apply_healing, base_contribution, contributions, damage_dealt, derive,
     fold_contributions, new_combatant_state, stealth_dc_from_modifier,
+};
+pub use detection::{
+    Area, Concealment, Detection, DetectionCost, DetectionError, Detections, HideObserver,
+    HideResult, OpenRoll, Relation, SeekResult, StrikeNotice, TargetingResult, hide, note_action,
+    note_strike, off_guard_against, refresh, resolve_targeting, seek,
 };
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
 pub use dying::{
@@ -54,4 +61,8 @@ pub use positioning::{
     MoveAction, NearbyFeature, OccupantPresence, OffGuard, PositioningError, Posture,
     PostureChange, Readiness, TakeCoverResult, armor_class, attack_penalty, dismiss, dismiss_cost,
     drop_prone, end_benefit, flanks, leap_while_prone, off_guard, prone_move, stand, take_cover,
+};
+pub use shield::{
+    AttackBlowError, ShieldBlock, ShieldError, apply_attack_blow, lower_raised_shield,
+    raise_shield, shield_ac_modifier,
 };
