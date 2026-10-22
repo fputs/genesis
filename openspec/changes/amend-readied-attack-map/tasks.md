@@ -17,4 +17,4 @@
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 3.3 As the final commit of the implementation pull request, run `openspec archive amend-readied-attack-map --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 3.3 As the final commit of the implementation pull request, run `openspec archive amend-readied-attack-map --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
