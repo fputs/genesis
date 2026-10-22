@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, and creature templates.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, and creature templates.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -10,6 +10,7 @@ mod combatant;
 mod dice;
 mod grid;
 mod modifiers;
+mod positioning;
 
 pub use check::{
     ArithmeticOverflow, AttackTotalTerm, CheckModifier, CheckRoll, DcModifier, DegreeOfSuccess,
@@ -36,4 +37,10 @@ pub use grid::{
     DiagonalCounter, FactionId, GridError, MapBounds, MoveInput, MoveOutcome, Occupant, RangeBand,
     Size, SizeData, Space, Square, SquareEvent, Terrain, adjacent, distance, in_reach,
     move_trait_allowed, range_band, size_data, step, stride, validate_speed,
+};
+pub use positioning::{
+    ActionCost, ActionTrait, AttackKind, CoverBenefit, EndReason, Mobility, MoveAction,
+    NearbyFeature, OccupantPresence, OffGuard, PositioningError, Posture, PostureChange, Readiness,
+    TakeCoverResult, armor_class, attack_penalty, dismiss, dismiss_cost, drop_prone, end_benefit,
+    leap_while_prone, prone_move, stand, take_cover,
 };
