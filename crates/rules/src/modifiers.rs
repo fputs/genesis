@@ -1219,7 +1219,8 @@ fn push_circumstance(
 mod tests {
     use super::*;
     use crate::check::{
-        DegreeOfSuccess, MapInput, degree_of_success, flat_check, multiple_attack_penalty,
+        AttackTotalTerm, DegreeOfSuccess, MapInput, attack_check_total, degree_of_success,
+        flat_check, multiple_attack_penalty,
     };
     use crate::dice::ScriptedDice;
 
@@ -1285,6 +1286,10 @@ mod tests {
             }
         }
         walk(modifiers, 0, visit);
+    }
+
+    fn term(value: i32) -> AttackTotalTerm {
+        AttackTotalTerm::new(value).expect("attack term fits")
     }
 
     fn second_non_agile_map() -> i32 {
@@ -3152,7 +3157,6 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
-    // Internal term composition isn't observable through the public API.
     /// Player Core pg. 402, "Multiple Attack Penalty".
     /// Player Core pg. 403, "Range Penalty".
     #[test]
@@ -3160,51 +3164,29 @@ mod tests {
         let dice = script();
         let map = second_non_agile_map();
         assert_eq!(map, -5);
-        let parts = attack_check_parts(map, 0, 0);
-        assert_eq!(parts.raw_extra, 0);
-        let stacked = summed(&parts.modifiers);
-        let untyped: Vec<_> = stacked
-            .applied()
-            .iter()
-            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Untyped))
-            .collect();
-        assert_eq!(untyped.len(), 1);
-        assert_eq!(untyped[0].value(), -5);
-        assert_eq!(untyped[0].source(), None);
-        assert_eq!(stacked.get(Statistic::Attack), -5);
-        assert_ne!(stacked.get(Statistic::Attack), -10);
+        let total =
+            attack_check_total(10, term(0), term(map), term(0), term(0), &[]).expect("total fits");
+        assert_eq!(total, 5);
+        assert_ne!(total, 0);
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core pg. 400, Penalties.
+    /// Player Core, Penalties.
     #[test]
     fn an_internal_circumstance_penalty_and_a_caller_circumstance_penalty_total_minus_3() {
         let dice = script();
-        let mut modifiers = attack_check_parts(0, -2, 0).modifiers;
-        modifiers.push(penalty(
-            PenaltyType::Circumstance,
-            -3,
-            1,
-            4,
-            None,
-            Statistic::Attack,
-        ));
-        let stacked = summed(&modifiers);
-        let circumstance: Vec<_> = stacked
-            .applied()
-            .iter()
-            .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Circumstance))
-            .collect();
-        assert_eq!(circumstance.len(), 1);
-        assert_eq!(circumstance[0].value(), -3);
-        assert_eq!(stacked.get(Statistic::Attack), -3);
-        assert_ne!(stacked.get(Statistic::Attack), -5);
+        let caller = penalty(PenaltyType::Circumstance, -3, 1, 4, None, Statistic::Attack);
+        let total = attack_check_total(10, term(0), term(0), term(-2), term(0), &[caller])
+            .expect("total fits");
+        assert_eq!(total, 7);
+        assert_ne!(total, 5);
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core pg. 400, Penalties.
-    /// Player Core pg. 402, "Multiple Attack Penalty".
-    /// Player Core pg. 403, "Range Penalty".
+    /// Player Core, Penalties.
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Range Penalty".
+    /// Player Core pg. 398, Duplicate Effects.
     ///
     /// Substitute: rule, Duplicate Effects keys a repeated effect on its source; why not,
     /// these internal terms are not caller effects; substitute, each internal term uses a
@@ -3213,50 +3195,117 @@ mod tests {
     #[test]
     fn a_caller_source_1_does_not_collapse_an_internal_term() {
         let dice = script();
-        let parts = attack_check_parts(-5, -2, -2);
-        assert!(
-            parts
-                .modifiers
-                .iter()
-                .all(|modifier| modifier.source() != Some(SourceId(1)))
-        );
-        let mut modifiers = parts.modifiers;
-        modifiers.push(penalty(
-            PenaltyType::Untyped,
-            -3,
+        let caller = penalty(PenaltyType::Untyped, -3, 1, 4, None, Statistic::Attack);
+        assert_eq!(caller.source(), Some(SourceId(1)));
+        let total = attack_check_total(10, term(0), term(-5), term(-2), term(-2), &[caller])
+            .expect("total fits");
+        assert_eq!(total, -2);
+        assert_ne!(total, 1);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn an_empty_caller_list_keeps_the_stacked_total() {
+        let dice = script();
+        let total =
+            attack_check_total(12, term(9), term(-5), term(-2), term(0), &[]).expect("total fits");
+        assert_eq!(total, 14);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn a_caller_untyped_penalty_stacks_with_the_multiple_attack_penalty() {
+        let dice = script();
+        let caller = penalty(PenaltyType::Untyped, -2, 1, 1, None, Statistic::Attack);
+        let total = attack_check_total(12, term(9), term(-5), term(0), term(0), &[caller])
+            .expect("total fits");
+        assert_eq!(total, 14);
+        assert_ne!(total, 16);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn two_caller_circumstance_bonuses_keep_the_higher() {
+        let dice = script();
+        let higher = bonus(BonusType::Circumstance, 4, 1, 1, None, Statistic::Attack);
+        let lower = bonus(BonusType::Circumstance, 1, 2, 2, None, Statistic::Attack);
+        let total = attack_check_total(10, term(0), term(0), term(0), term(0), &[higher, lower])
+            .expect("total fits");
+        assert_eq!(total, 14);
+        assert_ne!(total, 15);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn a_caller_circumstance_bonus_and_an_internal_circumstance_penalty_both_apply() {
+        let dice = script();
+        let caller = bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Attack);
+        let total = attack_check_total(10, term(0), term(0), term(-2), term(0), &[caller])
+            .expect("total fits");
+        assert_eq!(total, 10);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn an_armor_class_modifier_does_not_change_the_attack_total() {
+        let dice = script();
+        let caller = penalty(
+            PenaltyType::Circumstance,
+            -2,
             1,
-            4,
+            1,
+            None,
+            Statistic::ArmorClass,
+        );
+        let total = attack_check_total(10, term(0), term(0), term(0), term(0), &[caller])
+            .expect("total fits");
+        assert_eq!(total, 10);
+        assert_ne!(total, 8);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn an_overflowing_caller_list_returns_an_error() {
+        let dice = script();
+        let first = penalty(
+            PenaltyType::Untyped,
+            i32::MIN,
+            1,
+            1,
             None,
             Statistic::Attack,
-        ));
-        let stacked = summed(&modifiers);
-        assert_eq!(stacked.applied().len(), 4);
-        assert!(stacked.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Untyped)
-                && modifier.value() == -3
-                && modifier.source() == Some(SourceId(1))
-        }));
-        assert!(stacked.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Untyped)
-                && modifier.value() == -5
-                && modifier.source().is_none()
-        }));
-        assert!(stacked.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Untyped)
-                && modifier.value() == -2
-                && modifier.source().is_none()
-        }));
-        assert!(stacked.applied().iter().any(|modifier| {
-            modifier.penalty_type() == Some(PenaltyType::Circumstance)
-                && modifier.value() == -2
-                && modifier.source().is_none()
-        }));
-        assert!(
-            stacked.applied().iter().all(|modifier| {
-                modifier.source() != Some(SourceId(1)) || modifier.value() == -3
-            })
         );
-        assert_eq!(stacked.get(Statistic::Attack), -12);
+        let second = penalty(
+            PenaltyType::Untyped,
+            i32::MIN,
+            2,
+            2,
+            None,
+            Statistic::Attack,
+        );
+        let result = attack_check_total(12, term(0), term(0), term(0), term(0), &[first, second]);
+        assert_eq!(result, Err(ModifierError::Overflow));
+        assert_ne!(result, Ok(12));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Penalties.
+    #[test]
+    fn the_same_caller_list_totals_twice() {
+        let dice = script();
+        let caller = penalty(PenaltyType::Circumstance, -2, 3, 1, None, Statistic::Attack);
+        let list = [caller];
+        let first =
+            attack_check_total(10, term(4), term(-5), term(0), term(0), &list).expect("total fits");
+        let second =
+            attack_check_total(10, term(4), term(-5), term(0), term(0), &list).expect("total fits");
+        assert_eq!(first, second);
         assert_eq!(dice.remaining(), 1);
     }
 

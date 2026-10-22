@@ -461,6 +461,22 @@ pub struct CombatantState {
     pub vital: Vital,
 }
 
+impl CombatantState {
+    /// Whether the reaction can be spent.
+    ///
+    /// Player Core, "Reactions in Encounters".
+    pub(crate) fn reaction_available(&self) -> bool {
+        self.reaction_ready
+    }
+
+    /// Sets whether the reaction can be spent.
+    ///
+    /// Player Core, "Reactions in Encounters".
+    pub(crate) fn set_reaction_available(&mut self, available: bool) {
+        self.reaction_ready = available;
+    }
+}
+
 /// Initializes state from a creature. Actions and the reaction stay unset for encounter-core.
 ///
 /// Player Core, Encounter Mode.
@@ -487,6 +503,10 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
 pub enum HpError {
     /// The sum does not fit in `i32`. Hit Points are left unchanged.
     Overflow,
+    /// The degree was a miss, so no Hit Points change.
+    ///
+    /// Player Core, Strike. `add-dying-and-victory` returns this from its resolved-blow path.
+    NotAHit,
 }
 
 /// Damage after modifiers on the damage statistic. The result is never negative.
@@ -612,7 +632,10 @@ pub fn apply_healing(
     Ok(())
 }
 
-fn note_hit_points(state: &mut CombatantState, creature: &Creature) {
+/// Updates vital from current Hit Points. Does not choose a dying value and does not change wounded.
+///
+/// Player Core, "Getting Knocked Out".
+pub(crate) fn note_hit_points(state: &mut CombatantState, creature: &Creature) {
     if state.hit_points > 0 {
         state.vital = Vital::Alive;
     } else if creature.uses_dying_rules {
