@@ -438,6 +438,7 @@ const cases = [
     head: { "openspec/changes/add-foo/proposal.md": "new\n" },
   }),
   failing("A removal without a reference fails", [ARCHIVE], {
+    draft: false,
     body: "",
     base: {
       "openspec/changes/add-foo/proposal.md": "proposal\n",
@@ -489,6 +490,7 @@ const cases = [
     head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
   }),
   failing("Both checks fail together", [MISSING, ARCHIVE], {
+    draft: false,
     body: "OpenSpec-Change: add-foo",
     base: withLog({
       "crates/rules/src/lib.rs": "old\n",
@@ -618,6 +620,123 @@ const cases = [
       "Cargo.lock": "new\n",
       "rust-toolchain.toml": "new\n",
     },
+  }),
+  passing("A draft unarchived implementation pull request passes", {
+    draft: true,
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  failing("A draft still runs the bullet check", [MISSING], {
+    draft: true,
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: { "crates/rules/src/lib.rs": "new\n" },
+  }),
+  passing("A draft removal does not apply archive-last", {
+    draft: true,
+    body: "",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    commits: [
+      {
+        message: "remove",
+        remove: ["openspec/changes/add-foo"],
+        files: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+      },
+    ],
+  }),
+  passing("Converting back to draft relaxes archive-last", {
+    draft: true,
+    action: "converted_to_draft",
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  passing("Archive then mark ready passes", {
+    draft: false,
+    action: "ready_for_review",
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    commits: [
+      {
+        message: "implement",
+        files: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+    ],
+  }),
+  failing("A non-draft unarchived implementation pull request fails", [ARCHIVE], {
+    draft: false,
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  passing("A non-draft implementation pull request with no change of its own passes", {
+    draft: false,
+    body: "Ready, with no change line.",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  }),
+  failing("A push after ready re-runs the full check", [ARCHIVE], {
+    draft: false,
+    action: "synchronize",
+    body: "OpenSpec-Change: add-foo",
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    commits: [
+      {
+        message: "implement",
+        files: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": NEW_LOG },
+      },
+      {
+        message: "openspec archive add-foo --yes",
+        rename: [archiveRename("add-foo")],
+        files: { "openspec/specs/changelog/spec.md": "spec\n" },
+      },
+      {
+        message: "fix typo",
+        files: { "crates/rules/src/lib.rs": "typo\n" },
+      },
+    ],
   }),
   failing("A missing path uses C-locale git text", [MISSING], {
     gitStub: "locale",
@@ -870,12 +989,42 @@ test("Each case is a fixture repository", async () => {
   }
 });
 
-test("Job runs on the four pull request types", () => {
+test("Job runs on its pull request types", () => {
   assert.match(workflow, /pull_request:/);
-  assert.match(workflow, /types:\s*\[opened, synchronize, reopened, edited]/);
+  assert.match(
+    workflow,
+    /types:\s*\[opened, synchronize, reopened, edited, ready_for_review, converted_to_draft]/,
+  );
   assert.match(workflow, /branches:\s*\[main]/);
+  assert.doesNotMatch(workflow, /merge_group/);
   const job = jobBlock(workflow, "pr-hygiene");
   assert.match(job, /node scripts\/pr-hygiene\.mjs/);
+});
+
+test("A fenced or extra-word line is not its own change", async () => {
+  const shared = {
+    draft: false,
+    base: withLog({
+      "crates/rules/src/lib.rs": "old\n",
+      "openspec/changes/add-foo/proposal.md": "proposal\n",
+    }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": NEW_LOG,
+    },
+  };
+  await runCase(
+    passing("fenced", {
+      ...shared,
+      body: "```\nOpenSpec-Change: add-foo\n```",
+    }),
+  );
+  await runCase(
+    passing("extra words", {
+      ...shared,
+      body: "OpenSpec-Change: add-foo extra",
+    }),
+  );
 });
 
 test("The job does not run on push", () => {
@@ -896,9 +1045,23 @@ test("The job installs no npm package", () => {
   const specs = [...scriptSource.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]);
   assert.ok(specs.length >= 4);
   for (const specifier of specs) {
+    const sharedParser = specifier === "./spec-drift-check.mjs";
+    assert.ok(specifier.startsWith("node:") || sharedParser, specifier);
+  }
+  assert.match(
+    scriptSource,
+    /import\s*\{\s*changeReferences\s*\}\s*from\s*["']\.\/spec-drift-check\.mjs["']/,
+  );
+  assert.doesNotMatch(scriptSource, /function changeReferences|function referenceId/);
+  assert.doesNotMatch(scriptSource, /\brequire\s*\(/);
+  const driftSource = readFileSync(
+    fileURLToPath(new URL("./spec-drift-check.mjs", import.meta.url)),
+    "utf8",
+  );
+  const driftSpecs = [...driftSource.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]);
+  for (const specifier of driftSpecs) {
     assert.match(specifier, /^node:/);
   }
-  assert.doesNotMatch(scriptSource, /\brequire\s*\(/);
 });
 
 test("The job runs the suite first", () => {
@@ -1128,6 +1291,7 @@ function spawnScript(built, row) {
     row.invalidPayload ||
     row.usePayloadForShas ||
     row.usePayloadForBody ||
+    row.draft !== undefined ||
     (row.labels ?? []).length > 0;
   if (wantsPayload) {
     const payloadPath = join(built.dir, "event.json");
@@ -1141,6 +1305,7 @@ function spawnScript(built, row) {
           pull_request: {
             number: 7,
             body: row.body ?? "",
+            ...(row.draft !== undefined ? { draft: row.draft } : {}),
             base: { sha: built.baseSha },
             head: { sha: built.headSha },
             labels: (row.labels ?? []).map((name) => ({ name })),

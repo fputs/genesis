@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { changeReferences } from "./spec-drift-check.mjs";
 
 const UNRELEASED = "## [Unreleased]";
 const DATED_ARCHIVE = /^(\d{4})-(\d{2})-(\d{2})-(.+)$/;
@@ -30,8 +31,8 @@ function evaluate() {
   if (event !== "pull_request") {
     throw new Error("pr-hygiene: pull request event is required");
   }
-  // opened, synchronize, reopened, and edited share these checks. Reading the
-  // action honors the override without a second code path for an edited body.
+  // Every pull_request action shares these checks. Reading the action honors
+  // the override without a second code path for an edited body.
   void resolveAction(payload);
 
   const root = process.env.PR_HYGIENE_ROOT || defaultRoot();
@@ -42,7 +43,7 @@ function evaluate() {
   // base sha. A commit that landed on main after the branch point is not this
   // pull request's change. The checkout HEAD may be a runner merge commit, so
   // archive-last reads the event head and that commit's first parent.
-  // Archive-last does not read the pull request body.
+  // The body is read only to find this pull request's own change id.
   const mergeBaseSha = requireMergeBase(root, baseSha, headSha);
   const parentSha = requireParent(root, headSha);
   const paths = changedPaths(root, mergeBaseSha, headSha);
@@ -51,11 +52,59 @@ function evaluate() {
   if (missingBullet(root, mergeBaseSha, headSha, paths)) {
     failures.push(MISSING_BULLET);
   }
-  const removed = removedChangeIds(root, mergeBaseSha, headSha);
-  if (archiveNotLast(root, mergeBaseSha, headSha, parentSha, removed)) {
-    failures.push(ARCHIVE_NOT_LAST);
+  // A draft is still being fixed, so archive-last waits until the pull request
+  // is ready. The bullet check above still runs.
+  if (!isDraft(payload)) {
+    const removed = removedChangeIds(root, mergeBaseSha, headSha);
+    const archiveFailed = archiveNotLast(root, mergeBaseSha, headSha, parentSha, removed);
+    const ownActive = ownChangeStillActive(root, headSha, paths, pullRequestBody(payload));
+    if (archiveFailed || ownActive) {
+      failures.push(ARCHIVE_NOT_LAST);
+    }
   }
   return failures;
+}
+
+function isDraft(payload) {
+  return payload.pull_request?.draft === true;
+}
+
+function pullRequestBody(payload) {
+  if (process.env.PR_HYGIENE_BODY !== undefined) {
+    return process.env.PR_HYGIENE_BODY;
+  }
+  const body = payload.pull_request?.body;
+  return typeof body === "string" ? body : "";
+}
+
+function ownChangeStillActive(root, headSha, paths, body) {
+  if (!nonExemptImplementation(paths)) {
+    return false;
+  }
+  const active = new Set(activeChangeIdsAt(root, headSha));
+  const { ids } = changeReferences(unfencedBody(body));
+  return ids.some((id) => active.has(id));
+}
+
+function nonExemptImplementation(paths) {
+  return paths.some(isCodePath) && needsBullet(paths);
+}
+
+function unfencedBody(body) {
+  // spec-drift counts a fenced OpenSpec-Change line. This own-change id does not.
+  let fenced = false;
+  const kept = [];
+  for (const raw of body.split("\n")) {
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+    if (isFence(line.trim())) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) {
+      kept.push(line);
+    }
+  }
+  return kept.join("\n");
 }
 
 function defaultRoot() {
