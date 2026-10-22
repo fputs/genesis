@@ -819,6 +819,7 @@ mod tests {
             shield: None,
             stealth_dc: None,
             aid_modifier: None,
+            aid_rank: None,
             uses_dying_rules: None,
         };
         derive(&CharacterBuild::try_new(parts).expect("valid build"))

@@ -1,10 +1,11 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, and shields.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, and Aid.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
 
 #![forbid(unsafe_code)]
 
+mod aid;
 mod check;
 mod combatant;
 mod detection;
@@ -16,6 +17,7 @@ mod modifiers;
 mod positioning;
 mod shield;
 
+pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank, aid_circumstance_bonus};
 pub use check::{
     ArithmeticOverflow, AttackTotalTerm, CheckModifier, CheckRoll, DcModifier, DegreeOfSuccess,
     FlatRoll, MapInput, attack_check_total, dc_from_modifier, degree_of_success,
@@ -25,9 +27,9 @@ pub use check::{
 pub use combatant::{
     BuildParts, CharacterBuild, CombatantId, CombatantState, ConditionSlot, Contribution, Creature,
     DieCount, DieCountError, DyingValue, DyingValueError, FoldError, HpError, MeleeStrike,
-    ReachError, ReachFeet, ShieldTemplate, TemplateError, Vital, aid_check, aid_circumstance_bonus,
-    apply_dice_damage, apply_healing, base_contribution, contributions, damage_dealt, derive,
-    fold_contributions, new_combatant_state, stealth_dc_from_modifier,
+    ReachError, ReachFeet, ShieldTemplate, TemplateError, Vital, aid_check, apply_dice_damage,
+    apply_healing, base_contribution, contributions, damage_dealt, derive, fold_contributions,
+    new_combatant_state, stealth_dc_from_modifier,
 };
 pub use detection::{
     Area, Concealment, Detection, DetectionCost, DetectionError, Detections, HideObserver,

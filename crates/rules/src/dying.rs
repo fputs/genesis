@@ -420,6 +420,7 @@ mod tests {
             shield: None,
             stealth_dc: None,
             aid_modifier: None,
+            aid_rank: None,
             uses_dying_rules: Some(rules),
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))

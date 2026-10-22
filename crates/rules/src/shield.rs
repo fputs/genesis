@@ -301,6 +301,7 @@ mod tests {
             shield,
             stealth_dc: None,
             aid_modifier: None,
+            aid_rank: None,
             uses_dying_rules: Some(dying),
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))
