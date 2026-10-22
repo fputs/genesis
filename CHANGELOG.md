@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Aid preparation on your turn and the Aid reaction against DC 15. ([#68](https://github.com/fputs/genesis/pull/68))
 - Raise a Shield and Shield Block. ([#61](https://github.com/fputs/genesis/pull/61))
 - Seek, Hide, targeting flat checks, and off-guard while hidden or undetected. ([#60](https://github.com/fputs/genesis/pull/60))
 - Dying, recovery checks, temporary Hit Points, and which side has won. ([#57](https://github.com/fputs/genesis/pull/57))

@@ -27,8 +27,8 @@ Start only after `Vital::Unconscious` and `Vital::Dying` are public. Do not add 
 
 ## 6. Changelog and proof
 
-- [ ] 6.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for the Aid preparation and the Aid reaction, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
-- [ ] 6.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
+- [x] 6.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for the Aid preparation and the Aid reaction, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
+- [x] 6.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
