@@ -488,7 +488,7 @@ A readied Strike SHALL NOT roll a flat check and SHALL NOT read hidden or undete
 
 ### Requirement: Matching reactions resolve in initiative order
 
-resolve_reactions SHALL be the one public call for a trigger. It SHALL resolve every matching readied action and every Reactive Strike, in the current initiative order, each fully before the next (DEV-55). DEV-55 covers Reactive Strike and readied reactions together. A tie SHALL follow DEV-05: enemy before PC, then lower CombatantId. A per-readier fire function SHALL NOT be public. A later reaction whose target is already Dead SHALL be TargetDead and SHALL keep its reaction and its ready.
+resolve_reactions SHALL be the only public fire call and SHALL store no Reactive Strike input. The caller SHALL pass availability, attack profile, modifiers, and sizes, keyed by CombatantId. A missing entry SHALL NOT be a Reactive Strike. It SHALL run each matching ready and each entry fully, in initiative order (DEV-55, including Reactive Strike). A tie SHALL use DEV-05: enemy before PC, then lower CombatantId. A later TargetDead SHALL keep that reaction and ready.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2299 (Player Core pg. 417, Ready)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
@@ -510,10 +510,11 @@ resolve_reactions SHALL be the one public call for a trigger. It SHALL resolve e
 
 #### Scenario: A reactive strike and a ready resolve in one call
 
-- **GIVEN** Side::Enemy CombatantId(1) at (0, 0), Medium, reach 5, attack bonus +8, reaction ready, ReactiveStrike::Available, Side::Pc CombatantId(2) at (1, 0), Medium, reach 5, with a stored non-agile Strike, snapshot 0, attack bonus +8, on CombatantId(3) beginning a Stride, and Alive CombatantId(3) at (0, 1), Medium, 20 Hit Points, Armor Class 18, 3 actions, Perception +0, scripted initiative naturals 15 then 10 then 5
-- **WHEN** CombatantId(3) begins a Stride and resolve_reactions is called once, CombatantId(1)'s Reactive Strike with natural 10 and damage 1, then CombatantId(2)'s readied Strike with natural 10 and damage 1
+- **GIVEN** Side::Enemy CombatantId(1) at (0, 0), Medium, reach 5, attack bonus +8, reaction ready, Side::Pc CombatantId(2) at (1, 0), Medium, reach 5, with a stored non-agile Strike, snapshot 0, attack bonus +8, on CombatantId(3) beginning a Stride, and Alive CombatantId(3) at (0, 1), Medium, 20 Hit Points, Armor Class 18, 3 actions, Perception +0, scripted initiative naturals 15 then 10 then 5
+- **WHEN** CombatantId(3) begins a Stride and resolve_reactions is called once with one caller entry, CombatantId(1) only: ReactiveStrike::Available, attack bonus +8, no modifiers, both sizes Medium, and square (0, 0), then CombatantId(1)'s Reactive Strike uses natural 10 and damage 1, and CombatantId(2)'s readied Strike uses natural 10 and damage 1
 - **THEN** CombatantId(3) is at 18 Hit Points
 - **AND** CombatantId(1)'s reaction is spent before CombatantId(2)'s reaction is spent
+- **AND** CombatantId(2) has no Reactive Strike entry, so CombatantId(2) does not make one
 - **AND** CombatantId(3) still has 3 actions
 
 ### Requirement: A knockout abandons the triggering action
@@ -567,7 +568,7 @@ A creature whose open turn was produced by return SHALL be able to Ready. The cu
 - **WHEN** CombatantId(1) Readies a non-agile Strike, attack bonus +8, on CombatantId(2) entering reach
 - **THEN** the frozen attack count is 0
 - **AND** the turn has ended, no turn is open, actions are 0, and the reaction is ready
-- **AND** the round stays 1 and next_start is CombatantId(2)
+- **AND** the round is 2 and next_start is CombatantId(2), who opens that round
 - **AND** the ready stays stored and the natural 10 is unused
 - **WHEN** CombatantId(2)'s turn starts and ends, and CombatantId(1)'s next turn starts
 - **THEN** the round is 2, CombatantId(1)'s turn is open, and no ready is stored

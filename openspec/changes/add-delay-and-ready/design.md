@@ -62,7 +62,7 @@ pub fn next_start(&self) -> Result<CombatantId, EncounterError>
 pub fn initiative_total(&self, id: CombatantId) -> Result<i32, EncounterError>
 ```
 
-`round` already exists. `next_start` does not mutate. While a turn is open, including a turn return opened, it returns `TurnInProgress`. With no open turn and no pending wrap, it returns the id `start_turn` would open and skips `Dead` in that answer. During a pending wrap it returns the id at the top after that wrap and does not change the round. After an open return ends, while a `SkipStartHook` id is next in this round, it returns that id. If the wrap would pass the maximum round, it returns `RoundOverflow` and does not change the round. An empty roster returns `NoCreature`. `StoredReady` holds the trigger, the action, and the frozen count.
+`round` already exists. `next_start` does not mutate. While a turn is open, including a turn return opened, it returns `TurnInProgress`. Ending the last turn of the round, including a returned turn and a Ready that ends that turn, wraps the round the way `end_turn` does. `next_start` then returns the creature at the top, who opens that new round. `delay` still does not advance the round. During that pending wrap, `next_start` returns the id at the top and leaves the round unchanged. After an open return ends, while a `SkipStartHook` id is next in this round, it returns that id. If the wrap would pass the maximum round, it returns `RoundOverflow` and does not change the round. An empty roster returns `NoCreature`. `StoredReady` holds the trigger, the action, and the frozen count.
 
 ### 2. Ready takes a real cost
 
@@ -115,6 +115,16 @@ pub enum ResolvedReaction {
     ReactiveStrike { id: CombatantId, result: Result<(), ReactiveError> },
 }
 
+pub struct ReactiveStrikeInput<'a> {
+    pub id: CombatantId,
+    pub availability: ReactiveStrike,
+    pub profile: StrikeProfile,
+    pub modifiers: &'a [CheckModifier],
+    pub reactor_size: Size,
+    pub actor_size: Size,
+    pub square: Square,
+}
+
 pub fn resolve_reactions(
     &mut self,
     actor: CombatantId,
@@ -122,11 +132,12 @@ pub fn resolve_reactions(
     cost: ActionCost,
     from: Square,
     to: Square,
+    reactors: &[ReactiveStrikeInput<'_>],
     dice: &mut impl Dice,
 ) -> Vec<ResolvedReaction>
 ```
 
-`resolve_reactions` is the only public fire entry. It selects every matching stored ready and every Reactive Strike on that trigger and runs each fully before the next, in current initiative order (DEV-55). DEV-55 covers Reactive Strike and readied reactions together. Ties use DEV-05. `fire_strike`, `fire_stride`, `fire_step`, and `fire_dismiss` stay private. A same-module test may call the private check to lock `WrongAction` before `Delayed`. Encounter tests that offer a trigger call only `resolve_reactions`.
+`resolve_reactions` is the only public fire entry. `reactors` is caller-supplied and keyed by `CombatantId`. It is not stored on the creature. The fields are the values `reactive_strike` takes for that reactor: availability, attack profile, modifiers, both sizes, and the reactor square. The encounter does not store squares. An id with no entry does not take a Reactive Strike. The call selects every matching stored ready and every entry, and runs each fully before the next, in current initiative order (DEV-55). DEV-55 covers Reactive Strike and readied reactions together. Ties use DEV-05. `fire_strike`, `fire_stride`, `fire_step`, and `fire_dismiss` stay private. A same-module test may call the private check to lock `WrongAction` before `Delayed`. Encounter tests that offer a trigger call only `resolve_reactions`.
 
 A begun melee Strike calls `in_reach`. Failure is `OutOfReach` and spends nothing. A begun ranged Strike calls `range_band` with the stored increment. A count from 1 to 6 fires and adds that untyped penalty. `BeyondRange` is `ReadyError::Grid` and spends nothing. There is no new deviation and no "first increment only" rule. A readied Strike does not call `resolve_targeting` and does not draw a flat-check die.
 

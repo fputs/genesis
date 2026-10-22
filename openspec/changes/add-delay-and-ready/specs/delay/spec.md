@@ -327,7 +327,7 @@ Delay SHALL check UnknownCombatant, then TurnNotOpen, then NotYourTurn, then Not
 
 ### Requirement: next_start reports the following turn
 
-next_start SHALL NOT mutate. An open turn, including one return opened, SHALL return TurnInProgress. Otherwise it SHALL return the id start_turn would open, skipping Dead, and SHALL NOT change the round. A pending wrap SHALL return the top id. After an open return ends, the next SkipStartHook id in this round SHALL be that result. A wrap past the maximum round SHALL return RoundOverflow. An empty roster SHALL return NoCreature.
+next_start SHALL NOT mutate. An open turn, including a returned turn, SHALL return TurnInProgress. Otherwise it SHALL return the id start_turn would open, skipping Dead. Ending the last turn, including a returned one, wraps first, and this read SHALL NOT change the round. A pending Delay wrap SHALL return the top id in the old round. A return that is not last SHALL return the next SkipStartHook id. A wrap past the maximum round SHALL return RoundOverflow. Empty roster SHALL return NoCreature.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
@@ -353,7 +353,7 @@ next_start SHALL NOT mutate. An open turn, including one return opened, SHALL re
 - **THEN** the error is TurnInProgress
 - **AND** the open turn stays CombatantId(1) and the round stays 1
 - **WHEN** CombatantId(1)'s turn ends and next_start is read
-- **THEN** the result is CombatantId(2) and the round stays 1
+- **THEN** the result is CombatantId(2), who opens round 2, and the round is 2
 
 #### Scenario: Round overflow does not delay
 
