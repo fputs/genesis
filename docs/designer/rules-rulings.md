@@ -48,3 +48,19 @@ Rules 2302, PC 406: "If the combined penalties on an attack would reduce the dam
 ## R-07 Minimum damage happens before critical doubling (DEV-14, confirmed 2026-10-22)
 - The order stays as in R-02: dice plus modifiers, then penalties, then the floor of 1 (only if penalties caused a total of 0 or less, Player Core p.406, Rules 2302) or a clamp at 0, then doubling on a crit (Player Core p.407, Rules 2307).
 - So the smallest crit when the floor applies deals 2. A total clamped at 0 (because a negative modifier, not a penalty, brought it there) deals 0 even on a crit. This is intentional (DEV-14). RAW gives no order.
+
+## R-08 Damage at 0 HP while unconscious and not dying is a knockout (PR #46 review, 2026-10-22)
+- RAW doesn't cover this case: Getting Knocked Out (Player Core p.410, Rules 2324) triggers on being reduced to 0 HP, and Unconscious (Player Core p.446, Conditions 95) covers damage only above 0 HP.
+- Ruling: damage above 0 to a creature that is unconscious at 0 HP and not dying applies Getting Knocked Out. It gains dying 1 (dying 2 on a critical), plus its wounded value, and moves its initiative (FIX-03). This is a ruling, not a deviation.
+- Example: unconscious at 0 HP with wounded 1. A non-critical 1 damage gives dying 2.
+
+## R-09 The unconscious -4 under R-01 to R-04 (PR #46 review, 2026-10-22)
+- Unconscious (Player Core p.446, Conditions 95) gives a -4 status penalty to AC, Perception and Reflex. It is a condition modifier with a reserved condition id. Its group key is (unconscious, statistic, penalty, status).
+- It is not a valued condition, so penalties are compared by size (R-01 amendment). Reject it at construction if it has a rank, a type other than status, an amount other than -4, or is a bonus.
+- It competes with frightened, sickened and other status penalties, and only the worst one applies. It adds to circumstance penalties such as off-guard -2 and to status bonuses (Player Core p.400, Rules 2282; Player Core p.442, Rules 2455).
+- Examples: frightened 2 and unconscious on AC give -4 status and -2 off-guard, -6 total. Frightened 5 and unconscious on AC give -7. Frightened 3, sickened 1 and unconscious on Reflex give -4. Unconscious with a +1 status bonus on Reflex gives -3. In a tie between frightened 4 and unconscious, the total is -4; the tiebreak has no rules effect.
+
+## R-10 Temp HP and dying (PR #46 review, 2026-10-22)
+- A blow fully absorbed by temporary HP still counts as taking damage, so dying still rises (Player Core p.411, Rules 2327; Player Core p.410, Rules 2321). This is a ruling, not a deviation. Example: dying 1 with 5 temp HP takes 3 damage, giving dying 2 and 2 temp HP.
+- A knockout blow hits temp HP first. Example: 3 HP with 5 temp HP takes 7 damage, leaving 0 temp HP, 1 HP and no dying.
+- Every death clears temp HP, from massive damage and from reaching dying 4 alike. RAW doesn't say (Player Core p.411, Rules 2329); we do it for consistency.
