@@ -1530,6 +1530,33 @@ mod tests {
     }
 
     /// Player Core, "Step 1: Start Your Turn".
+    ///
+    /// QA probe p07. Order is dead, alive, dead, dead. After the living turn, the next start
+    /// skips two dead combatants and the dead combatant at the wrap, and opens that same
+    /// living turn again. A skip that stops after one dead returns no living combatant.
+    #[test]
+    fn two_dead_combatants_in_a_row_wrap_back_to_the_living_one() {
+        let (mut encounter, _) = begin(
+            vec![
+                dead(pc(1, 0, 20, 10)),
+                pc(2, 0, 20, 10),
+                dead(pc(3, 0, 20, 10)),
+                dead(pc(4, 0, 20, 10)),
+            ],
+            &[12, 11, 10, 9],
+        );
+        assert_eq!(encounter.order(), order_of(&[1, 2, 3, 4]).as_slice());
+        assert_eq!(encounter.start_turn().expect("living"), id(2));
+        assert_eq!(encounter.round(), 1);
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("wrap"), id(2));
+        assert_eq!(encounter.round(), 2);
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(actions(&encounter, 3), 0);
+        assert_eq!(actions(&encounter, 4), 0);
+    }
+
+    /// Player Core, "Step 1: Start Your Turn".
     #[test]
     fn the_only_living_combatant_starts_the_next_round() {
         let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10), dead(pc(2, 0, 20, 10))], &[10, 8]);
@@ -2151,8 +2178,10 @@ mod tests {
     /// A Failure spends the action and deals no damage. `HpError::NotAHit` stays off this path.
     #[test]
     fn a_failure_short_circuits_with_no_damage() {
-        let (mut encounter, mut dice) =
-            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 9, 8]);
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), with_temp(pc(2, 0, 20, 18), 5)],
+            &[14, 10, 9, 8],
+        );
         encounter.start_turn().expect("start");
         let result = encounter.strike(
             id(1),
@@ -2168,7 +2197,7 @@ mod tests {
         assert_eq!(actions(&encounter, 1), 2);
         assert_eq!(dice.remaining(), 1);
         assert_eq!(hit_points(&encounter, 2), 20);
-        assert_eq!(temp_hp(&encounter, 2), 0);
+        assert_eq!(temp_hp(&encounter, 2), 5);
         assert_eq!(wounded(&encounter, 2), 0);
         assert_eq!(vital(&encounter, 2), Vital::Alive);
     }
@@ -2178,8 +2207,10 @@ mod tests {
     /// A CriticalFailure spends the action and deals no damage. `HpError::NotAHit` stays off this path.
     #[test]
     fn a_critical_failure_short_circuits_with_no_damage() {
-        let (mut encounter, mut dice) =
-            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 5, 8]);
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), with_temp(pc(2, 0, 20, 18), 5)],
+            &[14, 10, 5, 8],
+        );
         encounter.start_turn().expect("start");
         let result = encounter.strike(
             id(1),
@@ -2195,7 +2226,7 @@ mod tests {
         assert_eq!(actions(&encounter, 1), 2);
         assert_eq!(dice.remaining(), 1);
         assert_eq!(hit_points(&encounter, 2), 20);
-        assert_eq!(temp_hp(&encounter, 2), 0);
+        assert_eq!(temp_hp(&encounter, 2), 5);
         assert_eq!(wounded(&encounter, 2), 0);
         assert_eq!(vital(&encounter, 2), Vital::Alive);
     }

@@ -720,33 +720,33 @@ A success SHALL deal one damage roll. A critical success SHALL double that total
 
 ### Requirement: A failure or critical failure short-circuits with no damage
 
-This change defines `HpError::NotAHit`. `apply_resolved_blow` in `add-dying-and-victory` returns that variant for Failure and CriticalFailure and is the only resolved-blow path. This change SHALL NOT add a public damage function beside `apply_dice_damage`. A Strike at Failure or CriticalFailure SHALL short-circuit in `strike`: it spends the action, records damage 0, draws no damage die, and leaves Hit Points, temporary Hit Points, wounded, and vital unchanged.
+A Strike at Failure or CriticalFailure SHALL return Ok with damage 0, the action spent, and no damage die drawn. Hit Points, temporary Hit Points, wounded, and vital stay unchanged. `strike` SHALL NOT return `HpError::NotAHit`. `HpError::NotAHit` is defined only so `add-dying-and-victory` can return it from `apply_resolved_blow`. This change SHALL NOT add a public damage function beside `apply_dice_damage`.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 
 #### Scenario: A failure short-circuits with no damage
 
-- **GIVEN** an open turn, 3 actions, attack bonus +0, Armor Class 18, the target at 20 current Hit Points, 0 temporary Hit Points, wounded 0, and vital Alive, damage 1d8+4, a scripted natural 9, and a scripted damage die of 8
+- **GIVEN** an open turn, 3 actions, attack bonus +0, Armor Class 18, the target at 20 current Hit Points, 5 temporary Hit Points, wounded 0, and vital Alive, damage 1d8+4, a scripted natural 9, and a scripted damage die of 8
 - **WHEN** `strike` resolves the Strike
 - **THEN** the degree is failure
 - **AND** the damage is 0
 - **AND** 2 actions remain
 - **AND** the scripted 8 is still unused
 - **AND** current Hit Points stay 20
-- **AND** temporary Hit Points stay 0
+- **AND** temporary Hit Points stay 5
 - **AND** wounded stays 0
 - **AND** vital stays Alive
 
 #### Scenario: A critical failure short-circuits with no damage
 
-- **GIVEN** an open turn, 3 actions, attack bonus +0, Armor Class 18, the target at 20 current Hit Points, 0 temporary Hit Points, wounded 0, and vital Alive, damage 1d8+4, a scripted natural 5, and a scripted damage die of 8
+- **GIVEN** an open turn, 3 actions, attack bonus +0, Armor Class 18, the target at 20 current Hit Points, 5 temporary Hit Points, wounded 0, and vital Alive, damage 1d8+4, a scripted natural 5, and a scripted damage die of 8
 - **WHEN** `strike` resolves the Strike
 - **THEN** the degree is critical failure
 - **AND** the damage is 0
 - **AND** 2 actions remain
 - **AND** the scripted 8 is still unused
 - **AND** current Hit Points stay 20
-- **AND** temporary Hit Points stay 0
+- **AND** temporary Hit Points stay 5
 - **AND** wounded stays 0
 - **AND** vital stays Alive
 
