@@ -321,9 +321,9 @@ Current Hit Points, temporary Hit Points, conditions, dying, wounded, shield Hit
 
 ### Requirement: uses_dying_rules defaults to death at 0 Hit Points
 
-uses_dying_rules SHALL be a build input and SHALL default to false when omitted. derive SHALL copy it onto the Creature and SHALL NOT roll Dice. At 0 current Hit Points, a false flag SHALL mark that CombatantState dead with no dying. A true flag SHALL record that dying applies, as encounter-core specifies, and SHALL NOT mark the state dead only for reaching 0. The Creature SHALL stay unchanged. This capability SHALL NOT set the dying value.
+uses_dying_rules SHALL be a build input and SHALL default to false when omitted. derive SHALL copy it onto the Creature and SHALL NOT roll Dice. At 0 Hit Points, a false flag SHALL mark that CombatantState dead with no dying. A true flag SHALL record that dying applies, except as dying-and-victory specifies for massive damage, and SHALL NOT mark the state dead only for reaching 0. This capability SHALL NOT set the dying value. The Creature SHALL stay unchanged.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410)
 
 #### Scenario: Omitting the flag defaults to false
 
@@ -341,13 +341,19 @@ uses_dying_rules SHALL be a build input and SHALL default to false when omitted.
 
 - **GIVEN** a Creature with 9 Hit Points and uses_dying_rules true, a state at 9 current Hit Points, and a scripted d8 of 8 for damage 1d8+1
 - **WHEN** that damage is applied to the state
-- **THEN** the state has 0 current Hit Points, is not dead, and gains dying as encounter-core specifies, and the Creature is unchanged
+- **THEN** the state has 0 current Hit Points and dying value 1, is not dead, and the Creature is unchanged
 
 #### Scenario: Damage above 0 does not kill
 
 - **GIVEN** a Creature with 9 Hit Points and uses_dying_rules false, a state at 9 current Hit Points, and a scripted d8 of 1 for damage 1d8+1
 - **WHEN** that damage is applied to the state
 - **THEN** the state has 7 current Hit Points and is not dead, and the Creature still has 9 Hit Points
+
+#### Scenario: Massive damage with the flag leaves no dying value
+
+- **GIVEN** a Creature with 9 Hit Points and uses_dying_rules true, a state at 9 current Hit Points, and a scripted d8 rolling 8 with bonus 10 for non-critical damage 1d8+10
+- **WHEN** that damage is applied to the state
+- **THEN** the state is dead at 0 current Hit Points and has no dying value, and the Creature is unchanged
 
 ### Requirement: Penalties leave at least 1 damage
 
