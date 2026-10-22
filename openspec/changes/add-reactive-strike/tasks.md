@@ -43,8 +43,8 @@ The error order is the same here, in design.md, and in the spec: `UnknownCombata
 
 ## 9. Changelog and proof
 
-- [ ] 9.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for Reactive Strike, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
-- [ ] 9.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
+- [x] 9.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for Reactive Strike, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
+- [x] 9.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
