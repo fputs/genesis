@@ -279,24 +279,33 @@ pub struct MapInput {
     pub prior_attack_trait_checks_this_turn: u8,
     /// Agile on the weapon used for this check, not an earlier one. Player Core, "Multiple Attack Penalty".
     pub current_weapon_agile: bool,
+    /// `Some(count)` is a readied attack. `count` is the attack-trait checks
+    /// already made when Ready resolved, not a penalty. `None` is every other check.
+    ///
+    /// Player Core, "Multiple Attack Penalty". Player Core, "Ready".
+    pub readied_attack_count: Option<u8>,
 }
 
 /// Untyped multiple attack penalty for this check.
 ///
 /// On the creature's own turn the penalty is 0, then −5, then −10, or 0, then −4, then −8
-/// when the current weapon is agile. Off turn the penalty is 0. This does not increment the count.
+/// when the current weapon is agile. A readied attack uses the attack count frozen when Ready
+/// resolved, and that attack's weapon sets agile, including off the creature's own turn.
+/// Any other check off turn has penalty 0. This does not increment the count.
 ///
-/// Player Core, "Multiple Attack Penalty".
+/// Player Core, "Multiple Attack Penalty". Player Core, "Ready".
 pub fn multiple_attack_penalty(input: MapInput) -> i32 {
-    if !input.on_own_turn {
-        return 0;
-    }
+    let count = match input.readied_attack_count {
+        Some(count) => count,
+        None if input.on_own_turn => input.prior_attack_trait_checks_this_turn,
+        None => return 0,
+    };
     let (second, later) = if input.current_weapon_agile {
         (-4, -8)
     } else {
         (-5, -10)
     };
-    match input.prior_attack_trait_checks_this_turn {
+    match count {
         0 => 0,
         1 => second,
         _ => later,
@@ -551,6 +560,7 @@ mod tests {
                 on_own_turn,
                 prior_attack_trait_checks_this_turn: prior,
                 current_weapon_agile: agile,
+                readied_attack_count: None,
             })
         };
 
@@ -635,6 +645,7 @@ mod tests {
             on_own_turn: true,
             prior_attack_trait_checks_this_turn: 1,
             current_weapon_agile: false,
+            readied_attack_count: None,
         });
         assert_eq!(map, -5);
         let natural = ScriptedDice::new([12]).d20();
@@ -654,6 +665,7 @@ mod tests {
             on_own_turn: true,
             prior_attack_trait_checks_this_turn: 1,
             current_weapon_agile: false,
+            readied_attack_count: None,
         });
         assert_eq!(map, -5);
         let natural = ScriptedDice::new([12]).d20();
@@ -679,6 +691,7 @@ mod tests {
             on_own_turn,
             prior_attack_trait_checks_this_turn: prior,
             current_weapon_agile: agile,
+            readied_attack_count: None,
         })
     }
 
@@ -1072,6 +1085,257 @@ mod tests {
         assert_eq!(
             strike_check(15, 1, false, true, 8, 19),
             (-5, 18, DegreeOfSuccess::Failure)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_non_agile_attack_after_one_check_takes_minus_5() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 1,
+            current_weapon_agile: false,
+            readied_attack_count: Some(1),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        assert_ne!(penalty, -4);
+        let mut dice = ScriptedDice::new([15]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-5, 18, DegreeOfSuccess::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_attack_with_no_prior_check_takes_no_penalty() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: false,
+            readied_attack_count: Some(0),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([10]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (0, 18, DegreeOfSuccess::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_agile_attack_after_two_checks_takes_minus_8() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 2,
+            current_weapon_agile: true,
+            readied_attack_count: Some(2),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        assert_ne!(penalty, -10);
+        let mut dice = ScriptedDice::new([18]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-8, 18, DegreeOfSuccess::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_non_agile_attack_after_two_checks_takes_minus_10() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 2,
+            current_weapon_agile: false,
+            readied_attack_count: Some(2),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([15]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-10, 13, DegreeOfSuccess::Failure)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_attack_leaves_the_next_own_turn_at_no_penalty() {
+        let readied = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 1,
+            current_weapon_agile: false,
+            readied_attack_count: Some(1),
+        };
+        let next_own_turn = MapInput {
+            on_own_turn: true,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: false,
+            readied_attack_count: None,
+        };
+        let readied_penalty = multiple_attack_penalty(readied);
+        assert_eq!(readied_penalty, multiple_attack_penalty(readied));
+        let next_penalty = multiple_attack_penalty(next_own_turn);
+        assert_eq!(next_penalty, multiple_attack_penalty(next_own_turn));
+        let mut dice = ScriptedDice::new([15, 10]);
+        let (map, total, _) = attack_outcome(&mut dice, readied_penalty, 8, 18);
+        assert_eq!(map, -5);
+        assert_eq!(total, 18);
+        let (map, total, _) = attack_outcome(&mut dice, next_penalty, 8, 18);
+        assert_eq!(map, 0);
+        assert_eq!(total, 18);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_reactive_strike_on_the_same_round_takes_no_penalty() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 2,
+            current_weapon_agile: false,
+            readied_attack_count: None,
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([10]);
+        let (map, total, _) = attack_outcome(&mut dice, penalty, 8, 18);
+        assert_eq!(map, 0);
+        assert_eq!(total, 18);
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_non_agile_attack_at_a_frozen_count_of_3_takes_minus_10() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 3,
+            current_weapon_agile: false,
+            readied_attack_count: Some(3),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([15]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-10, 13, DegreeOfSuccess::Failure)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_agile_attack_at_a_frozen_count_of_3_takes_minus_8() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 3,
+            current_weapon_agile: true,
+            readied_attack_count: Some(3),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([18]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-8, 18, DegreeOfSuccess::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_attack_at_a_frozen_count_of_255_stays_at_the_later_penalty() {
+        let non_agile = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: false,
+            readied_attack_count: Some(255),
+        };
+        let agile = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: true,
+            readied_attack_count: Some(255),
+        };
+        let non_agile_penalty = multiple_attack_penalty(non_agile);
+        assert_eq!(non_agile_penalty, multiple_attack_penalty(non_agile));
+        let agile_penalty = multiple_attack_penalty(agile);
+        assert_eq!(agile_penalty, multiple_attack_penalty(agile));
+        let mut dice = ScriptedDice::new([15, 18]);
+        assert_eq!(
+            attack_outcome(&mut dice, non_agile_penalty, 8, 18),
+            (-10, 13, DegreeOfSuccess::Failure)
+        );
+        assert_eq!(
+            attack_outcome(&mut dice, agile_penalty, 8, 18),
+            (-8, 18, DegreeOfSuccess::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_attack_on_your_own_turn_uses_the_frozen_count() {
+        let input = MapInput {
+            on_own_turn: true,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: false,
+            readied_attack_count: Some(2),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([15]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-10, 13, DegreeOfSuccess::Failure)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_readied_agile_attack_after_one_non_agile_check_takes_minus_4() {
+        let input = MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 1,
+            current_weapon_agile: true,
+            readied_attack_count: Some(1),
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([14]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-4, 18, DegreeOfSuccess::Success)
+        );
+    }
+
+    /// Player Core, "Multiple Attack Penalty".
+    /// Player Core, "Ready".
+    #[test]
+    fn a_reaction_attack_on_your_own_turn_takes_the_multiple_attack_penalty() {
+        let input = MapInput {
+            on_own_turn: true,
+            prior_attack_trait_checks_this_turn: 1,
+            current_weapon_agile: false,
+            readied_attack_count: None,
+        };
+        let penalty = multiple_attack_penalty(input);
+        assert_eq!(penalty, multiple_attack_penalty(input));
+        let mut dice = ScriptedDice::new([15]);
+        assert_eq!(
+            attack_outcome(&mut dice, penalty, 8, 18),
+            (-5, 18, DegreeOfSuccess::Success)
         );
     }
 

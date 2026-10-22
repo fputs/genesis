@@ -450,6 +450,7 @@ impl Encounter {
             on_own_turn,
             prior_attack_trait_checks_this_turn: prior,
             current_weapon_agile: matches!(agility, Agility::Agile),
+            readied_attack_count: None,
         }))
     }
 
