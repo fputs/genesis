@@ -1122,9 +1122,85 @@ async function runCase(row) {
       row.assertRepo(dir);
     }
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeFixture(dir);
   }
 }
+
+const REMOVAL_ATTEMPTS = 5;
+const REMOVAL_BACKOFF_MS = 10;
+
+function isEnoempty(error) {
+  return typeof error === "object" && error !== null && error.code === "ENOTEMPTY";
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+// fs.rm maxRetries is not the mechanism. The loop is what a test injects
+// ENOTEMPTY into, and the backoff gives a parallel rmdir time to finish.
+async function removeFixture(dir, remover = rm) {
+  for (let attempt = 1; attempt <= REMOVAL_ATTEMPTS; attempt += 1) {
+    try {
+      await remover(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isEnoempty(error) || attempt === REMOVAL_ATTEMPTS) {
+        throw error;
+      }
+      await delay(REMOVAL_BACKOFF_MS * 2 ** (attempt - 1));
+    }
+  }
+}
+
+function enoemptyOnObjects(dir) {
+  const objects = join(dir, ".git", "objects");
+  const error = new Error(`ENOTEMPTY: directory not empty, rmdir '${objects}'`);
+  error.code = "ENOTEMPTY";
+  error.path = objects;
+  return error;
+}
+
+test("A transient ENOTEMPTY is retried", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spec-drift-eno-"));
+  try {
+    await mkdir(join(dir, ".git", "objects"), { recursive: true });
+    let calls = 0;
+    const remover = async (target, options) => {
+      calls += 1;
+      if (calls === 1) {
+        throw enoemptyOnObjects(target);
+      }
+      await rm(target, options);
+    };
+    await removeFixture(dir, remover);
+    assert.equal(calls, 2);
+    assert.equal(existsSync(dir), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Retries stop after five", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spec-drift-eno-"));
+  const error = enoemptyOnObjects(dir);
+  let calls = 0;
+  const remover = async () => {
+    calls += 1;
+    throw error;
+  };
+  try {
+    await assert.rejects(
+      removeFixture(dir, remover),
+      (caught) => caught === error,
+    );
+    assert.equal(calls, 5);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 function git(cwd, args) {
   const result = spawnSync("git", args, {

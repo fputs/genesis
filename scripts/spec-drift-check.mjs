@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -259,7 +259,7 @@ function gitEnv() {
   return { ...process.env, LC_ALL: "C" };
 }
 
-function changeReferences(body) {
+export function changeReferences(body) {
   const ids = [];
   const seen = new Set();
   const invalidTokens = [];
@@ -340,4 +340,19 @@ function isDirectory(path) {
   return statSync(path).isDirectory();
 }
 
-main();
+function runningAsScript() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    // pr-hygiene imports changeReferences. Loading this file must not validate.
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (runningAsScript()) {
+  main();
+}

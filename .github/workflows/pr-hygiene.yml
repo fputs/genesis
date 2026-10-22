@@ -2,7 +2,7 @@ name: PR hygiene
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review, converted_to_draft]
     branches: [main]
 
 permissions:
