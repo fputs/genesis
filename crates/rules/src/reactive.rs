@@ -261,3 +261,21 @@ fn from_grid(error: GridError) -> ReactiveError {
         | GridError::BeyondRange => ReactiveError::Overflow,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::attack_bonus_fits;
+    use crate::modifiers::ModifierError;
+
+    /// The pre-roll gate is the bonus plus 20. `i32::MAX - 20` is the last value that fits.
+    ///
+    /// Player Core, Penalties.
+    #[test]
+    fn attack_bonus_plus_20_fits_only_through_i32_max_minus_20() {
+        assert_eq!(
+            attack_bonus_fits(i32::MAX - 19, &[]),
+            Err(ModifierError::Overflow)
+        );
+        assert_eq!(attack_bonus_fits(i32::MAX - 20, &[]), Ok(()));
+    }
+}
