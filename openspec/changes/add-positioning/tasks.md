@@ -42,7 +42,7 @@ Each scenario in `specs/positioning/spec.md` has exactly one test. The test name
 
 ## 10. Changelog and proof
 
-- [ ] 10.1 Add one bullet under `## [Unreleased]` `### Added` in `CHANGELOG.md` describing prone, flanking, off-guard, and Take Cover, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Added`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
+- [x] 10.1 Add one bullet under `## [Unreleased]` `### Added` in `CHANGELOG.md` describing prone, flanking, off-guard, and Take Cover, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Added`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
 - [ ] 10.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
