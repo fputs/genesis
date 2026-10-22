@@ -317,9 +317,9 @@ An ally SHALL be willing when they share the aider's Side, including Side::Enemy
 
 #### Scenario: Aiding yourself is SelfTarget
 
-- **GIVEN** Alive CombatantId(1) prepared for CombatantId(1), with a ready reaction, aid modifier +7, and a scripted natural 10
-- **WHEN** CombatantId(1) aids CombatantId(1) while a turn is open
-- **THEN** the error is SelfTarget, the reaction stays ready, preparation still names CombatantId(1), and the scripted 10 is still unused
+- **GIVEN** Alive CombatantId(1), NotPrepared, with a ready reaction, aid modifier +7, a turn open, and a scripted natural 10
+- **WHEN** CombatantId(1) aids CombatantId(1)
+- **THEN** the error is SelfTarget, not NotPrepared, the reaction stays ready, preparation stays NotPrepared, and the scripted 10 is still unused
 
 #### Scenario: A different side is NotAnAlly
 
@@ -349,7 +349,7 @@ An aider whose vital is not Alive SHALL return NotConscious and SHALL draw no di
 
 ### Requirement: Aid errors follow one order
 
-aid SHALL draw no die on an error. It SHALL check UnknownCombatant for the aider, then UnknownCombatant for the ally, then TurnNotOpen, NotConscious, SelfTarget, NotAnAlly, NotThePreparedAlly, NotPrepared, NoAidModifier, AidOverflow, and NoReaction. AidOverflow SHALL be AidOverflow of ArithmeticOverflow when modifier plus 20 does not fit in i32. The CheckModifier gate for every face in 0..=255 SHALL NOT be used. That gate is for a die that can show 255. This roll is a d20, so the bound is 20.
+aid SHALL draw no die on an error. It SHALL check UnknownCombatant for the aider, then UnknownCombatant for the ally, then TurnNotOpen, NotConscious, SelfTarget, NotAnAlly, NotThePreparedAlly, NotPrepared, NoAidModifier, AidOverflow, and NoReaction. SelfTarget SHALL win over NotPrepared. AidOverflow wraps ArithmeticOverflow when modifier plus 20 does not fit in i32. The 0..=255 CheckModifier gate SHALL NOT be used, because this roll is a d20 and the bound is 20.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)

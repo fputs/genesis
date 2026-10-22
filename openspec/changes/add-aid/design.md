@@ -73,7 +73,7 @@ The Aid roll draws one d20 and adds the modifier with `checked_add`. It does not
 2. `UnknownCombatant` when the ally is absent.
 3. `TurnNotOpen` when no turn is open.
 4. `NotConscious` when the aider's vital is not `Alive`. This wins over self, `NotThePreparedAlly`, `NotPrepared`, `NoAidModifier`, `AidOverflow`, and `NoReaction`.
-5. `SelfTarget` when the ids match.
+5. `SelfTarget` when the ids match. This wins over `NotPrepared`.
 6. `NotAnAlly` when the sides differ.
 7. `NotThePreparedAlly` when preparation names a different ally.
 8. `NotPrepared`.
