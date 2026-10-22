@@ -155,7 +155,7 @@ The shield SHALL stay raised when this turn ends and when another creature's tur
 
 ### Requirement: The raised bonus is one circumstance bonus
 
-While raised and intact, and the combatant is not Dead, shield_ac_modifier SHALL return that shield's listed circumstance bonus. The total SHALL be positioning's armor_class with that modifier in extra. Cover SHALL keep the higher bonus. Off-guard SHALL still apply. Equal inputs SHALL match.
+shield_ac_modifier SHALL return Option<Modifier>. Some is that shield's listed circumstance bonus while raised and intact, and the combatant is not Dead. None covers every other case, including a bonus that is not positive. It SHALL NOT return an error. The total SHALL be positioning's armor_class with that modifier in extra. Cover SHALL keep the higher bonus. Off-guard SHALL still apply. Equal inputs SHALL match.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
@@ -254,7 +254,7 @@ On a legal Shield Block, apply_resolved_blow SHALL receive the blow minus hardne
 
 #### Scenario: Hardness 5 turns 12 damage into 7
 
-- **GIVEN** an Alive combatant at 30 current Hit Points, maximum 30, 2 actions, a ready reaction, and a raised steel shield at 20 Hit Points, with a scripted d20 showing 15
+- **GIVEN** an Alive combatant at 30 current Hit Points, maximum 30, 2 actions, a ready reaction, and a raised steel shield at 20 Hit Points, with a scripted natural 15
 - **WHEN** an attack blow of 12 at Success is ShieldBlock::Requested
 - **THEN** current Hit Points are 23, shield Hit Points are 13, the shield is not broken, and the reaction is not ready
 - **AND** 2 actions remain, the d20 is unused, and the Creature's shield Hit Points are still 20
@@ -301,7 +301,7 @@ On a legal Shield Block, apply_resolved_blow SHALL receive the blow minus hardne
 
 ### Requirement: An illegal block writes nothing
 
-A requested Shield Block that is not legal SHALL return a typed error, write nothing, and spend nothing. The checks SHALL run in this order: NotAHit, NotConscious, NoShield, NotRaised, Broken, then NoReaction. Broken SHALL cover a destroyed shield. A second requested block in the same round SHALL return NoReaction. Declining SHALL be Ok and SHALL pass the full amount to apply_resolved_blow.
+The checks SHALL run in this order: NotAHit, NegativeAmount, Declined, then Requested checks for NotConscious, NoShield, NotRaised, Broken, and NoReaction, then amount 0, then the remainder. Declined SHALL skip those Requested checks and SHALL pass the full amount to apply_resolved_blow. A Requested check that fails SHALL return that error, write nothing, and spend nothing. Broken SHALL cover a destroyed shield. A second requested block in the same round SHALL return NoReaction.
 
 **Source**: https://2e.aonprd.com/Feats.aspx?ID=5212 (Player Core pg. 262, Shield Block)
 
@@ -310,6 +310,12 @@ A requested Shield Block that is not legal SHALL return a typed error, write not
 - **GIVEN** an Alive combatant at 30 current Hit Points, a ready reaction, and a raised steel shield at 20 Hit Points
 - **WHEN** an attack blow of 12 at Success is ShieldBlock::Declined
 - **THEN** current Hit Points are 18, shield Hit Points stay 20, and the reaction stays ready
+
+#### Scenario: Declining with no shield deals the blow
+
+- **GIVEN** an Alive combatant at 30 current Hit Points and no shield
+- **WHEN** an attack blow of 12 at Success is ShieldBlock::Declined
+- **THEN** the result is Ok and current Hit Points are 18
 
 #### Scenario: A shield that is not raised does not block
 
@@ -341,7 +347,7 @@ A requested Shield Block that is not legal SHALL return a typed error, write not
 - **WHEN** an attack blow of 12 at Success is ShieldBlock::Requested
 - **THEN** the result is Broken, current Hit Points stay 30, shield Hit Points stay 0, and the reaction stays ready
 
-#### Scenario: A dying creature does not block
+#### Scenario: Dying on the direct state does not block
 
 - **GIVEN** vital Dying(1), current Hit Points 0, maximum 9, uses_dying_rules, a ready reaction, and a raised steel shield at 20 Hit Points
 - **WHEN** an attack blow of 8 at Success is ShieldBlock::Requested on that state
@@ -351,7 +357,7 @@ A requested Shield Block that is not legal SHALL return a typed error, write not
 
 - **GIVEN** uses_dying_rules, CombatantId(1) at 9 current Hit Points, maximum 9, baked Armor Class 11, a raised steel shield at 20 Hit Points, and a ready reaction, and CombatantId(2) with attack bonus +0, both Perception +0, scripted initiative naturals 10 then 8
 - **WHEN** CombatantId(1) has raised the shield and ended the turn, CombatantId(2) Strikes with a natural 11 and damage 1d8+1 with a damage die of 8 at ShieldBlock::Declined, then Strikes with ShieldBlock::Requested and a damage die of 8
-- **THEN** the second result is NotConscious
+- **THEN** the second result is EncounterError::TargetNotConscious
 - **AND** vital stays Dying(1), current Hit Points stay 0, and shield Hit Points stay 20
 - **AND** CombatantId(1)'s reaction stays ready
 - **AND** CombatantId(2) still has 2 actions
@@ -390,7 +396,7 @@ Failure and CriticalFailure SHALL return AttackBlowError::HitPoints(HpError::Not
 
 ### Requirement: The blow amount is checked
 
-After the legality checks, amount 0 at Success with Shield Block requested SHALL be Ok, change nothing, and leave the reaction ready. A negative amount SHALL return AttackBlowError::NegativeAmount and SHALL write nothing. Subtraction SHALL use i64. Amount 2147483647 and hardness 5 SHALL produce remainder 2147483642.
+A negative amount SHALL return AttackBlowError::NegativeAmount before Declined or the Requested checks, and SHALL write nothing. After those Requested checks, amount 0 at Success SHALL be Ok, change nothing, and leave the reaction ready. Subtraction SHALL use i64. Amount 2147483647 and hardness 5 SHALL produce remainder 2147483642.
 
 **Source**: https://2e.aonprd.com/Feats.aspx?ID=5212 (Player Core pg. 262, Shield Block)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2180 (Player Core pg. 274, Shields)
@@ -400,6 +406,12 @@ After the legality checks, amount 0 at Success with Shield Block requested SHALL
 - **GIVEN** an Alive combatant at 30 current Hit Points, a ready reaction, and a raised steel shield at 20 Hit Points
 - **WHEN** an attack blow of 0 at Success is ShieldBlock::Requested
 - **THEN** the result is Ok, current Hit Points stay 30, shield Hit Points stay 20, and the reaction stays ready
+
+#### Scenario: A declined negative amount writes nothing
+
+- **GIVEN** an Alive combatant at 30 current Hit Points, a ready reaction, and a raised steel shield at 20 Hit Points
+- **WHEN** an attack blow of -1 at Success is ShieldBlock::Declined
+- **THEN** the result is AttackBlowError::NegativeAmount, current Hit Points stay 30, shield Hit Points stay 20, and the reaction stays ready
 
 #### Scenario: A negative amount writes nothing
 

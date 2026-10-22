@@ -4,7 +4,7 @@
 
 ### Requirement: A shield is validated at build
 
-A shield SHALL be rejected as InvalidShield when hardness is below 0, the AC bonus is below 1, or the broken threshold is not below the shield's Hit Points. That build SHALL NOT be derived. Folding the same shield SHALL return a FoldError and SHALL NOT return a Creature. The stored fields stay signed i32, their type on main. Validation is the gate.
+A shield SHALL be rejected as InvalidShield when hardness is below 0, Hit Points are below 1, the AC bonus is below 1, the broken threshold is below 0, or the broken threshold is not below the shield's Hit Points. That build SHALL NOT be derived. Folding the same shield SHALL return a FoldError and SHALL NOT return a Creature. The stored fields stay signed i32, their type on main. Validation is the gate.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2181 (Player Core pg. 274, Shield Statistics)
 
@@ -29,6 +29,18 @@ A shield SHALL be rejected as InvalidShield when hardness is below 0, the AC bon
 #### Scenario: A broken threshold at maximum is rejected
 
 - **GIVEN** a build whose shield has hardness 5, Hit Points 20, broken threshold 20, and AC bonus +2
+- **WHEN** the build is validated
+- **THEN** the result is InvalidShield and no Creature is derived
+
+#### Scenario: Shield hit points of 0 are rejected
+
+- **GIVEN** a build whose shield has hardness 5, Hit Points 0, broken threshold -1, and AC bonus +2
+- **WHEN** the build is validated
+- **THEN** the result is InvalidShield and no Creature is derived
+
+#### Scenario: A negative broken threshold is rejected
+
+- **GIVEN** a build whose shield has hardness 5, Hit Points 20, broken threshold -1, and AC bonus +2
 - **WHEN** the build is validated
 - **THEN** the result is InvalidShield and no Creature is derived
 
