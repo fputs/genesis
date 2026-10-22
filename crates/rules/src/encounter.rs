@@ -1,6 +1,7 @@
-//! Initiative, the round, the three-action turn, and Strike.
+//! Initiative, the round, the three-action turn, Strike, and Reactive Strike.
 //!
 //! Player Core, "Step 1: Roll Initiative". Player Core, "Step 2: Act". Player Core, Strike.
+//! Player Core, "Reactive Strike".
 
 use crate::check::{
     AttackTotalTerm, DegreeOfSuccess, MapInput, attack_check_total, degree_of_success,
@@ -11,7 +12,13 @@ use crate::combatant::{
 };
 use crate::dice::{Dice, Faces};
 use crate::dying::apply_resolved_blow;
+use crate::grid::{Size, Square};
 use crate::modifiers::{Modifier, ModifierError, Statistic};
+use crate::positioning::{ActionCost, MoveAction};
+use crate::reactive::{
+    ActionIdentity, ReactiveError, ReactiveOutcome, ReactiveStrike, attack_bonus_fits, disruption,
+    not_a_trigger, outside_reach, reactive_attack_total,
+};
 use crate::shield::{
     AttackBlowError, PlannedBlow, ShieldBlock, ShieldError, lower_raised_shield, plan_attack_blow,
     raise_shield as raise_combatant_shield, reduce_shield, validate_raise,
@@ -632,6 +639,131 @@ impl Encounter {
         })
     }
 
+    /// Resolves one Reactive Strike from `reactor` against `actor`.
+    ///
+    /// Reach is the reactor's stored melee reach. Squares and sizes are the caller's.
+    /// The reaction is spent only through [`Self::spend_reaction`], and only after a hit
+    /// has been applied on a copy of the actor. A miss spends the reaction and rolls no
+    /// damage die. The multiple attack penalty is 0 and the stored attack count is left
+    /// as it was. Neither creature's actions change, and the turn is not ended.
+    ///
+    /// This does not call [`Self::strike`]. There is no Shield Block argument.
+    ///
+    /// Player Core, "Reactive Strike". Player Core, "Reactions in Encounters".
+    /// Player Core, "Disrupting Actions". Player Core, "Multiple Attack Penalty".
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the reactive-strike design names the reactor, actor, trigger, squares, sizes, strike, modifiers, and dice as separate arguments"
+    )]
+    pub fn reactive_strike(
+        &mut self,
+        reactor: CombatantId,
+        actor: CombatantId,
+        cost: ActionCost,
+        identity: ActionIdentity,
+        move_action: Option<MoveAction>,
+        availability: ReactiveStrike,
+        reactor_square: Square,
+        actor_square: Square,
+        reactor_size: Size,
+        actor_size: Size,
+        profile: &StrikeProfile,
+        modifiers: &[Modifier],
+        dice: &mut impl Dice,
+    ) -> Result<ReactiveOutcome, ReactiveError> {
+        let (reactor_vital, reaction_ready) = {
+            let state = self
+                .state(reactor)
+                .map_err(|_| ReactiveError::UnknownCombatant)?;
+            (state.vital, state.reaction_ready)
+        };
+        let actor_vital = self
+            .state(actor)
+            .map_err(|_| ReactiveError::UnknownCombatant)?
+            .vital;
+        if reactor_vital != Vital::Alive {
+            return Err(ReactiveError::NotConscious);
+        }
+        if reactor == actor {
+            return Err(ReactiveError::SelfTarget);
+        }
+        if matches!(availability, ReactiveStrike::Unavailable) {
+            return Err(ReactiveError::Unavailable);
+        }
+        if not_a_trigger(cost, identity, move_action) {
+            return Err(ReactiveError::NotATrigger);
+        }
+        let reach = self
+            .creature(reactor)
+            .map_err(|_| ReactiveError::UnknownCombatant)?
+            .strike
+            .reach_feet
+            .get();
+        outside_reach(
+            reactor_square,
+            actor_square,
+            reactor_size,
+            actor_size,
+            reach,
+        )?;
+        if actor_vital != Vital::Alive {
+            return Err(ReactiveError::TargetNotConscious);
+        }
+        if !reaction_ready {
+            return Err(ReactiveError::NoReaction);
+        }
+        attack_bonus_fits(profile.attack_bonus, modifiers)
+            .map_err(ReactiveError::AttackOverflow)?;
+
+        let natural = dice.d20();
+        let total = reactive_attack_total(natural, profile.attack_bonus, modifiers)
+            .map_err(ReactiveError::AttackOverflow)?;
+        let armor_class = self
+            .creature(actor)
+            .map_err(|_| ReactiveError::UnknownCombatant)?
+            .armor_class;
+        let degree = degree_of_success(natural, total, armor_class);
+        let damage = if misses(degree) {
+            0
+        } else {
+            let rolled = roll_strike_damage(dice, profile).map_err(as_damage_overflow)?;
+            damage_dealt(
+                rolled,
+                modifiers,
+                degree == DegreeOfSuccess::CriticalSuccess,
+            )
+            .map_err(ReactiveError::DamageOverflow)?
+        };
+        if !misses(degree) {
+            let mut updated = self
+                .state(actor)
+                .map_err(|_| ReactiveError::UnknownCombatant)?
+                .clone();
+            apply_resolved_blow(
+                &mut updated,
+                self.creature(actor)
+                    .map_err(|_| ReactiveError::UnknownCombatant)?,
+                damage,
+                degree,
+            )
+            .map_err(ReactiveError::HitPoints)?;
+            self.spend_reaction(reactor).map_err(from_spend)?;
+            self.commit_reactive_blow(actor, &updated)?;
+        } else {
+            self.spend_reaction(reactor).map_err(from_spend)?;
+        }
+        Ok(ReactiveOutcome {
+            strike: StrikeOutcome {
+                natural,
+                total,
+                degree,
+                map: 0,
+                damage,
+            },
+            disruption: disruption(degree, cost),
+        })
+    }
+
     /// Assigns the round. The increment itself has no test-only branch.
     #[cfg(test)]
     pub(crate) fn set_round_for_test(&mut self, round: u32) {
@@ -779,6 +911,32 @@ impl Encounter {
         .map_err(EncounterError::HitPoints)
     }
 
+    /// Copies the blow back. The reactor's reaction is already cleared by [`Self::spend_reaction`].
+    ///
+    /// `initiative_move` is the dying report [`apply_resolved_blow`] stores on the copy.
+    /// Hit Points, temporary Hit Points, and vital are the fields the design names.
+    /// Copying the whole state would also be the actor's state; the report still has to
+    /// move, because the critical-hit scenario takes it.
+    fn commit_reactive_blow(
+        &mut self,
+        actor: CombatantId,
+        updated: &CombatantState,
+    ) -> Result<(), ReactiveError> {
+        let index = self
+            .member_index(actor)
+            .map_err(|_| ReactiveError::UnknownCombatant)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(ReactiveError::UnknownCombatant)?;
+        let state = &mut member.participant.state;
+        state.hit_points = updated.hit_points;
+        state.temp_hit_points = updated.temp_hit_points;
+        state.vital = updated.vital;
+        state.initiative_move = updated.initiative_move;
+        Ok(())
+    }
+
     fn finish_strike(&mut self, attacker: CombatantId) -> Result<(), EncounterError> {
         let index = self.member_index(attacker)?;
         let member = self
@@ -849,6 +1007,66 @@ fn map_attack_blow_error(error: AttackBlowError) -> EncounterError {
     }
 }
 
+fn from_spend(error: EncounterError) -> ReactiveError {
+    match error {
+        EncounterError::UnknownCombatant => ReactiveError::UnknownCombatant,
+        EncounterError::NotConscious => ReactiveError::NotConscious,
+        EncounterError::NoReaction => ReactiveError::NoReaction,
+        EncounterError::DuplicateCombatant
+        | EncounterError::EmptyRoster
+        | EncounterError::PerceptionOutOfRange
+        | EncounterError::TurnInProgress
+        | EncounterError::TurnNotOpen
+        | EncounterError::NotYourTurn
+        | EncounterError::InsufficientActions
+        | EncounterError::InvalidActionCost
+        | EncounterError::NoShield
+        | EncounterError::NotRaised
+        | EncounterError::Broken
+        | EncounterError::Destroyed
+        | EncounterError::NegativeAmount
+        | EncounterError::TargetDead
+        | EncounterError::TargetNotConscious
+        | EncounterError::SelfTarget
+        | EncounterError::NoLivingCombatant
+        | EncounterError::AttackCountOverflow
+        | EncounterError::RoundOverflow
+        | EncounterError::AttackOverflow(_)
+        | EncounterError::DamageOverflow(_)
+        | EncounterError::HitPoints(_) => ReactiveError::NoReaction,
+    }
+}
+
+fn as_damage_overflow(error: EncounterError) -> ReactiveError {
+    match error {
+        EncounterError::DamageOverflow(error) => ReactiveError::DamageOverflow(error),
+        EncounterError::DuplicateCombatant
+        | EncounterError::EmptyRoster
+        | EncounterError::PerceptionOutOfRange
+        | EncounterError::UnknownCombatant
+        | EncounterError::TurnInProgress
+        | EncounterError::TurnNotOpen
+        | EncounterError::NotYourTurn
+        | EncounterError::InsufficientActions
+        | EncounterError::InvalidActionCost
+        | EncounterError::NoReaction
+        | EncounterError::NotConscious
+        | EncounterError::TargetNotConscious
+        | EncounterError::NoShield
+        | EncounterError::NotRaised
+        | EncounterError::Broken
+        | EncounterError::Destroyed
+        | EncounterError::NegativeAmount
+        | EncounterError::TargetDead
+        | EncounterError::SelfTarget
+        | EncounterError::NoLivingCombatant
+        | EncounterError::AttackCountOverflow
+        | EncounterError::RoundOverflow
+        | EncounterError::AttackOverflow(_)
+        | EncounterError::HitPoints(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
+    }
+}
+
 fn misses(degree: DegreeOfSuccess) -> bool {
     matches!(
         degree,
@@ -893,8 +1111,13 @@ mod tests {
     };
     use crate::dice::{Faces, ScriptedDice};
     use crate::dying::{InitiativeMove, apply_resolved_blow, take_initiative_move};
+    use crate::grid::{Size, Square};
     use crate::modifiers::{BonusType, Modifier, ModifierError, PenaltyType, SourceId, Statistic};
-    use crate::shield::ShieldBlock;
+    use crate::positioning::{ActionCost, ActionTrait, MoveAction};
+    use crate::reactive::{
+        ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike,
+    };
+    use crate::shield::{self, ShieldBlock};
 
     fn id(value: u32) -> CombatantId {
         CombatantId(value)
@@ -2959,5 +3182,1804 @@ mod tests {
             Some(13)
         );
         assert_eq!(dice.remaining(), 0);
+    }
+
+    const MANIPULATE: &[ActionTrait] = &[ActionTrait::Manipulate];
+    const MOVE_ONLY: &[ActionTrait] = &[ActionTrait::Move];
+    const RANGED_ATTACK: &[ActionTrait] = &[ActionTrait::Ranged];
+    const MOVE_AND_MANIPULATE: &[ActionTrait] = &[ActionTrait::Move, ActionTrait::Manipulate];
+    const NO_TRIGGER: &[ActionTrait] = &[];
+
+    fn one_action(traits: &'static [ActionTrait]) -> ActionCost {
+        ActionCost::Actions { count: 1, traits }
+    }
+
+    fn free_action(traits: &'static [ActionTrait]) -> ActionCost {
+        ActionCost::Free { traits }
+    }
+
+    fn sq(x: i32, y: i32) -> Square {
+        Square { x, y }
+    }
+
+    fn with_reach(mut participant: Participant, reach: i32) -> Participant {
+        participant.creature.strike.reach_feet = ReachFeet::new(reach).expect("reach");
+        participant
+    }
+
+    fn with_current(mut participant: Participant, hp: i32) -> Participant {
+        participant.state.hit_points = hp;
+        participant
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "forwards reactive_strike's arguments so each scenario stays one call"
+    )]
+    fn react(
+        encounter: &mut Encounter,
+        dice: &mut ScriptedDice,
+        reactor: u32,
+        actor: u32,
+        cost: ActionCost,
+        identity: ActionIdentity,
+        move_action: Option<MoveAction>,
+        availability: ReactiveStrike,
+        from: (i32, i32),
+        to: (i32, i32),
+        from_size: Size,
+        to_size: Size,
+        attack: StrikeProfile,
+        modifiers: &[Modifier],
+    ) -> Result<ReactiveOutcome, ReactiveError> {
+        encounter.reactive_strike(
+            id(reactor),
+            id(actor),
+            cost,
+            identity,
+            move_action,
+            availability,
+            sq(from.0, from.1),
+            sq(to.0, to.1),
+            from_size,
+            to_size,
+            &attack,
+            modifiers,
+            dice,
+        )
+    }
+
+    fn standard_pair(
+        reach: i32,
+        actor_hp: i32,
+        actor_ac: i32,
+        actor_side: Side,
+    ) -> Vec<Participant> {
+        vec![
+            with_reach(pc(1, 0, 20, actor_ac), reach),
+            combatant(2, actor_side, 0, actor_hp, actor_ac, false),
+        ]
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn the_same_reactive_strike_twice_matches() {
+        let run = || {
+            let (mut encounter, mut dice) =
+                begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+            react(
+                &mut encounter,
+                &mut dice,
+                1,
+                2,
+                one_action(MANIPULATE),
+                ActionIdentity::Other,
+                None,
+                ReactiveStrike::Available,
+                (0, 0),
+                (-1, 0),
+                Size::Medium,
+                Size::Medium,
+                profile(8, Agility::NotAgile, 1, 8, 4),
+                &[],
+            )
+            .expect("reactive strike")
+        };
+        let first = run();
+        let second = run();
+        assert_eq!(first, second);
+        assert_eq!(first.strike.natural, 10);
+        assert_eq!(first.strike.total, 18);
+        assert_eq!(first.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(first.strike.map, 0);
+        assert_eq!(first.strike.damage, 7);
+        assert_eq!(first.disruption, Disruption::NotDisrupted);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Interact". Player Core, "Point Out".
+    ///
+    /// Interact is one action with manipulate. Point Out is manipulate when the caller passes it.
+    #[test]
+    fn a_manipulate_action_in_reach_triggers() {
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Enemy), &[10, 8, 10, 3]);
+        assert_eq!(encounter.turn_open(), None);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (-1, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("manipulate");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.total, 18);
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(encounter.turn_open(), None);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Drop Prone". Player Core, "Stand".
+    ///
+    /// Drop Prone, Stand, Stride, and Crawl are Move. Stand is Actions 2303 (Player Core pg. 418).
+    /// This call passes the move trait and does not resolve those actions.
+    #[test]
+    fn a_move_action_in_reach_triggers() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MOVE_ONLY),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (-1, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("move");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+    }
+
+    /// Player Core, "Reactive Strike".
+    ///
+    /// `Ranged` means this action is a ranged attack. It is not a Player Core action trait.
+    #[test]
+    fn a_ranged_attack_in_reach_triggers() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(RANGED_ATTACK),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (-1, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("ranged");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+    }
+
+    /// Player Core, "Reactive Strike".
+    ///
+    /// Both creatures are Pc. Side is not read.
+    #[test]
+    fn the_same_side_still_triggers() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (-1, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("same side");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn move_and_manipulate_on_one_cost_trigger_once() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MOVE_AND_MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("one outcome");
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Release".
+    #[test]
+    fn a_free_manipulate_action_other_than_release_triggers() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            free_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("free manipulate");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+    }
+
+    /// Player Core, "Step".
+    #[test]
+    fn step_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 7),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        assert!(reaction(&encounter, 1));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MOVE_ONLY),
+            ActionIdentity::Other,
+            Some(MoveAction::Step),
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Large,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("step");
+        assert_eq!(error, ReactiveError::NotATrigger);
+        assert_ne!(error, ReactiveError::UnsupportedSize);
+        assert_ne!(error, ReactiveError::InvalidReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Strike.
+    #[test]
+    fn a_melee_strike_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(NO_TRIGGER),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("melee");
+        assert_eq!(error, ReactiveError::NotATrigger);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Release".
+    #[test]
+    fn release_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            free_action(MANIPULATE),
+            ActionIdentity::Release,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("release");
+        assert_eq!(error, ReactiveError::NotATrigger);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Seek".
+    #[test]
+    fn seek_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(NO_TRIGGER),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("seek");
+        assert_eq!(error, ReactiveError::NotATrigger);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Range and Reach". Player Core, "Reactive Strike".
+    #[test]
+    fn out_of_reach_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 2),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("reach");
+        assert_eq!(error, ReactiveError::OutOfReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn reach_0_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 0),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("reach 0");
+        assert_eq!(error, ReactiveError::OutOfReach);
+        assert_ne!(error, ReactiveError::InvalidReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn the_same_square_is_not_in_reach() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("same square");
+        assert_eq!(error, ReactiveError::OutOfReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Range and Reach". Player Core, "Size, Space, and Reach".
+    #[test]
+    fn a_reactive_reach_that_is_not_a_multiple_of_5_is_rejected() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 7),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("reach 7");
+        assert_eq!(error, ReactiveError::InvalidReach);
+        assert_ne!(error, ReactiveError::OutOfReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Size, Space, and Reach".
+    #[test]
+    fn a_large_creature_is_unsupported() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 7),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Large,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("large");
+        assert_eq!(error, ReactiveError::UnsupportedSize);
+        assert_ne!(error, ReactiveError::InvalidReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn a_distance_that_does_not_fit_is_overflow() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 7),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (i32::MIN, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("overflow");
+        assert_eq!(error, ReactiveError::Overflow);
+        assert_ne!(error, ReactiveError::InvalidReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn a_10_ft_reach_diagonal_is_in_reach() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 10),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10, 3],
+        );
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (2, 2),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("diagonal");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.damage, 7);
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn a_10_ft_reach_does_not_reach_three_squares_straight() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 10),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (3, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("three squares");
+        assert_eq!(error, ReactiveError::OutOfReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    ///
+    /// Proposed DEV-45: only the actor's square is tested. No path is read, and this test
+    /// does not read a SquareEvent.
+    #[test]
+    fn a_move_that_starts_outside_reach_does_not_trigger() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MOVE_ONLY),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 2),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("outside");
+        assert_eq!(error, ReactiveError::OutOfReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn a_second_reactive_strike_is_noreaction() {
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3, 4]);
+        let first = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (-1, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("first");
+        assert_eq!(first.strike.damage, 7);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (-1, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("second");
+        assert_eq!(error, ReactiveError::NoReaction);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(hit_points(&encounter, 2), 13);
+    }
+
+    /// Player Core, "Reactions in Encounters".
+    ///
+    /// The reaction was spent through Encounter::spend_reaction, as Aid would.
+    #[test]
+    fn a_reaction_already_spent_is_noreaction() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        encounter.spend_reaction(id(1)).expect("spend");
+        assert!(!reaction(&encounter, 1));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("spent");
+        assert_eq!(error, ReactiveError::NoReaction);
+        assert_eq!(dice.remaining(), 1);
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn actor_actions_stay_unchanged() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[8, 10, 10, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(2));
+        assert_eq!(actions(&encounter, 2), 3);
+        react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("spend");
+        assert_eq!(actions(&encounter, 2), 3);
+        assert_eq!(encounter.turn_open(), Some(id(2)));
+        assert_eq!(actions(&encounter, 1), 0);
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn a_reactive_strike_on_your_turn_spends_no_action() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        assert_eq!(actions(&encounter, 1), 3);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("own turn");
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(encounter.turn_open(), Some(id(1)));
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(hit_points(&encounter, 2), 13);
+    }
+
+    /// Player Core, Strike. Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn a_reactive_strike_off_your_turn_spends_no_action() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[8, 10, 10, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(2));
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("off turn");
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(encounter.turn_open(), Some(id(2)));
+    }
+
+    /// Player Core, Strike. Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn a_reactive_strike_off_your_turn_leaves_the_count() {
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 2, 2, 10, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let miss = profile(8, Agility::NotAgile, 0, 8, 0);
+        encounter
+            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .expect("first");
+        encounter
+            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .expect("second");
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("next"), id(2));
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
+        assert_eq!(actions(&encounter, 1), 0);
+        assert!(reaction(&encounter, 1));
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("off turn");
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(encounter.turn_open(), Some(id(2)));
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn reactive_strike_does_not_use_map() {
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 2, 2, 18, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let miss = profile(8, Agility::NotAgile, 0, 8, 0);
+        encounter
+            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .expect("first");
+        encounter
+            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .expect("second");
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
+        assert_eq!(actions(&encounter, 1), 1);
+        let modifiers = [penalty(PenaltyType::Circumstance, -2, 1, Statistic::Attack)];
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::Agile, 1, 8, 4),
+            &modifiers,
+        )
+        .expect("agile reaction");
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.total, 24);
+        assert_ne!(outcome.strike.total, 16);
+        assert_ne!(outcome.strike.total, 14);
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
+        assert_eq!(actions(&encounter, 1), 1);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Multiple Attack Penalty".
+    #[test]
+    fn reactive_strike_does_not_count_toward_map() {
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 2, 10, 3, 12]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(8, Agility::NotAgile, 0, 8, 0),
+                &[],
+                ShieldBlock::Declined,
+                &mut dice,
+            )
+            .expect("first");
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+        assert_eq!(actions(&encounter, 1), 2);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("reaction");
+        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+        let follow = encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(8, Agility::NotAgile, 0, 8, 0),
+                &[],
+                ShieldBlock::Declined,
+                &mut dice,
+            )
+            .expect("follow");
+        assert_eq!(follow.map, -5);
+        assert_eq!(follow.total, 15);
+        assert_ne!(follow.map, -10);
+        assert_ne!(follow.total, 10);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Disrupting Actions".
+    ///
+    /// The result is Disrupted. The caller voids the manipulate action's effects.
+    /// This function leaves the cost spent.
+    #[test]
+    fn a_critical_hit_disrupts_a_manipulate_action() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 15, Side::Pc), &[8, 10, 15, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(2));
+        encounter.spend_actions(id(2), 1).expect("spent cost");
+        assert_eq!(actions(&encounter, 2), 2);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(10, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("crit");
+        assert_eq!(outcome.strike.total, 25);
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(outcome.disruption, Disruption::Disrupted);
+        assert_eq!(hit_points(&encounter, 2), 6);
+        assert_eq!(actions(&encounter, 2), 2);
+        assert_eq!(encounter.turn_open(), Some(id(2)));
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Disrupting Actions".
+    #[test]
+    fn a_critical_hit_does_not_disrupt_a_move() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 15, Side::Pc), &[10, 8, 15, 3]);
+        assert_eq!(encounter.turn_open(), None);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MOVE_ONLY),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(10, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("move crit");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Disrupting Actions".
+    #[test]
+    fn a_critical_hit_does_not_disrupt_a_ranged_attack() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 15, Side::Pc), &[10, 8, 15, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(RANGED_ATTACK),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(10, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("ranged crit");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Disrupting Actions".
+    #[test]
+    fn a_natural_20_that_is_only_a_success_does_not_disrupt() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 25, Side::Pc), &[10, 8, 20, 3]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(0, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("natural 20");
+        assert_eq!(outcome.strike.total, 20);
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.strike.damage, 7);
+        assert_ne!(outcome.strike.damage, 14);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        assert_eq!(vital(&encounter, 1), Vital::Alive);
+        assert_eq!(vital(&encounter, 2), Vital::Alive);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Disrupting Actions".
+    #[test]
+    fn actor_actions_are_unchanged_on_disrupted() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 15, Side::Pc), &[8, 10, 15, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(2));
+        encounter.spend_actions(id(2), 2).expect("two spent");
+        assert_eq!(actions(&encounter, 2), 1);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(10, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("disrupted");
+        assert_eq!(outcome.disruption, Disruption::Disrupted);
+        assert_eq!(actions(&encounter, 2), 1);
+        assert_ne!(actions(&encounter, 2), 2);
+        assert_ne!(actions(&encounter, 2), 0);
+        assert_eq!(encounter.turn_open(), Some(id(2)));
+    }
+
+    /// Player Core, "Step 2: Act".
+    #[test]
+    fn a_dying_creature_cannot_react() {
+        let reactor = with_current(with_reach(pc(1, 0, 20, 18), 5), 0);
+        let (mut encounter, mut dice) = begin(
+            vec![reactor, combatant(2, Side::Pc, 0, 20, 18, false)],
+            &[10, 8, 10],
+        );
+        encounter.set_vital_for_test(id(1), Vital::Dying(DyingValue::new(1).expect("dying")));
+        assert!(reaction(&encounter, 1));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("dying");
+        assert_eq!(error, ReactiveError::NotConscious);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Unconscious". Player Core, "Step 2: Act".
+    #[test]
+    fn an_unconscious_creature_cannot_react() {
+        let reactor = with_current(with_reach(pc(1, 0, 20, 18), 5), 0);
+        let (mut encounter, mut dice) = begin(
+            vec![reactor, combatant(2, Side::Pc, 0, 20, 18, false)],
+            &[10, 8, 10],
+        );
+        encounter.set_vital_for_test(id(1), Vital::Unconscious);
+        assert!(reaction(&encounter, 1));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("unconscious");
+        assert_eq!(error, ReactiveError::NotConscious);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Step 2: Act".
+    #[test]
+    fn a_dead_creature_cannot_react() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 5),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        assert!(reaction(&encounter, 1));
+        encounter.set_vital_for_test(id(1), Vital::Dead);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("dead");
+        assert_eq!(error, ReactiveError::NotConscious);
+        assert_ne!(error, ReactiveError::NoReaction);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Step 2: Act". Player Core, "Reactive Strike".
+    #[test]
+    fn not_conscious_wins_over_unavailable() {
+        let reactor = with_current(with_reach(pc(1, 0, 20, 18), 5), 0);
+        let (mut encounter, mut dice) = begin(
+            vec![reactor, combatant(2, Side::Pc, 0, 20, 18, false)],
+            &[10, 8, 10],
+        );
+        encounter.set_vital_for_test(id(1), Vital::Dying(DyingValue::new(1).expect("dying")));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Unavailable,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("dying");
+        assert_eq!(error, ReactiveError::NotConscious);
+        assert_ne!(error, ReactiveError::Unavailable);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Step 2: Act".
+    #[test]
+    fn a_dying_self_target_is_not_conscious() {
+        let reactor = with_current(with_reach(pc(1, 0, 20, 18), 5), 0);
+        let (mut encounter, mut dice) = begin(vec![reactor], &[10, 10]);
+        encounter.set_vital_for_test(id(1), Vital::Dying(DyingValue::new(1).expect("dying")));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            1,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("self");
+        assert_eq!(error, ReactiveError::NotConscious);
+        assert_ne!(error, ReactiveError::SelfTarget);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    ///
+    /// Proposed DEV-44: the caller passes Unavailable. There is no class and no feat.
+    #[test]
+    fn unavailable_spends_nothing() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 7),
+                combatant(2, Side::Pc, 0, 20, 18, false),
+            ],
+            &[10, 8, 10],
+        );
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MOVE_ONLY),
+            ActionIdentity::Other,
+            Some(MoveAction::Step),
+            ReactiveStrike::Unavailable,
+            (0, 0),
+            (0, 1),
+            Size::Large,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("unavailable");
+        assert_eq!(error, ReactiveError::Unavailable);
+        assert_ne!(error, ReactiveError::NotATrigger);
+        assert_ne!(error, ReactiveError::InvalidReach);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Strike. Player Core, "Temporary Hit Points".
+    #[test]
+    fn temporary_hit_points_are_spent_first() {
+        let actor = with_temp(combatant(2, Side::Pc, 0, 20, 18, false), 5);
+        let (mut encounter, mut dice) = begin(
+            vec![with_reach(pc(1, 0, 20, 18), 5), actor],
+            &[10, 8, 10, 3],
+        );
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("temp");
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(temp_hp(&encounter, 2), 0);
+        assert_eq!(hit_points(&encounter, 2), 18);
+        assert_eq!(wounded(&encounter, 2), 0);
+        assert_eq!(vital(&encounter, 2), Vital::Alive);
+    }
+
+    /// Player Core, Strike.
+    #[test]
+    fn a_failure_spends_the_reaction_and_deals_no_damage() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 9, 8]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(0, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("miss");
+        assert_eq!(outcome.strike.total, 9);
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Failure);
+        assert_eq!(outcome.strike.damage, 0);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(hit_points(&encounter, 2), 20);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(outcome.strike.map, 0);
+    }
+
+    /// Player Core, Strike.
+    #[test]
+    fn a_critical_failure_spends_the_reaction_and_deals_no_damage() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 5, 8]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(0, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("crit miss");
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalFailure);
+        assert_eq!(outcome.strike.damage, 0);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(hit_points(&encounter, 2), 20);
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn a_critical_hit_drops_a_dying_rules_target_to_dying_2() {
+        let actor = with_current(combatant(2, Side::Pc, 0, 20, 15, true), 5);
+        let (mut encounter, mut dice) = begin(
+            vec![with_reach(pc(1, 0, 20, 15), 5), actor],
+            &[10, 8, 15, 3],
+        );
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(10, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("knockout");
+        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(hit_points(&encounter, 2), 0);
+        assert_eq!(
+            vital(&encounter, 2),
+            Vital::Dying(DyingValue::new(2).expect("dying 2"))
+        );
+        assert_eq!(wounded(&encounter, 2), 0);
+        assert_eq!(
+            take_report(&mut encounter, 2),
+            Some(InitiativeMove::Pending)
+        );
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Shield Block".
+    #[test]
+    fn a_reactive_strike_does_not_reduce_a_raised_shield() {
+        let shield = ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        };
+        let mut actor = participant(2, Side::Pc, creature(20, 18, 0, false, Some(shield)));
+        shield::raise_shield(&mut actor.state, &actor.creature).expect("raise");
+        let (mut encounter, mut dice) = begin(
+            vec![with_reach(pc(1, 0, 20, 18), 5), actor],
+            &[10, 8, 10, 3],
+        );
+        assert!(reaction(&encounter, 2));
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect("shield");
+        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        assert_eq!(
+            encounter.state(id(2)).expect("state").shield_hit_points,
+            Some(20)
+        );
+        assert!(reaction(&encounter, 2));
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn an_unconscious_target_returns_targetnotconscious() {
+        let actor = with_current(combatant(2, Side::Pc, 0, 20, 18, false), 0);
+        let (mut encounter, mut dice) =
+            begin(vec![with_reach(pc(1, 0, 20, 18), 5), actor], &[10, 8, 10]);
+        encounter.set_vital_for_test(id(2), Vital::Unconscious);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("unconscious target");
+        assert_eq!(error, ReactiveError::TargetNotConscious);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn a_dying_target_in_reach_is_targetnotconscious() {
+        let actor = with_current(combatant(2, Side::Pc, 0, 20, 18, true), 0);
+        let (mut encounter, mut dice) =
+            begin(vec![with_reach(pc(1, 0, 20, 18), 5), actor], &[10, 8, 10]);
+        encounter.set_vital_for_test(id(2), Vital::Dying(DyingValue::new(1).expect("dying")));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("dying target");
+        assert_eq!(error, ReactiveError::TargetNotConscious);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn a_dead_target_in_reach_is_targetnotconscious() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        encounter.spend_reaction(id(1)).expect("spend");
+        encounter.set_vital_for_test(id(2), Vital::Dead);
+        assert!(!reaction(&encounter, 1));
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("dead target");
+        assert_eq!(error, ReactiveError::TargetNotConscious);
+        assert_ne!(error, ReactiveError::NoReaction);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn a_reactive_strike_on_oneself_rolls_nothing() {
+        let (mut encounter, mut dice) = begin(vec![with_reach(pc(1, 0, 20, 18), 5)], &[10, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            1,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 0),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("self");
+        assert_eq!(error, ReactiveError::SelfTarget);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn an_unknown_reactor_rolls_nothing() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let ready = reaction(&encounter, 2);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            9,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("unknown reactor");
+        assert_eq!(error, ReactiveError::UnknownCombatant);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(reaction(&encounter, 2), ready);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn an_unknown_actor_rolls_nothing() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            9,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("unknown actor");
+        assert_eq!(error, ReactiveError::UnknownCombatant);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Range and Reach".
+    #[test]
+    fn a_dead_actor_out_of_reach_is_out_of_reach() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        encounter.set_vital_for_test(id(2), Vital::Dead);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 2),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("out of reach");
+        assert_eq!(error, ReactiveError::OutOfReach);
+        assert_ne!(error, ReactiveError::TargetNotConscious);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, Penalties.
+    #[test]
+    fn an_attack_bonus_that_does_not_fit_spends_nothing() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(2_147_483_647, Agility::NotAgile, 1, 8, 4),
+            &[],
+        )
+        .expect_err("overflow");
+        assert_eq!(
+            error,
+            ReactiveError::AttackOverflow(ModifierError::Overflow)
+        );
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Reactive Strike".
+    #[test]
+    fn an_attack_bonus_of_2147483627_and_a_natural_20_fit() {
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 20]);
+        let outcome = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(2_147_483_627, Agility::NotAgile, 0, 8, 0),
+            &[],
+        )
+        .expect("fits");
+        assert_eq!(outcome.strike.total, 2_147_483_647);
+        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
+        assert!(!reaction(&encounter, 1));
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Damage Rolls".
+    #[test]
+    fn a_damage_total_that_does_not_fit_spends_nothing() {
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 1, 4]);
+        let error = react(
+            &mut encounter,
+            &mut dice,
+            1,
+            2,
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            (0, 0),
+            (0, 1),
+            Size::Medium,
+            Size::Medium,
+            profile(8, Agility::NotAgile, 1, 8, 2_147_483_647),
+            &[],
+        )
+        .expect_err("damage overflow");
+        assert_eq!(
+            error,
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        );
+        assert_eq!(dice.remaining(), 1);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(hit_points(&encounter, 2), 20);
     }
 }
