@@ -235,25 +235,42 @@ After initiative and before any turn starts, each Alive combatant's reaction SHA
 
 ### Requirement: A creature that is not Alive cannot act
 
-A combatant that is not Alive SHALL have 0 actions and no reaction. Dead combatants SHALL be skipped. Any other non-Alive combatant, including EnterDying, SHALL open a turn and close it empty. An action, free action, reaction, or Strike for that combatant SHALL return NotConscious and SHALL NOT change the reaction.
+A combatant that is not Alive SHALL have 0 actions and no reaction. Dead combatants SHALL be skipped. A combatant whose vital is neither Alive nor Dead SHALL open a turn and close it empty. An action, free action, reaction, or Strike for that combatant SHALL return NotConscious and SHALL NOT change the reaction. If the active creature stops being Alive during the open turn, later spends SHALL return NotConscious, and end_turn SHALL close the turn once and run the end step once.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
 #### Scenario: A not-alive turn opens with no actions
 
-- **GIVEN** Alive CombatantId(1) then EnterDying CombatantId(2), and CombatantId(1) has ended
-- **WHEN** CombatantId(2)'s turn starts
+- **GIVEN** CombatantId(1) and CombatantId(2), both Alive, both with Perception +0, scripted initiative naturals 10 then 8, CombatantId(2) at 9 Hit Points with uses_dying_rules true and Armor Class 11
+- **WHEN** CombatantId(1)'s turn starts and CombatantId(1) Strikes CombatantId(2) with attack bonus +0, natural 11, and damage 1d8+1 showing 8
+- **THEN** CombatantId(2) has 0 Hit Points
+- **AND** CombatantId(2) is not Alive and is not Dead
+- **WHEN** CombatantId(1)'s turn ends and the next turn starts
 - **THEN** the open turn is CombatantId(2)
 - **AND** CombatantId(2) has 0 actions
 - **AND** the reaction is not ready
-- **WHEN** CombatantId(2) spends a reaction, spends 1 action, spends a free action, and Strikes with a scripted natural 8
+- **WHEN** CombatantId(2) spends a reaction, spends 1 action, spends a free action, and Strikes with a scripted natural 4
 - **THEN** each error is NotConscious
 - **AND** the reaction is still not ready
 - **AND** actions stay 0
-- **AND** the scripted 8 is still unused
+- **AND** the scripted 4 is still unused
 - **WHEN** the turn ends
 - **THEN** no turn is open
 - **AND** CombatantId(2) still has 0 actions
+
+#### Scenario: An active creature that stops being Alive cannot keep acting
+
+- **GIVEN** CombatantId(1)'s turn opened while Alive, with 2 actions and a ready reaction, CombatantId(2) next, a scripted natural 8, and CombatantId(1)'s vital then neither Alive nor Dead
+- **WHEN** CombatantId(1) spends 1 action
+- **THEN** the error is NotConscious
+- **AND** 2 actions remain
+- **AND** the reaction is still ready
+- **AND** the scripted 8 is still unused
+- **WHEN** the turn ends, and a turn end is requested again
+- **THEN** the first end succeeds
+- **AND** the second end is TurnNotOpen
+- **AND** the round is still 1
+- **AND** the next start is CombatantId(2)
 
 #### Scenario: A dead combatant cannot spend a reaction
 
@@ -289,7 +306,7 @@ Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent 
 
 ### Requirement: Spending the last action leaves the turn open
 
-Spending the action that leaves 0 SHALL leave the turn open. end_turn SHALL advance once. A second end_turn SHALL return TurnNotOpen and SHALL NOT advance again. The next turn SHALL start only when a start is requested.
+Rules 2429 ends the turn after the third action. This handoff is engineering: the caller SHALL call end_turn. Nothing further can be spent, so the handoff has no rules effect. No end-of-turn effect SHALL fire before end_turn. end_turn SHALL advance once. A second end_turn SHALL return TurnNotOpen.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
@@ -363,7 +380,7 @@ During an open Alive turn, an untriggered free action SHALL leave the action cou
 
 ### Requirement: Spending a reaction does not take an action
 
-Spending a ready reaction of the active Alive creature SHALL clear it and SHALL NOT change the action count, roll a die, or end the turn. A second spend SHALL return NoReaction.
+An Alive creature SHALL be able to spend a ready reaction during another creature's turn. The spend SHALL clear that reaction and SHALL NOT change the active creature's actions, roll a die, or end the turn. A second spend SHALL return NoReaction.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
 
@@ -375,6 +392,17 @@ Spending a ready reaction of the active Alive creature SHALL clear it and SHALL 
 - **AND** the turn stays open
 - **AND** the reaction is not ready
 - **AND** the scripted 8 is still unused
+
+#### Scenario: Another creature spends a reaction during the turn
+
+- **GIVEN** CombatantId(1)'s turn is open with 3 actions, CombatantId(2) is Alive with a ready reaction, and a scripted natural 8
+- **WHEN** CombatantId(2) spends a reaction
+- **THEN** the spend succeeds
+- **AND** CombatantId(1) still has 3 actions
+- **AND** the open turn is still CombatantId(1)
+- **AND** the scripted 8 is still unused
+- **WHEN** CombatantId(2) spends a reaction again
+- **THEN** the error is NoReaction
 
 ### Requirement: The round is a u32
 
@@ -444,7 +472,7 @@ A dead combatant SHALL remain in the order and SHALL NOT start a turn. The next 
 
 ### Requirement: Strike spends one action against baked Armor Class
 
-On an open Alive turn, a Strike SHALL spend 1 action, roll one d20, add the strike's attack bonus and the multiple attack penalty, and compare that total with the target's baked Armor Class. No square and no reach SHALL be required. The degree SHALL use that baked Armor Class, with no unconscious reduction.
+On an open Alive turn, a Strike SHALL spend 1 action, roll one d20, add the strike's attack bonus and the multiple attack penalty, and compare that total with the target's baked Armor Class. No square and no reach SHALL be required. The degree SHALL use that baked Armor Class. A target whose vital is neither Alive nor Dead keeps that baked Armor Class until wire-dying-into-turns replaces this result (DEV-36).
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 
@@ -457,6 +485,15 @@ On an open Alive turn, a Strike SHALL spend 1 action, roll one d20, add the stri
 - **AND** the degree is success
 - **AND** 2 actions remain
 - **AND** the turn stays open
+
+#### Scenario: A not-alive target keeps baked Armor Class
+
+- **GIVEN** CombatantId(1) and CombatantId(2), both with Perception +0, scripted initiative naturals 10 then 8, and CombatantId(2) at 9 Hit Points with uses_dying_rules true and baked Armor Class 18
+- **WHEN** CombatantId(1) Strikes with attack bonus +10, natural 15, and damage 1d8+1 showing 8, CombatantId(1)'s turn ends, CombatantId(2)'s turn starts and ends, CombatantId(1)'s next turn starts, and CombatantId(1) Strikes with attack bonus +8, 0 damage dice, and natural 10
+- **THEN** CombatantId(2) is not Alive and is not Dead when the second Strike is rolled
+- **AND** the second total is 18
+- **AND** the second degree is success
+- **AND** this baked Armor Class result is replaced by wire-dying-into-turns (DEV-36)
 
 #### Scenario: Strike before the turn starts rolls nothing
 
@@ -550,11 +587,11 @@ A Strike SHALL pass the caller's attack-statistic modifiers through the attack c
 
 #### Scenario: A caller untyped penalty stacks with MAP
 
-- **GIVEN** a second non-agile Strike, attack bonus +0, Armor Class 11, 0 damage dice, a scripted natural 10, and a caller untyped penalty of -5
+- **GIVEN** a second non-agile Strike, attack bonus +0, Armor Class 11, 0 damage dice, a scripted natural 12, and a caller untyped penalty of -5
 - **WHEN** the Strike is resolved
 - **THEN** the multiple attack penalty is -5
-- **AND** the total is 0
-- **AND** the total is not 5
+- **AND** the total is 2
+- **AND** the total is not 7
 - **AND** the degree is failure
 
 ### Requirement: The multiple attack penalty follows this turn's count
@@ -814,9 +851,9 @@ An attack total that overflows SHALL return AttackOverflow of that modifier erro
 - **AND** current Hit Points stay 9
 - **AND** the next Strike on that turn has multiple attack penalty 0
 
-### Requirement: The encounter alone mutates its combatants
+### Requirement: The encounter module alone mutates its combatants
 
-No public free function SHALL take a mutable participant or a mutable combatant state. A state copied out of the encounter SHALL NOT be the encounter's state.
+In the encounter module, no public free function SHALL take a mutable participant or a mutable combatant state. `apply_dice_damage` in the combatant module stays. A state copied out of the encounter SHALL NOT be the encounter's state.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
 
