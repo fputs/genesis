@@ -1,7 +1,7 @@
-//! Initiative, the round, the three-action turn, Strike, Aid, and Reactive Strike.
+//! Initiative, the round, the three-action turn, Strike, Aid, Reactive Strike, Delay, and Ready.
 //!
 //! Player Core, "Step 1: Roll Initiative". Player Core, "Step 2: Act". Player Core, Strike.
-//! Player Core, Aid. Player Core, "Reactive Strike".
+//! Player Core, Aid. Player Core, "Reactive Strike". Player Core, Delay. Player Core, "Ready".
 
 use crate::aid::{AidOutcome, AidPreparation, FittingAidModifier, roll_aid};
 use crate::check::{
@@ -12,13 +12,21 @@ use crate::combatant::{
     CombatantId, CombatantState, Creature, DieCount, HpError, Vital, damage_dealt,
 };
 use crate::dice::{Dice, Faces};
-use crate::dying::apply_resolved_blow;
-use crate::grid::{Size, Square};
+use crate::dying::{InitiativeMove, apply_resolved_blow};
+use crate::grid::{
+    DiagonalCounter, FactionId, GridError, MapBounds, MoveInput, MoveOutcome, Occupant, Size,
+    Square, Terrain, distance, in_reach, range_band, step as grid_step, stride as grid_stride,
+};
 use crate::modifiers::{Modifier, ModifierError, Statistic};
-use crate::positioning::{ActionCost, MoveAction};
+use crate::positioning::{ActionCost, CoverBenefit, MoveAction, dismiss};
 use crate::reactive::{
     ActionIdentity, ReactiveError, ReactiveOutcome, ReactiveStrike, TriggerClass,
     attack_bonus_fits, disruption, not_a_trigger, outside_reach, reactive_attack_total,
+};
+use crate::ready::{
+    ActivityKind, ObservedAction, ReactiveStrikeInput, ReadyActivity, ReadyError, ReadyStrike,
+    ReadySuccess, ReadyTrigger, ResolvedReaction, StoredReady, StrikeRange, entered_reach,
+    single_action, stored_agility,
 };
 use crate::shield::{
     AttackBlowError, PlannedBlow, ShieldBlock, ShieldError, lower_raised_shield, plan_attack_blow,
@@ -150,6 +158,41 @@ pub enum EncounterError {
     NotThePreparedAlly,
     /// The Aid modifier plus 20 does not fit in `i32`. Player Core, Aid.
     AidOverflow(ArithmeticOverflow),
+    /// The roster has no creature. Player Core, Encounter Mode.
+    NoCreature,
+    /// Return was asked of a creature who is not delayed. Player Core, Delay.
+    NotDelayed,
+    /// Delay or Return was not at its trigger. Player Core, Delay.
+    TriggerNotMet,
+    /// The creature has Delayed and cannot use a reaction yet.
+    ///
+    /// Checked after [`EncounterError::NotConscious`] and before any action or die.
+    ///
+    /// Player Core, Delay.
+    Delayed,
+    /// A begun Stride or Step was rejected by the grid. Player Core, "Grid Movement".
+    Grid(GridError),
+}
+
+/// Where a creature sits in the round.
+///
+/// There is no delayed flag. The slot is the only record.
+///
+/// Player Core, Delay. Player Core, "Step 1: Start Your Turn".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnSlot {
+    /// An ordinary turn. `start_turn` sets this. Player Core, "Step 1: Start Your Turn".
+    Normal,
+    /// Out of the order until they return or the slot comes up again. Player Core, Delay.
+    Delayed,
+    /// The open turn a return just produced. Delay on it is [`EncounterError::TriggerNotMet`].
+    ///
+    /// Player Core, Delay.
+    Returned,
+    /// A later creature in the same return. The next start grants actions and skips the start step.
+    ///
+    /// Player Core, Delay.
+    SkipStartHook,
 }
 
 /// One resolved Strike.
@@ -176,6 +219,11 @@ struct Member {
     participant: Participant,
     attack_count: u8,
     initiative: i32,
+    slot: TurnSlot,
+    ready: Option<StoredReady>,
+    square: Square,
+    size: Size,
+    cover: Option<CoverBenefit>,
 }
 
 /// One fight: initiative order, the round, the open turn, and Strike.
@@ -188,6 +236,14 @@ pub struct Encounter {
     cursor: usize,
     round: u32,
     open: Option<CombatantId>,
+    /// The creature whose turn just ended. Delay clears it. Return requires it.
+    ///
+    /// Player Core, Delay. Player Core, "Step 3: End Your Turn".
+    last_ended: Option<CombatantId>,
+    /// The last turn ended while someone was Delayed, so the round has not advanced.
+    ///
+    /// Player Core, Delay.
+    pending_wrap: bool,
 }
 
 /// Rolls initiative and builds the order.
@@ -235,6 +291,11 @@ pub fn begin_encounter(
                 participant,
                 attack_count: 0,
                 initiative: 0,
+                slot: TurnSlot::Normal,
+                ready: None,
+                square: Square { x: 0, y: 0 },
+                size: Size::Medium,
+                cover: None,
             }
         })
         .collect();
@@ -283,6 +344,8 @@ pub fn begin_encounter(
         cursor: 0,
         round: 1,
         open: None,
+        last_ended: None,
+        pending_wrap: false,
     })
 }
 
@@ -353,10 +416,19 @@ impl Encounter {
         if self.no_living() {
             return Err(EncounterError::NoLivingCombatant);
         }
+        if self.pending_wrap {
+            self.round = self
+                .round
+                .checked_add(1)
+                .ok_or(EncounterError::RoundOverflow)?;
+            self.pending_wrap = false;
+            self.cursor = 0;
+        }
         let len = self.order.len();
         let mut index = self.cursor;
         let mut round = self.round;
         let mut steps = 0usize;
+        let mut clear_delayed = Vec::new();
         let id = loop {
             if steps > len {
                 return Err(EncounterError::NoLivingCombatant);
@@ -369,6 +441,7 @@ impl Encounter {
             if !self.is_dead(id) {
                 break id;
             }
+            clear_delayed.push(id);
             if index + 1 >= len {
                 round = round.checked_add(1).ok_or(EncounterError::RoundOverflow)?;
                 index = 0;
@@ -376,6 +449,9 @@ impl Encounter {
                 index += 1;
             }
         };
+        for skipped in clear_delayed {
+            self.clear_delay_mark(skipped);
+        }
         self.cursor = index;
         self.round = round;
         self.open_at(id);
@@ -394,30 +470,12 @@ impl Encounter {
         let Some(id) = self.open else {
             return Err(EncounterError::TurnNotOpen);
         };
-        let len = self.order.len();
-        let next = self.cursor.saturating_add(1);
-        let new_round = if next >= len {
-            Some(
-                self.round
-                    .checked_add(1)
-                    .ok_or(EncounterError::RoundOverflow)?,
-            )
-        } else {
-            None
-        };
+        let advance = self.plan_advance(TurnAdvance::End)?;
         self.end_of_turn_step(id);
-        if let Ok(index) = self.member_index(id)
-            && let Some(member) = self.members.get_mut(index)
-        {
-            member.participant.state.actions_remaining = 0;
-        }
+        self.close_actions(id);
         self.open = None;
-        if let Some(round) = new_round {
-            self.round = round;
-            self.cursor = 0;
-        } else {
-            self.cursor = next;
-        }
+        self.last_ended = Some(id);
+        self.apply_advance(advance);
         Ok(())
     }
 
@@ -456,17 +514,12 @@ impl Encounter {
     ///
     /// Player Core, "Reactions in Encounters".
     pub fn spend_reaction(&mut self, id: CombatantId) -> Result<(), EncounterError> {
+        self.require_reaction(id)?;
         let index = self.member_index(id)?;
         let member = self
             .members
             .get_mut(index)
             .ok_or(EncounterError::UnknownCombatant)?;
-        if member.participant.state.vital != Vital::Alive {
-            return Err(EncounterError::NotConscious);
-        }
-        if !member.participant.state.reaction_ready {
-            return Err(EncounterError::NoReaction);
-        }
         member.participant.state.reaction_ready = false;
         Ok(())
     }
@@ -549,7 +602,7 @@ impl Encounter {
         if self.open.is_none() {
             return Err(EncounterError::TurnNotOpen);
         }
-        let (vital, aider_side, preparation, modifier, reaction_ready, rank) = {
+        let (vital, aider_side, preparation, modifier, rank) = {
             let aider_member = self
                 .members
                 .get(aider_index)
@@ -559,13 +612,13 @@ impl Encounter {
                 aider_member.participant.side,
                 aider_member.participant.state.aid_preparation,
                 aider_member.participant.creature.aid_modifier,
-                aider_member.participant.state.reaction_ready,
                 aider_member.participant.creature.aid_rank,
             )
         };
         if vital != Vital::Alive {
             return Err(EncounterError::NotConscious);
         }
+        self.reject_delayed(aider)?;
         if aider == ally {
             return Err(EncounterError::SelfTarget);
         }
@@ -590,9 +643,7 @@ impl Encounter {
             None => return Err(EncounterError::NoAidModifier),
         };
         let modifier = FittingAidModifier::new(modifier).map_err(EncounterError::AidOverflow)?;
-        if !reaction_ready {
-            return Err(EncounterError::NoReaction);
-        }
+        self.require_reaction(aider)?;
         let (roll, circumstance) =
             roll_aid(dice, modifier, rank).map_err(EncounterError::AidOverflow)?;
         self.spend_reaction(aider)?;
@@ -748,7 +799,9 @@ impl Encounter {
         dice: &mut impl Dice,
     ) -> Result<StrikeOutcome, EncounterError> {
         self.prepare_strike(attacker, target)?;
+        let delayed_target = self.slot_of(target)? == TurnSlot::Delayed;
         if let ShieldBlock::Requested = block {
+            self.reject_requested_block(target)?;
             self.block_is_ready(target)?;
         }
         let map = self.attack_trait_penalty(attacker, profile.agility)?;
@@ -782,6 +835,7 @@ impl Encounter {
                 ShieldBlock::Declined => self.apply_damage(target, dealt, degree)?,
                 ShieldBlock::Requested => self.shield_block(target, dealt, degree)?,
             }
+            self.place_delayed_knockout(target, attacker, delayed_target);
             dealt
         };
         self.finish_strike(attacker)?;
@@ -826,12 +880,10 @@ impl Encounter {
         modifiers: &[Modifier],
         dice: &mut impl Dice,
     ) -> Result<ReactiveOutcome, ReactiveError> {
-        let (reactor_vital, reaction_ready) = {
-            let state = self
-                .state(reactor)
-                .map_err(|_| ReactiveError::UnknownCombatant)?;
-            (state.vital, state.reaction_ready)
-        };
+        let reactor_vital = self
+            .state(reactor)
+            .map_err(|_| ReactiveError::UnknownCombatant)?
+            .vital;
         let actor_vital = self
             .state(actor)
             .map_err(|_| ReactiveError::UnknownCombatant)?
@@ -839,6 +891,7 @@ impl Encounter {
         if reactor_vital != Vital::Alive {
             return Err(ReactiveError::NotConscious);
         }
+        self.reject_delayed(reactor).map_err(from_spend)?;
         if reactor == actor {
             return Err(ReactiveError::SelfTarget);
         }
@@ -864,9 +917,7 @@ impl Encounter {
         if actor_vital != Vital::Alive {
             return Err(ReactiveError::TargetNotConscious);
         }
-        if !reaction_ready {
-            return Err(ReactiveError::NoReaction);
-        }
+        self.require_reaction(reactor).map_err(from_spend)?;
         attack_bonus_fits(profile.attack_bonus, modifiers)
             .map_err(ReactiveError::AttackOverflow)?;
 
@@ -889,6 +940,7 @@ impl Encounter {
             )
             .map_err(ReactiveError::DamageOverflow)?
         };
+        let actor_was_delayed = matches!(self.slot_of(actor), Ok(TurnSlot::Delayed));
         if !misses(degree) {
             let mut updated = self
                 .state(actor)
@@ -904,6 +956,7 @@ impl Encounter {
             .map_err(ReactiveError::HitPoints)?;
             self.spend_reaction(reactor).map_err(from_spend)?;
             self.commit_reactive_blow(actor, &updated)?;
+            self.place_delayed_knockout(actor, reactor, actor_was_delayed);
         } else {
             self.spend_reaction(reactor).map_err(from_spend)?;
         }
@@ -945,15 +998,101 @@ impl Encounter {
         }
     }
 
-    #[cfg(test)]
-    fn initiative_total(&self, id: CombatantId) -> Option<i32> {
+    /// The initiative total rolled for `id`. Delay does not change it.
+    ///
+    /// Player Core, "Step 1: Roll Initiative". Player Core, Delay.
+    pub fn initiative_total(&self, id: CombatantId) -> Result<i32, EncounterError> {
+        let index = self.member_index(id)?;
         self.members
-            .iter()
-            .find(|member| member.participant.id == id)
+            .get(index)
             .map(|member| member.initiative)
+            .ok_or(EncounterError::UnknownCombatant)
     }
 
-    fn attack_count(&self, id: CombatantId) -> Result<u8, EncounterError> {
+    /// The slot `id` occupies. This does not roll.
+    ///
+    /// Player Core, Delay.
+    pub fn turn_slot(&self, id: CombatantId) -> Result<TurnSlot, EncounterError> {
+        self.slot_of(id)
+    }
+
+    /// The creature `start_turn` would open. This does not mutate.
+    ///
+    /// An open turn, including a returned one, is [`EncounterError::TurnInProgress`].
+    /// An empty roster is [`EncounterError::NoCreature`]. A pending Delay wrap returns
+    /// the creature at the top and leaves the round unchanged. A wrap past the maximum
+    /// round is [`EncounterError::RoundOverflow`].
+    ///
+    /// Player Core, "Step 2: Act". Player Core, Delay.
+    pub fn next_start(&self) -> Result<CombatantId, EncounterError> {
+        if self.members.is_empty() {
+            return Err(EncounterError::NoCreature);
+        }
+        if self.open.is_some() {
+            return Err(EncounterError::TurnInProgress);
+        }
+        if self.no_living() {
+            return Err(EncounterError::NoLivingCombatant);
+        }
+        if self.pending_wrap {
+            if self.round.checked_add(1).is_none() {
+                return Err(EncounterError::RoundOverflow);
+            }
+            return self.first_living(0);
+        }
+        self.hypothetical_start()
+    }
+
+    /// The ready stored for `id`, if any.
+    ///
+    /// Player Core, "Ready".
+    pub fn stored_ready(&self, id: CombatantId) -> Result<Option<StoredReady>, EncounterError> {
+        let index = self.member_index(id)?;
+        self.members
+            .get(index)
+            .map(|member| member.ready)
+            .ok_or(EncounterError::UnknownCombatant)
+    }
+
+    /// The attack count frozen when Ready resolved.
+    ///
+    /// `Ok(None)` is a creature with no stored ready.
+    ///
+    /// Player Core, "Ready". Player Core, "Multiple Attack Penalty".
+    pub fn frozen_attack_count(&self, id: CombatantId) -> Result<Option<u8>, EncounterError> {
+        Ok(self
+            .stored_ready(id)?
+            .map(|ready| ready.frozen_attack_count))
+    }
+
+    /// The square this encounter is tracking for `id`.
+    ///
+    /// Readied movement writes it. A reaction that leaves the actor unable to act does not.
+    ///
+    /// Player Core, "Grid Movement".
+    pub fn square(&self, id: CombatantId) -> Result<Square, EncounterError> {
+        let index = self.member_index(id)?;
+        self.members
+            .get(index)
+            .map(|member| member.square)
+            .ok_or(EncounterError::UnknownCombatant)
+    }
+
+    /// The cover benefit stored for `id`. Dismiss clears it.
+    ///
+    /// Player Core, "Take Cover".
+    pub fn cover(&self, id: CombatantId) -> Result<Option<CoverBenefit>, EncounterError> {
+        let index = self.member_index(id)?;
+        self.members
+            .get(index)
+            .map(|member| member.cover)
+            .ok_or(EncounterError::UnknownCombatant)
+    }
+
+    /// Attack-trait checks this creature has already made.
+    ///
+    /// Player Core, "Multiple Attack Penalty".
+    pub fn attack_count(&self, id: CombatantId) -> Result<u8, EncounterError> {
         let index = self.member_index(id)?;
         self.members
             .get(index)
@@ -979,7 +1118,10 @@ impl Encounter {
     }
 
     fn open_at(&mut self, id: CombatantId) {
-        self.start_of_turn_step(id);
+        let skip_hook = matches!(self.slot_of(id), Ok(TurnSlot::SkipStartHook));
+        if !skip_hook {
+            self.start_of_turn_step(id);
+        }
         self.open = Some(id);
         let alive = self
             .state(id)
@@ -990,14 +1132,20 @@ impl Encounter {
         {
             // DEV-50: this creature's preparation ends when their turn starts.
             member.participant.state.aid_preparation = AidPreparation::NotPrepared;
+            if !skip_hook {
+                member.ready = None;
+            }
             if alive {
                 member.participant.state.actions_remaining = 3;
                 member.participant.state.reaction_ready = true;
-                member.attack_count = 0;
+                if !skip_hook {
+                    member.attack_count = 0;
+                }
             } else {
                 member.participant.state.actions_remaining = 0;
                 member.participant.state.reaction_ready = false;
             }
+            member.slot = TurnSlot::Normal;
         }
     }
 
@@ -1144,6 +1292,1082 @@ impl Encounter {
         .map(|_| ())
         .map_err(map_attack_blow_error)
     }
+
+    /// Leaves the order at the start of your turn.
+    ///
+    /// Legal only on the turn `start_turn` just granted: 3 actions, attack count 0, and the
+    /// reaction ready. A turn opened by return is [`EncounterError::TriggerNotMet`]. Success
+    /// spends nothing, sets actions to 0, marks the creature delayed, closes the turn, and
+    /// does not advance the round.
+    ///
+    /// Player Core, Delay. Player Core, "Step 1: Start Your Turn".
+    pub fn delay(&mut self, id: CombatantId) -> Result<(), EncounterError> {
+        let _known = self.member_index(id)?;
+        let Some(active) = self.open else {
+            return Err(EncounterError::TurnNotOpen);
+        };
+        if active != id {
+            return Err(EncounterError::NotYourTurn);
+        }
+        let state = self.state(id)?;
+        if state.vital != Vital::Alive {
+            return Err(EncounterError::NotConscious);
+        }
+        let triggered = state.actions_remaining == 3
+            && self.attack_count(id)? == 0
+            && state.reaction_ready
+            && self.slot_of(id)? != TurnSlot::Returned;
+        if !triggered {
+            return Err(EncounterError::TriggerNotMet);
+        }
+        let advance = self.plan_advance(TurnAdvance::Delay)?;
+        self.end_of_turn_step(id);
+        self.close_actions(id);
+        self.set_slot(id, TurnSlot::Delayed)?;
+        self.open = None;
+        self.last_ended = None;
+        self.apply_advance(advance);
+        Ok(())
+    }
+
+    /// Returns delayed creatures at the end of the turn that just ended.
+    ///
+    /// Enemies come before PCs, then the lower [`CombatantId`] (DEV-52, DEV-05). The first
+    /// opens with 3 actions. Each later id waits as [`TurnSlot::SkipStartHook`]. The round
+    /// does not advance. The reaction, the attack count, and temporary Hit Points stay.
+    ///
+    /// Player Core, Delay.
+    pub fn return_from_delay(
+        &mut self,
+        ids: &[CombatantId],
+    ) -> Result<CombatantId, EncounterError> {
+        if ids.is_empty() {
+            return Err(EncounterError::NoCreature);
+        }
+        if duplicate_ids(ids) {
+            return Err(EncounterError::DuplicateCombatant);
+        }
+        for id in ids {
+            let _known = self.member_index(*id)?;
+        }
+        if self.open.is_some() {
+            return Err(EncounterError::TurnInProgress);
+        }
+        for id in ids {
+            if self.slot_of(*id)? != TurnSlot::Delayed {
+                return Err(EncounterError::NotDelayed);
+            }
+        }
+        for id in ids {
+            if self.state(*id)?.vital != Vital::Alive {
+                return Err(EncounterError::NotConscious);
+            }
+        }
+        let Some(anchor) = self.last_ended else {
+            return Err(EncounterError::TriggerNotMet);
+        };
+        let _anchor = self.member_index(anchor)?;
+        let mut ranked = Vec::new();
+        for id in ids {
+            let side = self.side_of(*id)?;
+            ranked.push((*id, side));
+        }
+        ranked.sort_by(|left, right| {
+            side_rank(left.1)
+                .cmp(&side_rank(right.1))
+                .then(left.0.cmp(&right.0))
+        });
+        let sorted: Vec<CombatantId> = ranked.into_iter().map(|(id, _side)| id).collect();
+        self.insert_after(anchor, &sorted);
+        let Some(first) = sorted.first().copied() else {
+            return Err(EncounterError::NoCreature);
+        };
+        for (offset, id) in sorted.iter().copied().enumerate() {
+            let slot = if offset == 0 {
+                TurnSlot::Returned
+            } else {
+                TurnSlot::SkipStartHook
+            };
+            self.set_slot(id, slot)?;
+        }
+        self.open_return(first)?;
+        self.pending_wrap = false;
+        Ok(first)
+    }
+
+    /// Stores one trigger and one action, then ends the turn.
+    ///
+    /// The attack count is snapshotted and not changed. The reaction is not spent.
+    /// Two actions are required. Ending the last turn of a round past the maximum is
+    /// [`ReadyError::RoundOverflow`] and writes nothing.
+    ///
+    /// Player Core, "Ready".
+    pub fn ready(
+        &mut self,
+        actor: CombatantId,
+        trigger: ReadyTrigger,
+        cost: ActionCost,
+        activity: ReadyActivity,
+    ) -> Result<(), ReadyError> {
+        let actor_index = self.member_index(actor).map_err(ready_from_encounter)?;
+        let subject = trigger.subject();
+        let _subject = self.member_index(subject).map_err(ready_from_encounter)?;
+        let Some(active) = self.open else {
+            return Err(ReadyError::TurnNotOpen);
+        };
+        if active != actor {
+            return Err(ReadyError::NotYourTurn);
+        }
+        let state = self.state(actor).map_err(ready_from_encounter)?;
+        if state.vital != Vital::Alive {
+            return Err(ReadyError::NotConscious);
+        }
+        single_action(activity, cost)?;
+        if subject == actor {
+            return Err(ReadyError::TriggerSubjectIsSelf);
+        }
+        if let ReadyActivity::Strike { target, .. } = activity
+            && target != subject
+        {
+            return Err(ReadyError::NotTheTriggerSubject);
+        }
+        if state.actions_remaining < 2 {
+            return Err(ReadyError::InsufficientActions);
+        }
+        if self.end_would_overflow() {
+            return Err(ReadyError::RoundOverflow);
+        }
+        let frozen = self.attack_count(actor).map_err(ready_from_encounter)?;
+        let stored = StoredReady {
+            trigger,
+            activity,
+            frozen_attack_count: frozen,
+        };
+        let member = self
+            .members
+            .get_mut(actor_index)
+            .ok_or(ReadyError::UnknownCombatant)?;
+        member.ready = Some(stored);
+        if let Err(error) = self.end_turn() {
+            if let Some(member) = self.members.get_mut(actor_index) {
+                member.ready = None;
+            }
+            return Err(ready_from_encounter(error));
+        }
+        Ok(())
+    }
+
+    /// The penalty a stored readied attack would take. This does not roll or write.
+    ///
+    /// Player Core, "Multiple Attack Penalty". Player Core, "Ready".
+    pub fn readied_attack_penalty(&self, id: CombatantId) -> Result<i32, ReadyError> {
+        let ready = self
+            .stored_ready(id)
+            .map_err(ready_from_encounter)?
+            .ok_or(ReadyError::NotReadied)?;
+        let agility = stored_agility(ready.activity).ok_or(ReadyError::WrongAction)?;
+        Ok(multiple_attack_penalty(MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: matches!(agility, Agility::Agile),
+            readied_attack_count: Some(ready.frozen_attack_count),
+        }))
+    }
+
+    /// Runs every matching ready and every caller-supplied Reactive Strike, in initiative order.
+    ///
+    /// `reactors` is not stored. An id with no entry does not take a Reactive Strike.
+    /// Each reaction finishes, including its damage, before the next one starts.
+    /// A readied move takes `path` and a fresh diagonal counter.
+    ///
+    /// Player Core, "Ready". Player Core, "Reactive Strike".
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the ready design names the actor, the observed action, its cost, both squares, the readied path, the caller-supplied reactors, and the dice"
+    )]
+    pub fn resolve_reactions(
+        &mut self,
+        actor: CombatantId,
+        action: ObservedAction,
+        cost: ActionCost,
+        from: Square,
+        to: Square,
+        path: &[Square],
+        reactors: &[ReactiveStrikeInput<'_>],
+        dice: &mut impl Dice,
+    ) -> Vec<ResolvedReaction> {
+        let mut plan = Vec::new();
+        for id in self.order.clone() {
+            let subject_matches = self
+                .stored_ready(id)
+                .ok()
+                .flatten()
+                .is_some_and(|ready| ready.trigger.subject() == actor);
+            if subject_matches {
+                plan.push(ReactionPlan::Ready(id));
+            }
+            for (index, input) in reactors.iter().enumerate() {
+                if input.id == id {
+                    plan.push(ReactionPlan::Reactive(index));
+                }
+            }
+        }
+        let mut resolved = Vec::new();
+        for step in plan {
+            match step {
+                ReactionPlan::Ready(id) => {
+                    let result = self.fire_ready(id, actor, action, from, to, path, dice);
+                    resolved.push(ResolvedReaction::Ready { id, result });
+                }
+                ReactionPlan::Reactive(index) => {
+                    let Some(input) = reactors.get(index) else {
+                        continue;
+                    };
+                    let id = input.id;
+                    let outcome = self.reactive_strike(
+                        id,
+                        actor,
+                        cost,
+                        ActionIdentity::Other,
+                        observed_move(action),
+                        input.availability,
+                        input.square,
+                        to,
+                        input.reactor_size,
+                        input.actor_size,
+                        &input.profile,
+                        input.modifiers,
+                        dice,
+                    );
+                    resolved.push(ResolvedReaction::ReactiveStrike {
+                        id,
+                        result: outcome.map(|_| ()),
+                    });
+                }
+            }
+        }
+        resolved
+    }
+
+    /// Moves `id` along `path` on their own turn.
+    ///
+    /// A creature a reaction left Dying or Dead is [`EncounterError::NotConscious`].
+    /// Nothing is spent and the square stays.
+    ///
+    /// Player Core, "Stride". Player Core, "Getting Knocked Out".
+    pub fn stride(
+        &mut self,
+        id: CombatantId,
+        path: &[Square],
+        counter: DiagonalCounter,
+    ) -> Result<MoveOutcome, EncounterError> {
+        self.move_on_turn(id, path, counter, OwnMove::Stride)
+    }
+
+    /// Steps `id` one square on their own turn.
+    ///
+    /// A creature a reaction left Dying or Dead is [`EncounterError::NotConscious`].
+    /// Nothing is spent and the square stays.
+    ///
+    /// Player Core, "Step". Player Core, "Getting Knocked Out".
+    pub fn step(
+        &mut self,
+        id: CombatantId,
+        path: &[Square],
+        counter: DiagonalCounter,
+    ) -> Result<MoveOutcome, EncounterError> {
+        self.move_on_turn(id, path, counter, OwnMove::Step)
+    }
+
+    /// Rejects a stored ready before any die, in the fire order.
+    ///
+    /// `offered` is the action being checked. A stored Strike checked as a Stride is
+    /// [`ReadyError::WrongAction`] before [`ReadyError::Delayed`].
+    ///
+    /// Player Core, "Ready".
+    #[cfg(test)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fire order names the readier, the subject, the observed action, both squares, the path, and the offered kind"
+    )]
+    pub(crate) fn check_ready_fire(
+        &self,
+        readier: CombatantId,
+        subject: CombatantId,
+        observed: ObservedAction,
+        from: Square,
+        to: Square,
+        path: &[Square],
+        offered: ActivityKind,
+    ) -> Result<(), ReadyError> {
+        self.fire_checks(readier, subject, observed, from, to, path, offered)?;
+        Ok(())
+    }
+
+    /// An encounter with nobody in it. `begin_encounter` rejects that roster.
+    #[cfg(test)]
+    pub(crate) fn empty_for_test() -> Self {
+        Self {
+            members: Vec::new(),
+            order: Vec::new(),
+            cursor: 0,
+            round: 1,
+            open: None,
+            last_ended: None,
+            pending_wrap: false,
+        }
+    }
+
+    /// Stores a ready on `id`, including a creature who is already Delayed.
+    ///
+    /// This is not a branch inside [`Self::ready`] or [`Self::resolve_reactions`].
+    #[cfg(test)]
+    pub(crate) fn set_ready_for_test(&mut self, id: CombatantId, ready: StoredReady) {
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.ready = Some(ready);
+        }
+    }
+
+    /// Assigns the square readied movement and reach read.
+    #[cfg(test)]
+    pub(crate) fn set_square_for_test(&mut self, id: CombatantId, square: Square) {
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.square = square;
+        }
+    }
+
+    /// Assigns the cover benefit Dismiss clears.
+    #[cfg(test)]
+    pub(crate) fn set_cover_for_test(&mut self, id: CombatantId, cover: Option<CoverBenefit>) {
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.cover = cover;
+        }
+    }
+
+    /// Assigns Speed for a readied move.
+    #[cfg(test)]
+    pub(crate) fn set_speed_for_test(&mut self, id: CombatantId, speed_feet: i32) {
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.participant.creature.speed_feet = speed_feet;
+        }
+    }
+
+    fn require_reaction(&self, id: CombatantId) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let member = self
+            .members
+            .get(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        if member.participant.state.vital != Vital::Alive {
+            return Err(EncounterError::NotConscious);
+        }
+        if member.slot == TurnSlot::Delayed {
+            return Err(EncounterError::Delayed);
+        }
+        if !member.participant.state.reaction_ready {
+            return Err(EncounterError::NoReaction);
+        }
+        Ok(())
+    }
+
+    fn reject_delayed(&self, id: CombatantId) -> Result<(), EncounterError> {
+        if self.slot_of(id)? == TurnSlot::Delayed {
+            Err(EncounterError::Delayed)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn reject_requested_block(&self, target: CombatantId) -> Result<(), EncounterError> {
+        let state = self.state(target)?;
+        if state.vital != Vital::Alive {
+            return Err(EncounterError::TargetNotConscious);
+        }
+        self.reject_delayed(target)
+    }
+
+    fn slot_of(&self, id: CombatantId) -> Result<TurnSlot, EncounterError> {
+        let index = self.member_index(id)?;
+        self.members
+            .get(index)
+            .map(|member| member.slot)
+            .ok_or(EncounterError::UnknownCombatant)
+    }
+
+    fn side_of(&self, id: CombatantId) -> Result<Side, EncounterError> {
+        let index = self.member_index(id)?;
+        self.members
+            .get(index)
+            .map(|member| member.participant.side)
+            .ok_or(EncounterError::UnknownCombatant)
+    }
+
+    fn set_slot(&mut self, id: CombatantId, slot: TurnSlot) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        member.slot = slot;
+        Ok(())
+    }
+
+    fn any_delayed(&self) -> bool {
+        self.members
+            .iter()
+            .any(|member| member.slot == TurnSlot::Delayed)
+    }
+
+    fn end_would_overflow(&self) -> bool {
+        matches!(
+            self.plan_advance(TurnAdvance::End),
+            Err(EncounterError::RoundOverflow)
+        )
+    }
+
+    fn plan_advance(&self, kind: TurnAdvance) -> Result<AdvancePlan, EncounterError> {
+        let len = self.order.len();
+        let next = self.cursor.saturating_add(1);
+        let wrapping = next >= len;
+        match kind {
+            TurnAdvance::Delay => Ok(AdvancePlan {
+                cursor: if wrapping { 0 } else { next },
+                round: None,
+                pending_wrap: wrapping,
+            }),
+            TurnAdvance::End if wrapping && self.any_delayed() => Ok(AdvancePlan {
+                cursor: 0,
+                round: None,
+                pending_wrap: true,
+            }),
+            TurnAdvance::End if wrapping => {
+                let round = self
+                    .round
+                    .checked_add(1)
+                    .ok_or(EncounterError::RoundOverflow)?;
+                Ok(AdvancePlan {
+                    cursor: 0,
+                    round: Some(round),
+                    pending_wrap: false,
+                })
+            }
+            TurnAdvance::End => Ok(AdvancePlan {
+                cursor: next,
+                round: None,
+                pending_wrap: false,
+            }),
+        }
+    }
+
+    fn apply_advance(&mut self, plan: AdvancePlan) {
+        if let Some(round) = plan.round {
+            self.round = round;
+        }
+        self.cursor = plan.cursor;
+        self.pending_wrap = plan.pending_wrap;
+    }
+
+    fn close_actions(&mut self, id: CombatantId) {
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.participant.state.actions_remaining = 0;
+            if matches!(member.slot, TurnSlot::Returned | TurnSlot::SkipStartHook) {
+                member.slot = TurnSlot::Normal;
+            }
+        }
+    }
+
+    fn clear_delay_mark(&mut self, id: CombatantId) {
+        if let Ok(index) = self.member_index(id)
+            && let Some(member) = self.members.get_mut(index)
+            && member.slot == TurnSlot::Delayed
+        {
+            member.slot = TurnSlot::Normal;
+        }
+    }
+
+    fn first_living(&self, start: usize) -> Result<CombatantId, EncounterError> {
+        let len = self.order.len();
+        if len == 0 {
+            return Err(EncounterError::NoLivingCombatant);
+        }
+        let mut index = start;
+        for _ in 0..len {
+            let id = *self
+                .order
+                .get(index)
+                .ok_or(EncounterError::NoLivingCombatant)?;
+            if !self.is_dead(id) {
+                return Ok(id);
+            }
+            index = if index + 1 >= len { 0 } else { index + 1 };
+        }
+        Err(EncounterError::NoLivingCombatant)
+    }
+
+    fn hypothetical_start(&self) -> Result<CombatantId, EncounterError> {
+        let len = self.order.len();
+        let mut index = self.cursor;
+        let mut round = self.round;
+        for _ in 0..=len {
+            let id = *self
+                .order
+                .get(index)
+                .ok_or(EncounterError::NoLivingCombatant)?;
+            if !self.is_dead(id) {
+                return Ok(id);
+            }
+            if index + 1 >= len {
+                round = round.checked_add(1).ok_or(EncounterError::RoundOverflow)?;
+                index = 0;
+            } else {
+                index += 1;
+            }
+        }
+        Err(EncounterError::NoLivingCombatant)
+    }
+
+    fn insert_after(&mut self, anchor: CombatantId, ids: &[CombatantId]) {
+        self.order.retain(|existing| !ids.contains(existing));
+        let insert_at = match self.order.iter().position(|existing| *existing == anchor) {
+            Some(index) => index.saturating_add(1),
+            None => self.order.len(),
+        };
+        for (offset, id) in ids.iter().copied().enumerate() {
+            let at = insert_at.saturating_add(offset);
+            if at > self.order.len() {
+                self.order.push(id);
+            } else {
+                self.order.insert(at, id);
+            }
+        }
+    }
+
+    fn open_return(&mut self, id: CombatantId) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        member.participant.state.actions_remaining = 3;
+        member.slot = TurnSlot::Returned;
+        self.open = Some(id);
+        self.cursor = self
+            .order
+            .iter()
+            .position(|existing| *existing == id)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        Ok(())
+    }
+
+    fn place_delayed_knockout(
+        &mut self,
+        target: CombatantId,
+        attacker: CombatantId,
+        was_delayed: bool,
+    ) {
+        if !was_delayed {
+            return;
+        }
+        let pending = self
+            .state(target)
+            .ok()
+            .and_then(|state| state.initiative_move);
+        if pending != Some(InitiativeMove::Pending) {
+            return;
+        }
+        self.order.retain(|existing| *existing != target);
+        match self.order.iter().position(|existing| *existing == attacker) {
+            Some(anchor) => self.order.insert(anchor, target),
+            None => self.order.push(target),
+        }
+        if let Ok(index) = self.member_index(target)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.slot = TurnSlot::Normal;
+            member.participant.state.initiative_move = None;
+        }
+        if let Some(open) = self.open
+            && let Some(cursor) = self.order.iter().position(|existing| *existing == open)
+        {
+            self.cursor = cursor;
+        }
+    }
+
+    fn move_on_turn(
+        &mut self,
+        id: CombatantId,
+        path: &[Square],
+        counter: DiagonalCounter,
+        kind: OwnMove,
+    ) -> Result<MoveOutcome, EncounterError> {
+        self.require_active_alive(id)?;
+        let state = self.state(id)?;
+        if state.actions_remaining < 1 {
+            return Err(EncounterError::InsufficientActions);
+        }
+        let outcome = self
+            .measure_move(id, path, counter, kind)
+            .map_err(EncounterError::Grid)?;
+        self.spend_actions(id, 1)?;
+        self.write_square(id, outcome.end)?;
+        Ok(outcome)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "firing a ready names the readier, the subject, the observed action, both squares, the path, and the dice"
+    )]
+    fn fire_ready(
+        &mut self,
+        readier: CombatantId,
+        subject: CombatantId,
+        observed: ObservedAction,
+        from: Square,
+        to: Square,
+        path: &[Square],
+        dice: &mut impl Dice,
+    ) -> Result<ReadySuccess, ReadyError> {
+        let stored_kind = self
+            .stored_ready(readier)
+            .map_err(ready_from_encounter)?
+            .ok_or(ReadyError::NotReadied)?
+            .activity
+            .kind()
+            .ok_or(ReadyError::WrongAction)?;
+        let ready = self.fire_checks(readier, subject, observed, from, to, path, stored_kind)?;
+        match stored_kind {
+            ActivityKind::Strike => self.fire_strike(readier, ready, to, dice),
+            ActivityKind::Stride => self.fire_move(readier, path, OwnMove::Stride),
+            ActivityKind::Step => self.fire_move(readier, path, OwnMove::Step),
+            ActivityKind::Dismiss => self.fire_dismiss(readier),
+        }
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fire order names the readier, the subject, the observed action, both squares, the path, and the offered kind"
+    )]
+    fn fire_checks(
+        &self,
+        readier: CombatantId,
+        subject: CombatantId,
+        observed: ObservedAction,
+        from: Square,
+        to: Square,
+        path: &[Square],
+        offered: ActivityKind,
+    ) -> Result<StoredReady, ReadyError> {
+        let _readier = self.member_index(readier).map_err(ready_from_encounter)?;
+        let _subject = self.member_index(subject).map_err(ready_from_encounter)?;
+        let ready = self
+            .stored_ready(readier)
+            .map_err(ready_from_encounter)?
+            .ok_or(ReadyError::NotReadied)?;
+        let stored_kind = ready.activity.kind().ok_or(ReadyError::WrongAction)?;
+        if stored_kind != offered {
+            return Err(ReadyError::WrongAction);
+        }
+        let state = self.state(readier).map_err(ready_from_encounter)?;
+        if state.vital != Vital::Alive {
+            return Err(ReadyError::NotConscious);
+        }
+        if self.slot_of(readier).map_err(ready_from_encounter)? == TurnSlot::Delayed {
+            return Err(ReadyError::Delayed);
+        }
+        let readier_square = self.square(readier).map_err(ready_from_encounter)?;
+        let readier_size = self.member_size(readier)?;
+        let subject_size = self.member_size(subject)?;
+        let reach = self
+            .creature(readier)
+            .map_err(ready_from_encounter)?
+            .strike
+            .reach_feet
+            .get();
+        let matches = entered_reach(
+            ready.trigger,
+            subject,
+            observed,
+            from,
+            to,
+            readier_square,
+            readier_size,
+            subject_size,
+            reach,
+        )?;
+        if !matches {
+            return Err(ReadyError::TriggerMismatch);
+        }
+        if let ReadyActivity::Strike {
+            target,
+            range,
+            profile,
+        } = ready.activity
+        {
+            let target_square = to;
+            let range_penalty = strike_range_penalty(
+                range,
+                readier_square,
+                target_square,
+                readier_size,
+                subject_size,
+                reach,
+            )?;
+            let target_state = self.state(target).map_err(ready_from_encounter)?;
+            if target_state.vital == Vital::Dead {
+                return Err(ReadyError::TargetDead);
+            }
+            let map = multiple_attack_penalty(MapInput {
+                on_own_turn: false,
+                prior_attack_trait_checks_this_turn: 0,
+                current_weapon_agile: matches!(profile.agility, Agility::Agile),
+                readied_attack_count: Some(ready.frozen_attack_count),
+            });
+            strike_fits(profile.attack_bonus, map, range_penalty)?;
+        }
+        if matches!(ready.activity, ReadyActivity::Stride | ReadyActivity::Step) {
+            let kind = if matches!(ready.activity, ReadyActivity::Step) {
+                OwnMove::Step
+            } else {
+                OwnMove::Stride
+            };
+            self.measure_move(readier, path, DiagonalCounter::fresh(), kind)
+                .map_err(ReadyError::Grid)?;
+        }
+        if matches!(ready.activity, ReadyActivity::Dismiss) {
+            let cover = self.cover(readier).map_err(ready_from_encounter)?;
+            dismiss(cover).map_err(ReadyError::Positioning)?;
+        }
+        self.require_reaction(readier)
+            .map_err(ready_from_encounter)?;
+        Ok(ready)
+    }
+
+    fn fire_strike(
+        &mut self,
+        readier: CombatantId,
+        ready: StoredReady,
+        target_square: Square,
+        dice: &mut impl Dice,
+    ) -> Result<ReadySuccess, ReadyError> {
+        let ReadyActivity::Strike {
+            target,
+            profile,
+            range,
+        } = ready.activity
+        else {
+            return Err(ReadyError::WrongAction);
+        };
+        let readier_square = self.square(readier).map_err(ready_from_encounter)?;
+        let readier_size = self.member_size(readier)?;
+        let target_size = self.member_size(target)?;
+        let reach = self
+            .creature(readier)
+            .map_err(ready_from_encounter)?
+            .strike
+            .reach_feet
+            .get();
+        let range_penalty = strike_range_penalty(
+            range,
+            readier_square,
+            target_square,
+            readier_size,
+            target_size,
+            reach,
+        )?;
+        let map = multiple_attack_penalty(MapInput {
+            on_own_turn: false,
+            prior_attack_trait_checks_this_turn: 0,
+            current_weapon_agile: matches!(profile.agility, Agility::Agile),
+            readied_attack_count: Some(ready.frozen_attack_count),
+        });
+        let natural = dice.d20();
+        let total = attack_check_total(
+            natural,
+            term(profile.attack_bonus)?,
+            term(map)?,
+            term(0)?,
+            term(range_penalty)?,
+            &[],
+        )
+        .map_err(ReadyError::AttackOverflow)?;
+        let armor_class = self
+            .creature(target)
+            .map_err(ready_from_encounter)?
+            .armor_class;
+        let degree = degree_of_success(natural, total, armor_class);
+        let damage = if misses(degree) {
+            0
+        } else {
+            let rolled = roll_strike_damage(dice, &profile).map_err(ready_from_encounter)?;
+            damage_dealt(rolled, &[], degree == DegreeOfSuccess::CriticalSuccess)
+                .map_err(ReadyError::DamageOverflow)?
+        };
+        if !misses(degree) {
+            let was_delayed =
+                self.slot_of(target).map_err(ready_from_encounter)? == TurnSlot::Delayed;
+            self.apply_damage(target, damage, degree)
+                .map_err(ready_from_encounter)?;
+            self.place_delayed_knockout(target, readier, was_delayed);
+        }
+        self.spend_reaction(readier).map_err(ready_from_encounter)?;
+        self.clear_ready(readier)?;
+        Ok(ReadySuccess::Strike(ReadyStrike {
+            map,
+            range_penalty,
+            total,
+            degree,
+            damage,
+        }))
+    }
+
+    fn fire_move(
+        &mut self,
+        readier: CombatantId,
+        path: &[Square],
+        kind: OwnMove,
+    ) -> Result<ReadySuccess, ReadyError> {
+        let outcome = self
+            .measure_move(readier, path, DiagonalCounter::fresh(), kind)
+            .map_err(ReadyError::Grid)?;
+        self.spend_reaction(readier).map_err(ready_from_encounter)?;
+        self.write_square(readier, outcome.end)
+            .map_err(ready_from_encounter)?;
+        self.clear_ready(readier)?;
+        Ok(ReadySuccess::Move {
+            end: outcome.end,
+            distance_feet: outcome.cost_feet,
+        })
+    }
+
+    fn fire_dismiss(&mut self, readier: CombatantId) -> Result<ReadySuccess, ReadyError> {
+        let cover = self.cover(readier).map_err(ready_from_encounter)?;
+        let cleared = dismiss(cover).map_err(ReadyError::Positioning)?;
+        self.spend_reaction(readier).map_err(ready_from_encounter)?;
+        self.write_cover(readier, cleared)?;
+        self.clear_ready(readier)?;
+        Ok(ReadySuccess::Dismiss)
+    }
+
+    fn member_size(&self, id: CombatantId) -> Result<Size, ReadyError> {
+        let index = self.member_index(id).map_err(ready_from_encounter)?;
+        self.members
+            .get(index)
+            .map(|member| member.size)
+            .ok_or(ReadyError::UnknownCombatant)
+    }
+
+    fn measure_move(
+        &self,
+        id: CombatantId,
+        path: &[Square],
+        counter: DiagonalCounter,
+        kind: OwnMove,
+    ) -> Result<MoveOutcome, GridError> {
+        let index = self.member_index(id).map_err(|_| GridError::OffGrid)?;
+        let member = self.members.get(index).ok_or(GridError::OffGrid)?;
+        let occupants: &[Occupant] = &[];
+        let terrain: &[(Square, Terrain)] = &[];
+        let input = MoveInput {
+            start: member.square,
+            path,
+            speed_feet: member.participant.creature.speed_feet,
+            size: member.size,
+            immobilized: false,
+            faction: faction_of(member.participant.side),
+            bounds: READIED_BOUNDS,
+            terrain,
+            occupants,
+            counter,
+        };
+        match kind {
+            OwnMove::Stride => grid_stride(input),
+            OwnMove::Step => grid_step(input),
+        }
+    }
+
+    fn write_square(&mut self, id: CombatantId, square: Square) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        member.square = square;
+        Ok(())
+    }
+
+    fn write_cover(
+        &mut self,
+        id: CombatantId,
+        cover: Option<CoverBenefit>,
+    ) -> Result<(), ReadyError> {
+        let index = self.member_index(id).map_err(ready_from_encounter)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(ReadyError::UnknownCombatant)?;
+        member.cover = cover;
+        Ok(())
+    }
+
+    fn clear_ready(&mut self, id: CombatantId) -> Result<(), ReadyError> {
+        let index = self.member_index(id).map_err(ready_from_encounter)?;
+        let member = self
+            .members
+            .get_mut(index)
+            .ok_or(ReadyError::UnknownCombatant)?;
+        member.ready = None;
+        Ok(())
+    }
+}
+
+enum TurnAdvance {
+    End,
+    Delay,
+}
+
+struct AdvancePlan {
+    cursor: usize,
+    round: Option<u32>,
+    pending_wrap: bool,
+}
+
+enum ReactionPlan {
+    Ready(CombatantId),
+    Reactive(usize),
+}
+
+enum OwnMove {
+    Stride,
+    Step,
+}
+
+const READIED_BOUNDS: MapBounds = MapBounds {
+    width: 64,
+    height: 64,
+};
+
+fn duplicate_ids(ids: &[CombatantId]) -> bool {
+    let mut seen = Vec::new();
+    for id in ids {
+        if seen.contains(id) {
+            return true;
+        }
+        seen.push(*id);
+    }
+    false
+}
+
+fn observed_move(action: ObservedAction) -> Option<MoveAction> {
+    match action {
+        ObservedAction::Stride => Some(MoveAction::Stride),
+        ObservedAction::Step => Some(MoveAction::Step),
+        ObservedAction::DropProne => Some(MoveAction::DropProne),
+        ObservedAction::Strike | ObservedAction::Stand | ObservedAction::Other => None,
+    }
+}
+
+fn faction_of(side: Side) -> FactionId {
+    match side {
+        Side::Pc => FactionId(1),
+        Side::Enemy => FactionId(2),
+    }
+}
+
+fn term(value: i32) -> Result<AttackTotalTerm, ReadyError> {
+    AttackTotalTerm::new(value).map_err(|_| ReadyError::AttackOverflow(ModifierError::Overflow))
+}
+
+fn strike_fits(attack_bonus: i32, map: i32, range_penalty: i32) -> Result<(), ReadyError> {
+    let _bonus = term(attack_bonus)?;
+    let _map = term(map)?;
+    let _range = term(range_penalty)?;
+    let sum = i64::from(attack_bonus) + i64::from(map) + i64::from(range_penalty) + 20;
+    i32::try_from(sum)
+        .map(|_| ())
+        .map_err(|_| ReadyError::AttackOverflow(ModifierError::Overflow))
+}
+
+fn strike_range_penalty(
+    range: StrikeRange,
+    readier: Square,
+    target: Square,
+    readier_size: Size,
+    target_size: Size,
+    reach_feet: u32,
+) -> Result<i32, ReadyError> {
+    match range {
+        StrikeRange::Melee => {
+            let inside = in_reach(readier, target, readier_size, target_size, reach_feet)
+                .map_err(ReadyError::Grid)?;
+            if inside {
+                Ok(0)
+            } else {
+                Err(ReadyError::OutOfReach)
+            }
+        }
+        StrikeRange::Ranged { increment_feet } => {
+            let feet =
+                distance(readier, target, readier_size, target_size).map_err(ReadyError::Grid)?;
+            let feet = i32::try_from(feet).map_err(|_| ReadyError::Grid(GridError::Overflow))?;
+            let band = range_band(feet, increment_feet).map_err(ReadyError::Grid)?;
+            Ok(band.penalty)
+        }
+    }
+}
+
+/// Maps an encounter error onto Ready. Each variant is named so a new one cannot collapse.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each EncounterError variant is named so a new one cannot collapse into UnknownCombatant"
+)]
+fn ready_from_encounter(error: EncounterError) -> ReadyError {
+    match error {
+        EncounterError::UnknownCombatant => ReadyError::UnknownCombatant,
+        EncounterError::TurnNotOpen => ReadyError::TurnNotOpen,
+        EncounterError::NotYourTurn => ReadyError::NotYourTurn,
+        EncounterError::NotConscious => ReadyError::NotConscious,
+        EncounterError::InsufficientActions => ReadyError::InsufficientActions,
+        EncounterError::RoundOverflow => ReadyError::RoundOverflow,
+        EncounterError::Delayed => ReadyError::Delayed,
+        EncounterError::NoReaction => ReadyError::NoReaction,
+        EncounterError::HitPoints(error) => ReadyError::HitPoints(error),
+        EncounterError::DamageOverflow(error) => ReadyError::DamageOverflow(error),
+        EncounterError::AttackOverflow(error) => ReadyError::AttackOverflow(error),
+        EncounterError::Grid(error) => ReadyError::Grid(error),
+        EncounterError::TargetDead => ReadyError::TargetDead,
+        EncounterError::DuplicateCombatant => ReadyError::UnknownCombatant,
+        EncounterError::EmptyRoster => ReadyError::UnknownCombatant,
+        EncounterError::PerceptionOutOfRange => ReadyError::UnknownCombatant,
+        EncounterError::TurnInProgress => ReadyError::TurnNotOpen,
+        EncounterError::InvalidActionCost => ReadyError::NotASingleAction,
+        EncounterError::NoShield => ReadyError::NotReadied,
+        EncounterError::NotRaised => ReadyError::NotReadied,
+        EncounterError::Broken => ReadyError::NotReadied,
+        EncounterError::Destroyed => ReadyError::NotReadied,
+        EncounterError::NegativeAmount => ReadyError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::TargetNotConscious => ReadyError::NotConscious,
+        EncounterError::SelfTarget => ReadyError::TriggerSubjectIsSelf,
+        EncounterError::NoLivingCombatant => ReadyError::NotConscious,
+        EncounterError::AttackCountOverflow => ReadyError::AttackOverflow(ModifierError::Overflow),
+        EncounterError::NotPrepared => ReadyError::NotReadied,
+        EncounterError::NoAidModifier => ReadyError::NotReadied,
+        EncounterError::NotAnAlly => ReadyError::NotReadied,
+        EncounterError::NotThePreparedAlly => ReadyError::NotReadied,
+        EncounterError::AidOverflow(_) => ReadyError::AttackOverflow(ModifierError::Overflow),
+        EncounterError::NoCreature => ReadyError::UnknownCombatant,
+        EncounterError::NotDelayed => ReadyError::Delayed,
+        EncounterError::TriggerNotMet => ReadyError::TriggerMismatch,
+    }
 }
 
 fn map_raise_error(error: ShieldError) -> EncounterError {
@@ -1205,6 +2429,11 @@ fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::NotAnAlly => ReactiveError::NoReaction,
         EncounterError::NotThePreparedAlly => ReactiveError::NoReaction,
         EncounterError::AidOverflow(_) => ReactiveError::NoReaction,
+        EncounterError::NoCreature => ReactiveError::NoReaction,
+        EncounterError::NotDelayed => ReactiveError::NoReaction,
+        EncounterError::TriggerNotMet => ReactiveError::NoReaction,
+        EncounterError::Delayed => ReactiveError::Delayed,
+        EncounterError::Grid(_) => ReactiveError::NoReaction,
     }
 }
 
@@ -1264,6 +2493,11 @@ fn as_damage_overflow(error: EncounterError) -> ReactiveError {
             ReactiveError::DamageOverflow(ModifierError::Overflow)
         }
         EncounterError::AidOverflow(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NoCreature => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NotDelayed => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::TriggerNotMet => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::Delayed => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::Grid(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
     }
 }
 
@@ -6205,4 +7439,6 @@ mod tests {
         assert!(reaction(&encounter, 1));
         assert_eq!(hit_points(&encounter, 2), 20);
     }
+
+    mod delay_ready_tests;
 }

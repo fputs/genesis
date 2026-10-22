@@ -118,6 +118,8 @@ pub enum ActionTrait {
     ///
     /// Player Core, "Reactive Strike".
     Ranged,
+    /// The concentrate trait. Player Core, "Ready".
+    Concentrate,
 }
 
 /// What an action costs. Positioning reports the cost and does not spend it.
