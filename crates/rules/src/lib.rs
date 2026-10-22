@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, and Aid.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, and Aid.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -15,6 +15,7 @@ mod encounter;
 mod grid;
 mod modifiers;
 mod positioning;
+mod reactive;
 mod shield;
 
 pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank, aid_circumstance_bonus};
@@ -64,6 +65,7 @@ pub use positioning::{
     PostureChange, Readiness, TakeCoverResult, armor_class, attack_penalty, dismiss, dismiss_cost,
     drop_prone, end_benefit, flanks, leap_while_prone, off_guard, prone_move, stand, take_cover,
 };
+pub use reactive::{ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike};
 pub use shield::{
     AttackBlowError, ShieldBlock, ShieldError, apply_attack_blow, lower_raised_shield,
     raise_shield, shield_ac_modifier,

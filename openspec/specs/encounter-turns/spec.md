@@ -633,6 +633,33 @@ On the striker's turn the penalty SHALL be 0, then -5, then -10, or 0, then -4, 
 - **AND** the stored count is 255
 - **AND** the scripted 10 is still unused
 
+### Requirement: A Reactive Strike off the reactor's turn spends no action
+
+A Reactive Strike while it is not that reactor's open turn SHALL spend no action, SHALL apply a multiple attack penalty of 0, and SHALL leave the stored attack count unchanged. Encounter::strike off the active turn SHALL still return NotYourTurn.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
+
+#### Scenario: A reactive Strike off your turn spends no action
+
+- **GIVEN** Alive CombatantId(1) with Perception +0 and a scripted initiative 8, Alive CombatantId(2) with Perception +0 and a scripted initiative 10, CombatantId(2)'s turn open, CombatantId(1) at (0, 0) with melee reach 5, 0 actions, attack count 0, and a ready reaction, CombatantId(2) at (0, 1) with 20 Hit Points and Armor Class 18, both Medium, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus +8, an empty caller modifier list, damage 1d8+4, and a scripted natural 10 then a damage die of 3
+- **WHEN** CombatantId(1) makes that Reactive Strike
+- **THEN** the result is not NotYourTurn
+- **AND** CombatantId(1) still has 0 actions
+- **AND** the penalty is 0
+- **AND** the stored attack count is still 0
+- **AND** CombatantId(1)'s reaction is not ready
+- **AND** the open turn is still CombatantId(2)
+
+#### Scenario: A reactive Strike off your turn leaves the count
+
+- **GIVEN** Alive CombatantId(1) has resolved two Strikes and ended that turn, so the stored attack count is 2 and 0 actions remain, the reaction is still ready, it is Alive CombatantId(2)'s open turn, CombatantId(1) is at (0, 0) with melee reach 5, CombatantId(2) is at (0, 1) with 20 Hit Points and Armor Class 18, both Medium, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus +8, an empty caller modifier list, damage 1d8+4, and a scripted natural 10 then a damage die of 3
+- **WHEN** CombatantId(1) makes that Reactive Strike
+- **THEN** the penalty is 0
+- **AND** the stored attack count is still 2
+- **AND** CombatantId(1) still has 0 actions
+- **AND** the open turn is still CombatantId(2)
+
 ### Requirement: A reaction attack penalty stays 0
 
 An attack-trait check while it is not that creature's open turn SHALL take penalty 0 and SHALL NOT change that creature's count. The turn SHALL be taken from the encounter. This change SHALL NOT keep a penalty frozen from Ready.
