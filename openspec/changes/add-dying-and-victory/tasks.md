@@ -73,4 +73,4 @@ cargo test --workspace
 npx @fission-ai/openspec@1.14.3 validate --all --strict
 ```
 
-- [ ] 11.3 As the last commit of the implementation pull request, run `openspec archive add-dying-and-victory --yes`. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`. Do not archive on the spec pull request. Do not edit `docs/designer/rules-deviations.md` or `docs/designer/rules-rulings.md` on this spec pull request
+- [x] 11.3 As the last commit of the implementation pull request, run `openspec archive add-dying-and-victory --yes`. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`. Do not archive on the spec pull request. Do not edit `docs/designer/rules-deviations.md` or `docs/designer/rules-rulings.md` on this spec pull request

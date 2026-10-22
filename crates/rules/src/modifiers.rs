@@ -2523,6 +2523,17 @@ mod tests {
             assert_eq!(stacked.get(Statistic::Attack), 2);
             assert_eq!(total_on(&stacked, Statistic::Attack), 2);
         }
+        let present = bonus(BonusType::Circumstance, 2, 9, 5, None, Statistic::Attack)
+            .with_condition(ConditionId(5), None)
+            .expect("condition");
+        let missing = bonus(BonusType::Circumstance, 2, 1, 5, None, Statistic::Attack);
+        for modifiers in orders_of_two(present, missing) {
+            let stacked = summed(&modifiers);
+            assert_eq!(stacked.applied().len(), 1);
+            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(5)));
+            assert_eq!(stacked.applied()[0].source(), Some(SourceId(9)));
+            assert_eq!(stacked.get(Statistic::Attack), 2);
+        }
         assert_eq!(dice.remaining(), 1);
     }
 

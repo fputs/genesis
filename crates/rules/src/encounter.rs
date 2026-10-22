@@ -2516,6 +2516,67 @@ mod tests {
             take_report(&mut encounter, 2),
             Some(InitiativeMove::Pending)
         );
+
+        let (mut crit_encounter, mut crit_dice) = begin(
+            vec![
+                combatant(1, Side::Pc, 0, 20, 11, false),
+                combatant(2, Side::Pc, 0, 9, 11, true),
+            ],
+            &[14, 10, 20, 4, 20, 1],
+        );
+        crit_encounter.start_turn().expect("crit start");
+        let crit = crit_encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 1),
+                &[],
+                &mut crit_dice,
+            )
+            .expect("crit strike");
+        assert_eq!(crit.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(
+            vital(&crit_encounter, 2),
+            Vital::Dying(DyingValue::new(2).expect("dying 2"))
+        );
+        assert_eq!(crit_dice.remaining(), 2);
+
+        let (mut inconsistent, mut inconsistent_dice) = begin(
+            vec![
+                combatant(1, Side::Pc, 0, 20, 11, false),
+                combatant(2, Side::Pc, 0, 9, 11, true),
+            ],
+            &[14, 10, 11, 8],
+        );
+        {
+            let target = inconsistent
+                .members
+                .iter_mut()
+                .find(|member| member.participant.id == id(2))
+                .expect("target");
+            target.participant.state.vital = Vital::Dying(DyingValue::new(1).expect("dying 1"));
+            target.participant.state.hit_points = 4;
+        }
+        inconsistent.start_turn().expect("inconsistent start");
+        let attacker_actions = actions(&inconsistent, 1);
+        let target_actions = actions(&inconsistent, 2);
+        assert_eq!(
+            inconsistent.strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 1),
+                &[],
+                &mut inconsistent_dice,
+            ),
+            Err(EncounterError::HitPoints(HpError::InconsistentVital))
+        );
+        assert_eq!(actions(&inconsistent, 1), attacker_actions);
+        assert_eq!(actions(&inconsistent, 2), target_actions);
+        assert_eq!(
+            vital(&inconsistent, 2),
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
+        assert_eq!(hit_points(&inconsistent, 2), 4);
     }
 
     /// Player Core pg. 412, Massive Damage.

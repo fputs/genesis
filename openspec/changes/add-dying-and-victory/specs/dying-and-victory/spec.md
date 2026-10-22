@@ -364,7 +364,7 @@ A dying value of 4 or higher SHALL become death immediately, including a recover
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2325 (Player Core pg. 411, Dying)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=69 (Player Core pg. 443, Dying)
 **Source**: Ruling R-10 in docs/designer/rules-rulings.md. DEV-28.
-**Source**: Fixture clarification (dying impl). Wounded 3's knockout uses current Hit Points 5 so damage 9 reaches 0 after 4 temporary Hit Points. Current 9 would remain at 4 and would not gain dying.
+**Source**: Architect clarification (dying impl). Wounded 3's knockout uses current Hit Points 5 so damage 9 reaches 0 after 4 temporary Hit Points. Current 9 would remain at 4 and would not gain dying.
 
 #### Scenario: Dying 3 and one damage kills
 

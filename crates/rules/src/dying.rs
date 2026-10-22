@@ -342,7 +342,6 @@ fn increase_dying(state: &mut CombatantState, current: DyingValue, delta: i32) {
 }
 
 fn tick_temporary(state: &mut CombatantState) {
-    // Zero rounds has nothing to tick. `checked_sub` rejects that before a wrap.
     let Some(next) = state.temp_rounds.checked_sub(1) else {
         return;
     };
@@ -620,6 +619,14 @@ mod tests {
         let result = apply_dice_damage(&mut state, &creature, &mut dice, faces(8), 0, &[], false);
         assert_eq!(result, Err(HpError::InconsistentVital));
         assert_eq!(dice.remaining(), 1);
+        assert_eq!(state.vital, Vital::Dying(dying(1)));
+        assert_eq!(state.hit_points, 4);
+        let mut recovery = ScriptedDice::new([20]);
+        assert_eq!(
+            start_of_turn(&mut state, &creature, &mut recovery),
+            Err(HpError::InconsistentVital)
+        );
+        assert_eq!(recovery.remaining(), 1);
         assert_eq!(state.vital, Vital::Dying(dying(1)));
         assert_eq!(state.hit_points, 4);
     }
@@ -912,6 +919,7 @@ mod tests {
         assert_eq!(roll.dc, 11);
         assert_eq!(roll.degree, DegreeOfSuccess::Failure);
         assert_eq!(state.vital, Vital::Dying(dying(2)));
+        assert_eq!(take_initiative_move(&mut state), None);
     }
 
     /// Player Core pg. 411, "Losing the Dying Condition". Player Core pg. 447, Wounded.
@@ -1541,12 +1549,10 @@ mod tests {
     fn a_failure_degree_is_not_a_blow() {
         let (creature, mut state) = opened(9, true);
         lay(&mut state, Vital::Dying(dying(1)), 0, 0);
-        let dice = ScriptedDice::new([8]);
         assert_eq!(
             apply_resolved_blow(&mut state, &creature, 1, DegreeOfSuccess::Failure),
             Err(HpError::NotAHit)
         );
-        assert_eq!(dice.remaining(), 1);
         assert_eq!(take_initiative_move(&mut state), None);
         assert_eq!(state.vital, Vital::Dying(dying(1)));
     }
@@ -1556,12 +1562,10 @@ mod tests {
     fn a_critical_failure_degree_is_not_a_blow() {
         let (creature, mut state) = opened(9, true);
         lay(&mut state, Vital::Dying(dying(1)), 0, 0);
-        let dice = ScriptedDice::new([8]);
         assert_eq!(
             apply_resolved_blow(&mut state, &creature, 1, DegreeOfSuccess::CriticalFailure),
             Err(HpError::NotAHit)
         );
-        assert_eq!(dice.remaining(), 1);
         assert_eq!(take_initiative_move(&mut state), None);
         assert_eq!(state.vital, Vital::Dying(dying(1)));
     }
