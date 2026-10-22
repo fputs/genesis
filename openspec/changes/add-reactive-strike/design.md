@@ -13,7 +13,7 @@ This change names no file on `v1-reference`, so none is ported. It does not edit
 - One module, `crates/rules/src/reactive.rs`, for the trigger, the reach test, and the disruption result.
 - `Encounter::reactive_strike` spends the reaction only through `spend_reaction`.
 - The Strike uses penalty 0 and does not change the stored attack count, including off the reactor's own turn.
-- A critical hit on a cost that includes `Manipulate` is `Disruption::Disrupted`. On the actor's own turn the action's cost stays spent and its effects are voided.
+- A critical hit on a cost that includes `Manipulate` is `Disruption::Disrupted`. On the actor's own turn the action's cost stays spent. The caller voids that action's effects.
 - Damage goes through `apply_resolved_blow`.
 
 **Non-Goals:**
@@ -36,10 +36,18 @@ This change names no file on `v1-reference`, so none is ported. It does not edit
 ### One call, caller squares
 
 ```rust
+// extends positioning's enum
 pub enum ActionTrait {
-    Move,
     Manipulate,
     Ranged,
+}
+
+// extends positioning's ActionCost. Free keeps its traits.
+Free { traits: &'static [ActionTrait] }
+
+pub enum ActionIdentity {
+    Release,
+    Other,
 }
 
 pub enum ReactiveStrike {
@@ -58,17 +66,17 @@ pub struct ReactiveOutcome {
 }
 ```
 
-`ActionTrait` and `ActionCost` stay positioning's types. This change adds `Manipulate` and `Ranged` to that one enum. There is no `Activity` enum.
+`Move` stays the variant positioning already declared. The `ActionTrait` block above adds `Manipulate` and `Ranged` only. `Ranged` means this action is a ranged attack. It is not a PF2e action trait. `ActionCost::Free` keeps the trait slice; it is not traitless. There is no `Activity` enum and no `bool`.
 
-`Encounter::reactive_strike` takes the reactor id, the actor id, `ActionCost`, `Option<MoveAction>`, `ReactiveStrike`, both squares, both `Size` values, a `StrikeProfile`, the caller modifiers, and the dice. Reach is `creature.strike.reach_feet` for the reactor. There is no reach argument and no `bool`.
+`Encounter::reactive_strike` takes the reactor id, the actor id, `ActionCost`, `ActionIdentity`, `Option<MoveAction>`, `ReactiveStrike`, both squares, both `Size` values, a `StrikeProfile`, the caller modifiers, and the dice. Reach is `creature.strike.reach_feet` for the reactor. There is no reach argument and no `bool`.
 
-A cost triggers when its trait slice contains `Move`, `Manipulate`, or `Ranged`. Both `Move` and `Manipulate` on one cost are one triggering action, and a critical hit disrupts it because `Manipulate` is present. Interact is `ActionCost::Actions { count: 1, traits: &[ActionTrait::Manipulate] }`. Release is mapped to that manipulate classification and is `ActionCost::Free`: the book gives it the manipulate trait and says it does not trigger Reactive Strike, and `Free` has no trait slice. `ActionCost::Free` is `NotATrigger`. Seek is one action with none of those traits (concentrate only), which is the non-trigger. A melee Strike is that same non-trigger.
+A cost triggers when its trait slice contains `Move`, `Manipulate`, or `Ranged`, including a free action. Both `Move` and `Manipulate` on one cost are one triggering action, and a critical hit disrupts it because `Manipulate` is present. Interact is one action with `Manipulate` and `ActionIdentity::Other`. Release is `ActionIdentity::Release` with `Free { traits: &[ActionTrait::Manipulate] }`. Only that identity is exempt, so the result is `NotATrigger` (https://2e.aonprd.com/Actions.aspx?ID=2300, Player Core pg. 417). A free action with `Manipulate` and `ActionIdentity::Other` triggers. Seek is one action with none of those traits (concentrate only), which is the non-trigger. A melee Strike is that same non-trigger.
 
 `Some(MoveAction::Step)` returns `NotATrigger` before the trait slice is read. Step's cost includes `Move` and still does not trigger (Actions 2304). `None`, `Some(Stride)`, and `Some(DropProne)` follow the traits. Stand is not a `MoveAction`. Its posture cost includes `Move`, so it triggers (FIX-06). Cite https://2e.aonprd.com/Actions.aspx?ID=2303 (Player Core pg. 418, Stand).
 
 Alternative considered: keep an `Activity` enum. Rejected. The review uses positioning's `ActionCost` and `ActionTrait`.
 
-Alternative considered: a `triggers: bool` on the cost. Rejected. Step is `MoveAction::Step`, which already exists. A flag would hide that.
+Alternative considered: a `triggers: bool` on the cost, or treating every `Free` cost as exempt. Rejected. Step is `MoveAction::Step`, and only `ActionIdentity::Release` is exempt. A flag would hide that, and a traitless `Free` would exempt every free action.
 
 Alternative considered: walk `MoveOutcome.events`. Rejected. That is the path case in proposed DEV-45. The encounter does not keep those events.
 
@@ -82,7 +90,7 @@ Alternative considered: walk `MoveOutcome.events`. Rejected. That is the path ca
 
 `ReactiveError` is `UnknownCombatant`, `NotConscious`, `SelfTarget`, `Unavailable`, `NotATrigger`, `UnsupportedSize`, `Overflow`, `InvalidReach`, `OutOfReach`, `TargetNotConscious`, `NoReaction`, `AttackOverflow(ModifierError)`, `DamageOverflow(ModifierError)`, and `HitPoints(HpError)`. No string errors. No `TargetDead`. The encounter method returns `ReactiveError`. It does not add those variants to `EncounterError`.
 
-The order is the same in this design, in the spec, and in tasks 7.1: `UnknownCombatant` for the reactor, then the actor, `NotConscious`, `SelfTarget`, `Unavailable`, `NotATrigger`, `UnsupportedSize`, `Overflow`, `InvalidReach`, `OutOfReach`, `TargetNotConscious`, then `NoReaction`. `NotConscious` is the reactor's `vital != Vital::Alive`. `TargetNotConscious` is the actor's `vital != Vital::Alive`, in the position `TargetDead` had, and it replaces `TargetDead`. `Unavailable` is `ReactiveStrike::Unavailable`. `NotATrigger` is Step, `ActionCost::Free` (Release), or a cost with none of the three traits. `NoReaction` is a reactor whose reaction is not ready.
+The order is the same in this design, in the spec, and in tasks 7.1: `UnknownCombatant` for the reactor, then the actor, `NotConscious`, `SelfTarget`, `Unavailable`, `NotATrigger`, `UnsupportedSize`, `Overflow`, `InvalidReach`, `OutOfReach`, `TargetNotConscious`, then `NoReaction`. `NotConscious` is the reactor's `vital != Vital::Alive`. `TargetNotConscious` is the actor's `vital != Vital::Alive`, in the position `TargetDead` had, and it replaces `TargetDead`. `Unavailable` is `ReactiveStrike::Unavailable`. `NotATrigger` is Step, `ActionIdentity::Release`, or a cost with none of the three traits. `Free` is not itself `NotATrigger`. `NoReaction` is a reactor whose reaction is not ready.
 
 An error before the d20 draws no attack die. `AttackOverflow` is the precheck that the attack bonus plus the caller modifiers plus 20 does not fit in `i32`, before the d20. `DamageOverflow` is the exception: the attack die and the damage die are both consumed, then the damage sum fails. Both leave the reaction ready and leave Hit Points unchanged.
 
@@ -96,7 +104,7 @@ The stored attack count is not incremented. Actions are not changed. The turn is
 
 Resolve the Hit Point write on a copy of the actor's state. Call `spend_reaction` only after that copy succeeds. Then copy Hit Points, temporary Hit Points, and vital back. `spend_reaction` is what clears `reaction_ready`. Copying the whole state back would restore the reaction. On `spend_reaction` `Err`, leave the actor's Hit Points as they were.
 
-`Disruption::Disrupted` is only `DegreeOfSuccess::CriticalSuccess` together with a cost that includes `Manipulate`. Every other `Ok` is `NotDisrupted`, including a critical hit on a move-only cost or on `Ranged`, and a natural 20 that improved only to success. When the actor's turn is open, that action's cost stays spent and its effects are voided. This function does not change the actor's action count on `Disrupted`.
+`Disruption::Disrupted` is only `DegreeOfSuccess::CriticalSuccess` together with a cost that includes `Manipulate`. Every other `Ok` is `NotDisrupted`, including a critical hit on a move-only cost or on `Ranged`, and a natural 20 that improved only to success. When the actor's turn is open, that action's cost stays spent. The result is `Disrupted`, and the caller voids the action's effects. This function does not void them and does not change the actor's action count.
 
 Alternative considered: spend the reaction before the roll. Rejected. A later overflow would have spent it. The spec leaves the reaction ready on `AttackOverflow` and `DamageOverflow`.
 
@@ -142,7 +150,7 @@ DEV-01, DEV-19, and R-05 are cited, not restated. FIX-06, FIX-07, and FIX-08 are
 - [Baked Armor Class ignores off-guard and a raised shield] → Armor Class is a baked number (DEV-01). Off-guard from just dropping prone is not applied. The caller can pass an attack modifier. Shield Block is the named follow-up, not this call.
 - [`Vital::Dying` is not in the crate yet] → Implementation waits until dying-and-victory's `Vital::Dying` and `Vital::Unconscious` are public, and until `apply_resolved_blow` exists. `NotConscious` and `TargetNotConscious` stay `vital != Alive`.
 - [The Hit Point copy and the reaction spend can diverge] → The spend runs only after the copy succeeds, and only Hit Points, temporary Hit Points, and vital are copied back.
-- [Positioning is not an archived spec] → This change does not emit a positioning MODIFIED header. It extends the one `ActionTrait` when that type is in the crate.
+- [Positioning is not an archived spec] → This change does not emit a positioning MODIFIED header. Pull request #50 must merge first. This change then extends that `ActionTrait` and gives `Free` its trait slice.
 
 ## Migration Plan
 

@@ -21,7 +21,7 @@ The same inputs SHALL return the same outcome. A call SHALL NOT read a clock, a 
 
 ### Requirement: A manipulate, move, or ranged attack in reach triggers
 
-An ActionCost SHALL trigger inside the reactor's stored melee reach when its traits include Move, Manipulate, or Ranged. One cost SHALL be one action even when it includes both Move and Manipulate. Interact SHALL be 1 action with Manipulate. Release SHALL be ActionCost::Free and SHALL NOT trigger. Seek SHALL be 1 action with none of those traits. Side SHALL NOT be read. Drop Prone, Stand, Stride, and Crawl SHALL be Move. Point Out SHALL be Manipulate when the caller passes it.
+An ActionCost SHALL trigger inside the reactor's stored melee reach when its traits include Move, Manipulate, or Ranged. One cost SHALL be one action even when it includes both Move and Manipulate. Interact SHALL be 1 action with Manipulate. A free action with Manipulate other than Release SHALL trigger. Seek SHALL be 1 action with none of those traits. Side SHALL NOT be read. Drop Prone, Stand, Stride, and Crawl SHALL be Move. Point Out SHALL be Manipulate when the caller passes it.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2256 (Player Core pg. 138, Reactive Strike)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2295 (Player Core pg. 416, Drop Prone)
@@ -72,9 +72,17 @@ An ActionCost SHALL trigger inside the reactor's stored melee reach when its tra
 - **AND** the reaction is not ready
 - **AND** CombatantId(1) still has 0 actions
 
+#### Scenario: A free manipulate action other than Release triggers
+
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and Alive CombatantId(2) at (0, 1) with 20 Hit Points, both Medium, ActionIdentity::Other, ActionCost::Free with Manipulate, ReactiveStrike::Available, attack bonus +8, Armor Class 18, damage 1d8+4, and a script of 10, then 8, then 10, then 3
+- **WHEN** CombatantId(1) makes the Reactive Strike
+- **THEN** the degree is success, the damage is 7, and the disruption is NotDisrupted
+- **AND** the reaction is not ready
+- **AND** the error is not NotATrigger
+
 ### Requirement: Step and a cost with no triggering trait do not trigger
 
-MoveAction::Step SHALL return NotATrigger even though its cost includes Move. ActionCost::Free, which is Release, SHALL return NotATrigger. A cost with none of Move, Manipulate, or Ranged, including Seek and a melee Strike, SHALL return NotATrigger. That check SHALL win over size and reach. The reaction SHALL stay as it was, and no attack die SHALL be drawn.
+MoveAction::Step SHALL return NotATrigger even though its cost includes Move. ActionIdentity::Release SHALL return NotATrigger even though its free cost includes Manipulate. Only that identity is exempt. A cost with none of Move, Manipulate, or Ranged, including Seek and a melee Strike, SHALL return NotATrigger. That check SHALL win over size and reach. The reaction SHALL stay as it was, and no attack die SHALL be drawn.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2304 (Player Core pg. 418, Step)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2300 (Player Core pg. 417, Release)
@@ -100,7 +108,7 @@ MoveAction::Step SHALL return NotATrigger even though its cost includes Move. Ac
 
 #### Scenario: Release does not trigger
 
-- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and Alive CombatantId(2) at (0, 1), both Medium, Release as ActionCost::Free, ReactiveStrike::Available, a ready reaction, and a scripted natural 10 after initiative
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and Alive CombatantId(2) at (0, 1), both Medium, ActionIdentity::Release, ActionCost::Free with Manipulate, ReactiveStrike::Available, a ready reaction, and a scripted natural 10 after initiative
 - **WHEN** CombatantId(1) attempts the Reactive Strike
 - **THEN** the error is NotATrigger
 - **AND** the reaction is still ready
@@ -175,11 +183,15 @@ The reach SHALL be the reactor's stored melee ReachFeet. Checks SHALL run Unsupp
 
 #### Scenario: A 10-ft reach diagonal is in reach
 
-- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 10, both creatures Medium and at 20 Hit Points, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus +8, Armor Class 18, and damage 1d8+4
-- **WHEN** Alive CombatantId(2) is at (2, 2) and the script is 10, then 8, then 10, then 3
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 10 and Alive CombatantId(2) at (2, 2), both Medium and at 20 Hit Points, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus +8, Armor Class 18, damage 1d8+4, and a script of 10, then 8, then 10, then 3
+- **WHEN** CombatantId(1) makes the Reactive Strike
 - **THEN** the degree is success and the damage is 7
 - **AND** the reaction is not ready
-- **WHEN** a second encounter has Alive CombatantId(2) at (3, 0), a ready reaction, and a scripted natural 10 after initiative
+
+#### Scenario: A 10-ft reach does not reach three squares straight
+
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 10 and Alive CombatantId(2) at (3, 0), both Medium, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, a ready reaction, and a scripted natural 10 after initiative
+- **WHEN** CombatantId(1) attempts the Reactive Strike
 - **THEN** the error is OutOfReach
 - **AND** the reaction is still ready
 - **AND** the scripted 10 is still unused
@@ -200,7 +212,7 @@ Only the actor's square at the moment of the action SHALL be tested. No path SHA
 
 ### Requirement: The reaction is spent through encounter turns
 
-A resolved Strike SHALL spend the reactor's reaction only through spend_reaction. A second call SHALL return NoReaction. The spend SHALL NOT change either creature's actions and SHALL NOT end the turn. It SHALL be legal before the first turn and on the reactor's own turn.
+A resolved Strike SHALL spend the reactor's reaction only through spend_reaction. A second call SHALL return NoReaction. A reactor whose reaction spend_reaction has already cleared, including for Aid, SHALL return NoReaction and SHALL draw no die. The spend SHALL NOT change either creature's actions and SHALL NOT end the turn. It SHALL be legal before the first turn and on the reactor's own turn.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
 
@@ -211,6 +223,14 @@ A resolved Strike SHALL spend the reactor's reaction only through spend_reaction
 - **THEN** the error is NoReaction
 - **AND** the scripted 4 is still unused
 - **AND** CombatantId(2) still has 13 Hit Points
+
+#### Scenario: A reaction already spent is NoReaction
+
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and Alive CombatantId(2) at (0, 1), both Medium, and CombatantId(1)'s reaction already spent through Encounter::spend_reaction, as Aid would, an ActionCost of 1 action with Manipulate, ActionIdentity::Other, ReactiveStrike::Available, and a scripted natural 10 after initiative
+- **WHEN** CombatantId(1) attempts the Reactive Strike
+- **THEN** the error is NoReaction
+- **AND** the scripted 10 is still unused
+- **AND** the reaction is still not ready
 
 #### Scenario: Actor actions stay unchanged
 
@@ -261,7 +281,7 @@ This Strike SHALL use penalty 0 whether or not it is agile, on the reactor's tur
 
 ### Requirement: A critical hit disrupts a manipulate action
 
-A CriticalSuccess on a cost that includes Manipulate SHALL return Disruption::Disrupted, including when that cost also includes Move. Every other degree SHALL return NotDisrupted, as SHALL a critical hit on a move-only cost or on Ranged. On the actor's open turn the action's cost SHALL stay spent and its effects SHALL be voided. This function SHALL NOT change the actor's action count and SHALL NOT refund the action.
+A CriticalSuccess on a cost that includes Manipulate SHALL return Disruption::Disrupted, including when that cost also includes Move. Every other degree SHALL return NotDisrupted, as SHALL a critical hit on a move-only cost or on Ranged. On the actor's open turn the action's cost SHALL stay spent. The caller SHALL void the action's effects. This function SHALL NOT void them, SHALL NOT change the actor's action count, and SHALL NOT refund the action.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2256 (Player Core pg. 138, Reactive Strike)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2342 (Player Core pg. 415, Disrupting Actions)
@@ -272,8 +292,8 @@ A CriticalSuccess on a cost that includes Manipulate SHALL return Disruption::Di
 - **WHEN** CombatantId(1) makes the Reactive Strike
 - **THEN** the total is 25 and the degree is critical success
 - **AND** the damage is 14
-- **AND** the disruption is Disrupted
-- **AND** the manipulate action's effects are voided and its cost stays spent
+- **AND** the disruption is Disrupted, and the caller voids the manipulate action's effects
+- **AND** the cost stays spent
 - **AND** CombatantId(2) has 6 Hit Points and still has 2 actions
 - **AND** the open turn is still CombatantId(2)
 - **AND** the reaction is not ready
@@ -386,7 +406,7 @@ A hit SHALL apply damage through apply_resolved_blow. Temporary Hit Points SHALL
 
 #### Scenario: Temporary Hit Points are spent first
 
-- **GIVEN** CombatantId(2) has 20 current Hit Points, 5 temporary Hit Points, and wounded 0, attack bonus +8, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, damage 1d8+4, and a script of initiative 10, then 8, then natural 10, then damage 3
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5, Alive CombatantId(2) at (0, 1) with 20 current Hit Points, 5 temporary Hit Points, and wounded 0, both Medium, attack bonus +8, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, damage 1d8+4, and a script of initiative 10, then 8, then natural 10, then damage 3
 - **WHEN** the Reactive Strike is resolved
 - **THEN** the damage is 7
 - **AND** temporary Hit Points are 0
@@ -396,7 +416,7 @@ A hit SHALL apply damage through apply_resolved_blow. Temporary Hit Points SHALL
 
 #### Scenario: A failure spends the reaction and deals no damage
 
-- **GIVEN** CombatantId(2) has 20 Hit Points, attack bonus +0, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, a script of initiative 10, then 8, then natural 9, and a scripted damage die of 8
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5, Alive CombatantId(2) at (0, 1) with 20 Hit Points, both Medium, attack bonus +0, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, a script of initiative 10, then 8, then natural 9, and a scripted damage die of 8
 - **WHEN** the Reactive Strike is resolved
 - **THEN** the total is 9 and the degree is failure
 - **AND** the damage is 0 and the disruption is NotDisrupted
@@ -407,7 +427,7 @@ A hit SHALL apply damage through apply_resolved_blow. Temporary Hit Points SHALL
 
 #### Scenario: A critical failure spends the reaction and deals no damage
 
-- **GIVEN** CombatantId(2) has 20 Hit Points, attack bonus +0, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, a script of initiative 10, then 8, then natural 5, and a scripted damage die of 8
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5, Alive CombatantId(2) at (0, 1) with 20 Hit Points, both Medium, attack bonus +0, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, a script of initiative 10, then 8, then natural 5, and a scripted damage die of 8
 - **WHEN** the Reactive Strike is resolved
 - **THEN** the degree is critical failure
 - **AND** the damage is 0 and the disruption is NotDisrupted
@@ -440,7 +460,7 @@ This Strike SHALL call apply_resolved_blow and SHALL NOT take a Shield Block arg
 
 #### Scenario: A reactive strike does not reduce a raised shield
 
-- **GIVEN** Alive CombatantId(2) at 20 Hit Points with a raised steel shield at 20 Hit Points and hardness 5, and a ready reaction, Alive CombatantId(1) at (0, 0) with melee reach 5 and a ready reaction, CombatantId(2) at (0, 1), both Medium, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus +8, Armor Class 18, and a script of 10, then 8, then natural 10, then damage 3
+- **GIVEN** Alive CombatantId(2) at 20 Hit Points with a raised steel shield at 20 Hit Points and hardness 5, and a ready reaction, Alive CombatantId(1) at (0, 0) with melee reach 5 and a ready reaction, CombatantId(2) at (0, 1), both Medium, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus +8, Armor Class 18, damage 1d8+4, and a script of 10, then 8, then natural 10, then damage 3
 - **WHEN** CombatantId(1) makes the Reactive Strike
 - **THEN** the damage is 7
 - **AND** CombatantId(2) has 13 Hit Points
@@ -518,7 +538,7 @@ Checks SHALL run in this order: UnknownCombatant for the reactor, then the actor
 
 #### Scenario: An attack bonus that does not fit spends nothing
 
-- **GIVEN** a legal in-reach manipulate trigger, ReactiveStrike::Available, a ready reaction, attack bonus 2147483647, an empty caller modifier list, and a scripted natural 10 after initiative
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and a ready reaction, Alive CombatantId(2) at (0, 1), both Medium, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, attack bonus 2147483647, an empty caller modifier list, and a scripted natural 10 after initiative
 - **WHEN** the Reactive Strike is attempted
 - **THEN** the error is AttackOverflow
 - **AND** the reaction is still ready
@@ -534,7 +554,7 @@ Checks SHALL run in this order: UnknownCombatant for the reactor, then the actor
 
 #### Scenario: A damage total that does not fit spends nothing
 
-- **GIVEN** attack bonus +8, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, a ready reaction, current Hit Points 20, damage 1d8 with bonus 2147483647, and a script of initiative 10, then 8, then natural 10, then damage 1, then 4
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and a ready reaction, Alive CombatantId(2) at (0, 1) with current Hit Points 20, both Medium, attack bonus +8, Armor Class 18, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, damage 1d8 with bonus 2147483647, and a script of initiative 10, then 8, then natural 10, then damage 1, then 4
 - **WHEN** the Reactive Strike is resolved
 - **THEN** the error is DamageOverflow
 - **AND** the natural 10 and the damage die of 1 were consumed
