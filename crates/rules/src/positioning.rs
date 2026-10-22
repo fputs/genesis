@@ -1,14 +1,17 @@
-//! Prone, Take Cover, and the Armor Class totals those choices feed.
+//! Prone, flanking, off-guard, and Take Cover.
 //!
-//! Flanking geometry arrives with `Side` from encounter turns. This module does not
-//! declare that type. Posture and the Take Cover benefit are values the caller keeps.
+//! [`Side`] is the encounter-turns enum. This module re-exports it and does not declare
+//! another. Posture and the Take Cover benefit are values the caller keeps.
 //!
-//! Player Core, "Drop Prone", "Stand", Prone, "Take Cover", Cover, and "Off-Guard".
+//! Player Core, "Drop Prone", "Stand", Prone, "Flanking", "Take Cover", Cover, and "Off-Guard".
 
-use crate::grid::{DiagonalCounter, Square, move_trait_allowed};
+use crate::combatant::CombatantId;
+use crate::grid::{DiagonalCounter, GridError, Size, Square, in_reach, move_trait_allowed};
 use crate::modifiers::{
     Cover, Modifier, ModifierError, ModifierTotal, ac_modifiers, attack_modifiers, total,
 };
+
+pub use crate::encounter::Side;
 
 /// Standing or prone. The caller stores this. It is not a field of a creature.
 ///
@@ -223,6 +226,29 @@ pub enum PositioningError {
     Modifier(ModifierError),
 }
 
+/// Where one creature stands for a flanking or off-guard query.
+///
+/// No facing, faction, consent, or charm field. The caller supplies reach.
+///
+/// Player Core, "Flanking".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CombatantPos {
+    /// Identity compared for duplicates and self-flanking. Player Core, "Flanking".
+    pub id: CombatantId,
+    /// Square on a grid this module does not bound. Player Core, "Grid Movement".
+    pub square: Square,
+    /// Size passed to reach. Only Small and Medium flank. Player Core, "Size, Space, and Reach".
+    pub size: Size,
+    /// Reach in feet. A multiple of 5 can threaten. Player Core, "Range and Reach".
+    pub reach_feet: u32,
+    /// Team. Allies share one side, and the target has the other (DEV-26). Player Core, "Flanking".
+    pub side: Side,
+    /// Able to act is the ledger's `able_to_act` (DEV-25). Player Core, "Flanking".
+    pub readiness: Readiness,
+    /// Posture. Prone does not clear Able. Player Core, Prone.
+    pub posture: Posture,
+}
+
 const MOVE_TRAITS: &[ActionTrait] = &[ActionTrait::Move];
 const NO_TRAITS: &[ActionTrait] = &[];
 
@@ -431,6 +457,80 @@ pub fn armor_class(
     total(&modifiers).map_err(PositioningError::Modifier)
 }
 
+/// Whether `attacker` and any partner flank `defender`.
+///
+/// Checks run in order: duplicate id, self id, reach (unsupported size and overflow),
+/// centers, reach that is not a multiple of 5, then the boolean. An empty partner list
+/// is not a flank. Partners are not paired with each other.
+///
+/// Player Core, "Flanking". Player Core, "Range and Reach". Player Core, "Size, Space, and Reach".
+pub fn flanks(
+    defender: &CombatantPos,
+    attacker: &CombatantPos,
+    partners: &[CombatantPos],
+) -> Result<bool, PositioningError> {
+    reject_duplicate_ids(attacker, partners)?;
+    reject_self_ids(defender, attacker, partners)?;
+    let attacker_reaches = reaches_target(attacker, defender)?;
+    let mut partner_reaches = Vec::with_capacity(partners.len());
+    for partner in partners {
+        partner_reaches.push(reaches_target(partner, defender)?);
+    }
+    let attacker_at = local_center(attacker.square, defender.square)?;
+    let mut partner_at = Vec::with_capacity(partners.len());
+    for partner in partners {
+        partner_at.push(local_center(partner.square, defender.square)?);
+    }
+    if !multiple_of_five(attacker.reach_feet)
+        || partners
+            .iter()
+            .any(|partner| !multiple_of_five(partner.reach_feet))
+    {
+        return Err(PositioningError::InvalidReach);
+    }
+    for ((partner, partner_reaches_target), partner_center) in
+        partners.iter().zip(partner_reaches).zip(partner_at)
+    {
+        if !attacker_reaches || !partner_reaches_target {
+            continue;
+        }
+        if attacker.readiness != Readiness::Able || partner.readiness != Readiness::Able {
+            continue;
+        }
+        if attacker.side != partner.side || attacker.side == defender.side {
+            continue;
+        }
+        if center_line_flanks(attacker_at, partner_center) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether `defender` is off-guard to `attack` from `attacker`.
+///
+/// Prone is off-guard for melee and ranged before partner errors are read. Otherwise
+/// the flanking error is returned unchanged. A melee flank or `other` is one off-guard.
+/// Ranged flanking alone is not.
+///
+/// Player Core, "Flanking". Player Core, "Off-Guard".
+pub fn off_guard(
+    defender: &CombatantPos,
+    attacker: &CombatantPos,
+    attack: AttackKind,
+    partners: &[CombatantPos],
+    other: OffGuard,
+) -> Result<bool, PositioningError> {
+    if defender.posture == Posture::Prone {
+        return Ok(true);
+    }
+    let flanked = flanks(defender, attacker, partners)?;
+    Ok(match attack {
+        AttackKind::Melee => flanked || other == OffGuard::Yes,
+        AttackKind::Ranged => other == OffGuard::Yes,
+    })
+}
+
 /// `move_trait_allowed` rejects only immobilized movement. Any rejection from it is
 /// [`PositioningError::Immobilized`].
 fn require_mobile(mobility: Mobility) -> Result<(), PositioningError> {
@@ -537,6 +637,158 @@ fn pair(benefit: Option<CoverBenefit>) -> (Degree, Degree) {
     }
 }
 
+fn reject_duplicate_ids(
+    attacker: &CombatantPos,
+    partners: &[CombatantPos],
+) -> Result<(), PositioningError> {
+    for (index, partner) in partners.iter().enumerate() {
+        if partner.id == attacker.id {
+            return Err(PositioningError::DuplicateId);
+        }
+        for other in partners.iter().skip(index + 1) {
+            if other.id == partner.id {
+                return Err(PositioningError::DuplicateId);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_self_ids(
+    defender: &CombatantPos,
+    attacker: &CombatantPos,
+    partners: &[CombatantPos],
+) -> Result<(), PositioningError> {
+    if attacker.id == defender.id || partners.iter().any(|partner| partner.id == defender.id) {
+        return Err(PositioningError::SelfId);
+    }
+    Ok(())
+}
+
+fn reaches_target(
+    flanker: &CombatantPos,
+    defender: &CombatantPos,
+) -> Result<bool, PositioningError> {
+    in_reach(
+        flanker.square,
+        defender.square,
+        flanker.size,
+        defender.size,
+        flanker.reach_feet,
+    )
+    .map_err(grid_failure)
+}
+
+/// `in_reach` yields unsupported size or overflow. The other grid errors are named so a
+/// new variant fails this match; they are not a size failure.
+fn grid_failure(error: GridError) -> PositioningError {
+    match error {
+        GridError::UnsupportedSize => PositioningError::UnsupportedSize,
+        GridError::Overflow
+        | GridError::ExceedsSpeed
+        | GridError::SpeedNotMultipleOfFive
+        | GridError::NegativeSpeed
+        | GridError::OccupiedEnd
+        | GridError::EnemySquare
+        | GridError::StepIntoDifficultTerrain
+        | GridError::StepRequiresTenFeet
+        | GridError::StepNotOneSquare
+        | GridError::PathNotAdjacent
+        | GridError::OffGrid
+        | GridError::Immobilized
+        | GridError::InvalidRangeIncrement
+        | GridError::NegativeDistance
+        | GridError::BeyondRange => PositioningError::Overflow,
+    }
+}
+
+fn multiple_of_five(reach_feet: u32) -> bool {
+    reach_feet.is_multiple_of(5)
+}
+
+/// Half-square center `(2x + 1, 2y + 1)`. A value that does not fit in `i32` is overflow,
+/// including when a relative offset would have fit.
+fn half_center(square: Square) -> Result<(i32, i32), PositioningError> {
+    let x = square
+        .x
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(PositioningError::Overflow)?;
+    let y = square
+        .y
+        .checked_mul(2)
+        .and_then(|value| value.checked_add(1))
+        .ok_or(PositioningError::Overflow)?;
+    Ok((x, y))
+}
+
+/// Center of `square` in the target square's half-square frame, where that square is
+/// `[0, 2] × [0, 2]`. Differences are widened so a later cross product cannot wrap.
+fn local_center(square: Square, target: Square) -> Result<Pt, PositioningError> {
+    let center = half_center(square)?;
+    let origin = half_center(target)?;
+    Ok(Pt {
+        x: i128::from(center.0) - (i128::from(origin.0) - 1),
+        y: i128::from(center.1) - (i128::from(origin.1) - 1),
+    })
+}
+
+#[derive(Clone, Copy)]
+struct Pt {
+    x: i128,
+    y: i128,
+}
+
+fn pt(x: i128, y: i128) -> Pt {
+    Pt { x, y }
+}
+
+/// A corner counts as both edges (DEV-23). Opposite edges, or two opposite corners, flank.
+fn center_line_flanks(first: Pt, second: Pt) -> bool {
+    let left = segments_touch(first, second, pt(0, 0), pt(0, 2));
+    let right = segments_touch(first, second, pt(2, 0), pt(2, 2));
+    let bottom = segments_touch(first, second, pt(0, 0), pt(2, 0));
+    let top = segments_touch(first, second, pt(0, 2), pt(2, 2));
+    let opposite_edges = (left && right) || (bottom && top);
+    let opposite_corners = (passes_through(first, second, pt(0, 0))
+        && passes_through(first, second, pt(2, 2)))
+        || (passes_through(first, second, pt(0, 2)) && passes_through(first, second, pt(2, 0)));
+    opposite_edges || opposite_corners
+}
+
+fn segments_touch(a: Pt, b: Pt, c: Pt, d: Pt) -> bool {
+    let first = orient(a, b, c);
+    let second = orient(a, b, d);
+    let third = orient(c, d, a);
+    let fourth = orient(c, d, b);
+    if first != 0 && second != 0 && third != 0 && fourth != 0 {
+        return (first > 0) != (second > 0) && (third > 0) != (fourth > 0);
+    }
+    (first == 0 && on_segment(a, b, c))
+        || (second == 0 && on_segment(a, b, d))
+        || (third == 0 && on_segment(c, d, a))
+        || (fourth == 0 && on_segment(c, d, b))
+}
+
+fn passes_through(a: Pt, b: Pt, point: Pt) -> bool {
+    orient(a, b, point) == 0 && on_segment(a, b, point)
+}
+
+fn orient(a: Pt, b: Pt, c: Pt) -> i128 {
+    let ab_x = b.x - a.x;
+    let ab_y = b.y - a.y;
+    let ac_x = c.x - a.x;
+    let ac_y = c.y - a.y;
+    ab_x * ac_y - ab_y * ac_x
+}
+
+fn on_segment(a: Pt, b: Pt, point: Pt) -> bool {
+    point.x >= a.x.min(b.x)
+        && point.x <= a.x.max(b.x)
+        && point.y >= a.y.min(b.y)
+        && point.y <= a.y.max(b.y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,6 +889,18 @@ mod tests {
         extra: &[Modifier],
     ) -> i32 {
         ac(benefit, caller, off_guard, attack, extra).get(Statistic::ArmorClass)
+    }
+
+    fn placed(id: u32, x: i32, y: i32, side: Side) -> CombatantPos {
+        CombatantPos {
+            id: CombatantId(id),
+            square: at(x, y),
+            size: Size::Medium,
+            reach_feet: 5,
+            side,
+            readiness: Readiness::Able,
+            posture: Posture::Standing,
+        }
     }
 
     fn circumstance_bonuses(total: &ModifierTotal) -> Vec<i32> {
@@ -1876,6 +2140,675 @@ mod tests {
         assert_eq!(
             ac_value(changed.benefit, None, OffGuard::No, AttackKind::Ranged, &[],),
             4
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn the_same_flanking_query_twice_matches() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        let first = flanks(&defender, &attacker, &[partner]).expect("flank");
+        let second = flanks(&defender, &attacker, &[partner]).expect("flank");
+        assert_eq!(first, second);
+        assert!(first);
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn the_same_off_guard_query_twice_matches() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        let first = off_guard(
+            &defender,
+            &attacker,
+            AttackKind::Melee,
+            &[partner],
+            OffGuard::No,
+        )
+        .expect("off-guard");
+        let second = off_guard(
+            &defender,
+            &attacker,
+            AttackKind::Melee,
+            &[partner],
+            OffGuard::No,
+        )
+        .expect("off-guard");
+        assert_eq!(first, second);
+        assert!(first);
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn opposite_sides_at_reach_5() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn opposite_corners_at_reach_5() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 1, 1, Side::Pc);
+        let partner = placed(3, -1, -1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn the_same_side_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, -1, 1, Side::Pc);
+        let partner = placed(3, 0, 1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn one_corner_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 1, 0, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn a_corner_counts_as_both_edges() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, -2, -1, Side::Pc);
+        attacker.reach_feet = 10;
+        let partner = placed(3, 1, 0, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn adjacent_side_interiors_do_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, -2, -2, Side::Pc);
+        attacker.reach_feet = 10;
+        let partner = placed(3, 0, 1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn reach_10_opposite_sides() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 2, Side::Pc);
+        attacker.reach_feet = 10;
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn reach_10_opposite_corners() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 2, 2, Side::Pc);
+        attacker.reach_feet = 10;
+        let mut partner = placed(3, -2, -2, Side::Pc);
+        partner.reach_feet = 10;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn reach_10_off_axis_opposite_sides() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, -2, -1, Side::Pc);
+        attacker.reach_feet = 10;
+        let mut partner = placed(3, 2, 1, Side::Pc);
+        partner.reach_feet = 10;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Grid Movement". Player Core, "Flanking".
+    #[test]
+    fn negative_squares_are_legal() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 1, 0, Side::Pc);
+        let partner = placed(3, -1, 0, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Grid Movement". Player Core, "Flanking".
+    #[test]
+    fn extreme_coordinates_overflow() {
+        let dice = held_die();
+        let defender = placed(1, i32::MAX - 1, 0, Side::Enemy);
+        let attacker = placed(2, i32::MAX, 0, Side::Pc);
+        let partner = placed(3, i32::MAX - 2, 0, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::Overflow)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Range and Reach". Player Core, "Flanking".
+    #[test]
+    fn reach_at_the_maximum_u32_does_not_wrap() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.reach_feet = u32::MAX;
+        let mut partner = placed(3, 0, -1, Side::Pc);
+        partner.reach_feet = u32::MAX;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn out_of_reach_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -2, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn a_reach_that_is_not_a_multiple_of_5_is_rejected() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.reach_feet = 7;
+        let mut partner = placed(3, 0, -1, Side::Pc);
+        partner.reach_feet = 7;
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::InvalidReach)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Range and Reach".
+    #[test]
+    fn reach_0_does_not_threaten() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.reach_feet = 0;
+        let mut partner = placed(3, 0, -1, Side::Pc);
+        partner.reach_feet = 0;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Range and Reach". Player Core, "Flanking".
+    #[test]
+    fn reach_15_opposite_corners_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 2, 2, Side::Pc);
+        attacker.reach_feet = 15;
+        let mut partner = placed(3, -2, -2, Side::Pc);
+        partner.reach_feet = 15;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Range and Reach". Player Core, "Flanking".
+    #[test]
+    fn reach_15_far_corners_do_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 3, 3, Side::Pc);
+        attacker.reach_feet = 15;
+        let mut partner = placed(3, -3, -3, Side::Pc);
+        partner.reach_feet = 15;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn the_target_cannot_flank_itself() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(1, 0, 1, Side::Enemy);
+        let partner = placed(2, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::SelfId)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn duplicate_id_wins_over_self_id() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Pc);
+        let attacker = placed(1, 0, 1, Side::Pc);
+        let partner = placed(1, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::DuplicateId)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, "Size, Space, and Reach".
+    #[test]
+    fn self_id_wins_over_unsupported_size() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Pc);
+        let mut attacker = placed(1, 0, 1, Side::Pc);
+        attacker.size = Size::Large;
+        let partner = placed(2, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::SelfId)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Size, Space, and Reach". Player Core, "Flanking".
+    #[test]
+    fn unsupported_size_wins_over_overflow() {
+        let dice = held_die();
+        let mut defender = placed(1, i32::MAX - 1, 0, Side::Enemy);
+        defender.size = Size::Large;
+        let attacker = placed(2, i32::MAX, 0, Side::Pc);
+        let partner = placed(3, i32::MAX - 2, 0, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::UnsupportedSize)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Size, Space, and Reach".
+    #[test]
+    fn large_is_unsupported() {
+        let dice = held_die();
+        let mut defender = placed(1, 0, 0, Side::Enemy);
+        defender.size = Size::Large;
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::UnsupportedSize)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Size, Space, and Reach".
+    #[test]
+    fn a_tiny_flanker_is_unsupported() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.size = Size::Tiny;
+        attacker.reach_feet = 0;
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::UnsupportedSize)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Size, Space, and Reach".
+    #[test]
+    fn a_large_unable_flanker_is_unsupported() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.size = Size::Large;
+        attacker.readiness = Readiness::Unable;
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::UnsupportedSize)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn different_sides_do_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Enemy);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn same_side_as_the_target_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Enemy);
+        let partner = placed(3, 0, -1, Side::Enemy);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn unable_to_act_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.readiness = Readiness::Unable;
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, Prone.
+    #[test]
+    fn prone_does_not_clear_able_to_act() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 1, Side::Pc);
+        attacker.posture = Posture::Prone;
+        let mut partner = placed(3, 0, -1, Side::Pc);
+        partner.posture = Posture::Prone;
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, Prone.
+    #[test]
+    fn a_prone_target_can_be_flanked() {
+        let dice = held_die();
+        let mut defender = placed(1, 0, 0, Side::Enemy);
+        defender.posture = Posture::Prone;
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn ally_order_does_not_matter() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let opposite = placed(3, 0, -1, Side::Pc);
+        let beside = placed(4, 1, 1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[opposite, beside]), Ok(true));
+        assert_eq!(flanks(&defender, &attacker, &[beside, opposite]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn an_attacker_missing_from_partners_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn two_flankers_on_one_square_do_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, 1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn a_flanker_on_the_target_square_does_not_flank() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, 0, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn terrain_and_creatures_do_not_block_flanking() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let mut attacker = placed(2, 0, 2, Side::Pc);
+        attacker.reach_feet = 10;
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(true));
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, "Off-Guard".
+    #[test]
+    fn melee_from_a_flanker_is_off_guard() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Melee,
+                &[partner],
+                OffGuard::No
+            ),
+            Ok(true)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, "Off-Guard".
+    #[test]
+    fn ranged_from_a_flanker_is_not_off_guard() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Ranged,
+                &[partner],
+                OffGuard::No
+            ),
+            Ok(false)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, "Off-Guard".
+    #[test]
+    fn one_flanking_partner_is_enough() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let opposite = placed(3, 0, -1, Side::Pc);
+        let beside = placed(4, 1, 1, Side::Pc);
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Melee,
+                &[opposite, beside],
+                OffGuard::No
+            ),
+            Ok(true)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Off-Guard". Player Core, Prone. Player Core, "Size, Space, and Reach".
+    #[test]
+    fn prone_off_guard_does_not_wait_on_partner_geometry() {
+        let dice = held_die();
+        let mut defender = placed(1, 0, 0, Side::Enemy);
+        defender.posture = Posture::Prone;
+        let attacker = placed(3, 0, -1, Side::Pc);
+        let mut partner = placed(2, 0, 1, Side::Pc);
+        partner.size = Size::Large;
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Melee,
+                &[partner],
+                OffGuard::No
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Ranged,
+                &[partner],
+                OffGuard::No
+            ),
+            Ok(true)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Off-Guard".
+    #[test]
+    fn a_standing_defender_with_no_flank_is_not_off_guard() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        assert_eq!(
+            off_guard(&defender, &attacker, AttackKind::Melee, &[], OffGuard::No),
+            Ok(false)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Off-Guard". Player Core, Penalties.
+    #[test]
+    fn grabbed_and_flanked_are_off_guard_once() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        let queried = off_guard(
+            &defender,
+            &attacker,
+            AttackKind::Melee,
+            &[partner],
+            OffGuard::Yes,
+        )
+        .expect("off-guard");
+        assert!(queried);
+        let cause = if queried { OffGuard::Yes } else { OffGuard::No };
+        let total = armor_class(None, None, cause, AttackKind::Melee, &[]).expect("armor class");
+        assert_eq!(total.get(Statistic::ArmorClass), -2);
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Off-Guard". Player Core, Prone. Player Core, "Flanking".
+    #[test]
+    fn prone_and_flanking_are_off_guard_once() {
+        let dice = held_die();
+        let mut defender = placed(1, 0, 0, Side::Enemy);
+        defender.posture = Posture::Prone;
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(3, 0, -1, Side::Pc);
+        let queried = off_guard(
+            &defender,
+            &attacker,
+            AttackKind::Melee,
+            &[partner],
+            OffGuard::No,
+        )
+        .expect("off-guard");
+        assert!(queried);
+        let cause = if queried { OffGuard::Yes } else { OffGuard::No };
+        let total = armor_class(None, None, cause, AttackKind::Melee, &[]).expect("armor class");
+        assert_eq!(total.get(Statistic::ArmorClass), -2);
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking". Player Core, "Off-Guard".
+    #[test]
+    fn a_bystander_is_not_a_flanker() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 1, 0, Side::Pc);
+        let north = placed(3, 0, 1, Side::Pc);
+        let south = placed(4, 0, -1, Side::Pc);
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Melee,
+                &[north, south],
+                OffGuard::No
+            ),
+            Ok(false)
+        );
+        assert_held(&dice);
+    }
+
+    /// Player Core, "Flanking".
+    #[test]
+    fn a_duplicate_id_is_rejected() {
+        let dice = held_die();
+        let defender = placed(1, 0, 0, Side::Enemy);
+        let attacker = placed(2, 0, 1, Side::Pc);
+        let partner = placed(2, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::DuplicateId)
+        );
+        assert_eq!(
+            off_guard(
+                &defender,
+                &attacker,
+                AttackKind::Melee,
+                &[partner],
+                OffGuard::No
+            ),
+            Err(PositioningError::DuplicateId)
         );
         assert_held(&dice);
     }

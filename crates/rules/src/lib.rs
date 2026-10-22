@@ -44,8 +44,8 @@ pub use grid::{
     move_trait_allowed, range_band, size_data, step, stride, validate_speed,
 };
 pub use positioning::{
-    ActionCost, ActionTrait, AttackKind, CoverBenefit, EndReason, Mobility, MoveAction,
-    NearbyFeature, OccupantPresence, OffGuard, PositioningError, Posture, PostureChange, Readiness,
-    TakeCoverResult, armor_class, attack_penalty, dismiss, dismiss_cost, drop_prone, end_benefit,
-    leap_while_prone, prone_move, stand, take_cover,
+    ActionCost, ActionTrait, AttackKind, CombatantPos, CoverBenefit, EndReason, Mobility,
+    MoveAction, NearbyFeature, OccupantPresence, OffGuard, PositioningError, Posture,
+    PostureChange, Readiness, TakeCoverResult, armor_class, attack_penalty, dismiss, dismiss_cost,
+    drop_prone, end_benefit, flanks, leap_while_prone, off_guard, prone_move, stand, take_cover,
 };
