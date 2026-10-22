@@ -2,18 +2,20 @@
 
 ## Why
 
-A strike on the grid cannot yet tell whether the defender is off-guard from being prone or from flanking, or whether Take Cover changed the cover bonus those penalties stack with. Player Core states those procedures in one family: posture, opposite sides or corners, and the cover step. The modifier totals and the reach query already exist, and this change is the procedure that feeds them. Encounter turns, reactions, and hidden creatures are later changes.
+A strike on the grid cannot yet tell whether the defender is off-guard from being prone or from flanking, or whether Take Cover changed the cover bonus those penalties stack with. Player Core states those procedures in one family: posture, opposite sides or corners, and the cover step. The modifier totals and the reach query already exist. This change is the procedure that feeds them.
 
 ## What Changes
 
 - Add the `positioning` capability. It owns Drop Prone, Stand, the prone condition's off-guard and attack penalty, flanking on the 5-foot grid, off-guard as one circumstance penalty to Armor Class, and Take Cover. It calls the existing modifier total and the existing reach query. It does not reimplement stacking, diagonals, or Speed.
-- Drop Prone and Stand are each 1 action with the move trait, named as data. They do not spend actions, read a turn, or resolve Reactive Strike. Immobilized blocks them through the existing move-trait check. While prone, Stand is the only legal move this change allows.
-- Flanking uses square centers. A line through opposite side interiors, or through a pair of opposite corners, of the target's square qualifies. Both flankers must be able to act, share a faction with each other and not with the target, and have the target inside melee reach. The target is off-guard to those flankers' melee attacks only. A center line that only clips a corner and another side is left not-yet-ruled.
-- Off-guard from prone, from flanking, or from both is one circumstance −2 to Armor Class, produced by the existing Armor Class modifiers and folded by the existing total. The prone attack penalty is the existing circumstance −2 on the attack roll. A cover bonus and that penalty both apply.
-- Take Cover upgrades standard cover to greater, grants standard cover from lesser cover or a caller-supplied nearby feature, and, while prone with no other cover, grants greater cover against ranged attacks only. Ending it is caller data: left the square, made an attack, became unconscious, or dismissed it. Two overlaps stay a typed not-yet-ruled error until Designer answers the questions in `design.md`.
-- Dependencies are `modifiers` and `grid-movement` only. No creature-template delta. No new crate and no new dependency. This change names no `v1-reference` file, so none is ported.
+- The team identifier is `Side` (`Pc` or `Enemy`) from `add-encounter-turns`. This change does not declare a second team type and does not use `FactionId`. Allies for flanking are DEV-26: two creatures are allies if and only if they share a Side. In Phase 1 a faction is a Side. There is no consent or charm value.
+- A corner counts as both edges that meet there (DEV-23). The center line flanks when the edges it touches include an opposite pair, or when it passes through two opposite corners. There is no not-yet-ruled result.
+- Take Cover while prone stacks with other cover (DEV-24). For each attack the circumstance bonus is the higher of the two. Lesser cover alone, when the creature is not prone, is `RequirementNotMet`.
+- A creature threatens when the target is inside the supplied reach and it is able to act (DEV-25). The creature stays in its square. Stand is not blocked by an occupant, and another creature may not end a move in the prone creature's square (DEV-27).
+- Drop Prone and Stand each name 1 action with the move trait, as data for change 8 (FIX-06). They do not spend actions and do not resolve Reactive Strike. There is no trigger flag. Leap while prone returns `ProneRestrictsMovement` and no distance. Crawl, and the distance of a standing Leap, are `add-crawl-and-leap`.
+- Hidden off-guard is change 10 only (FIX-14). This change does not take a hidden input.
+- DEV-23 through DEV-32, including the ledger text, land in `docs/designer/rules-deviations.md` in a separate docs pull request. This change cites the numbers and does not edit that file or any other file under `docs/designer/`.
 
-Out of this change: Crawl, Leap, Reactive Strike, shields, Seek, hidden, undetected, and concealed; sharing a square with a prone creature; walls and cover geometry; action spending and turn order.
+Out of this change: resolving Reactive Strike, shields, Seek, hidden, undetected, and concealed; walls and cover geometry; Crawl and a standing Leap's distance; action spending and turn order.
 
 ## Capabilities
 
@@ -23,8 +25,8 @@ Out of this change: Crawl, Leap, Reactive Strike, shields, Seek, hidden, undetec
 
 ### Modified Capabilities
 
-None. `modifiers` already totals circumstance bonuses and penalties, cover, the prone attack penalty, and one off-guard penalty. `grid-movement` already measures reach and blocks an immobilized move. This change calls those functions and does not change their requirements.
+None. `modifiers` already totals circumstance bonuses and penalties, cover, the prone attack penalty, and one off-guard penalty. `grid-movement` already measures reach and blocks an immobilized move. `add-encounter-turns` already names `Side`. This change calls those functions and does not change their requirements.
 
 ## Impact
 
-New module `crates/rules/src/positioning.rs`, re-exported from the crate root. Callers pass squares, reach, faction, posture, and cover in. Prone and the Take Cover benefit are returned values, not fields of `Creature` or `CombatantState`. `crates/rules` gains no dependency. The implementation pull request adds the Unreleased changelog bullet; this pull request is the spec only.
+New module `crates/rules/src/positioning.rs`, re-exported from the crate root. It imports `Side` and does not define it. Implementation starts once that type is in the crate. Callers pass squares, reach, `Side`, posture, and cover in. Prone and the Take Cover benefit are returned values, not fields of `Creature` or `CombatantState`. `crates/rules` gains no dependency. The spec-only pull request does not add a changelog bullet and does not edit `docs/designer/`. The implementation pull request adds the Unreleased changelog bullet.

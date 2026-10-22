@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Decides prone posture, flanking on a 5-foot grid, off-guard, and Take Cover, and folds those bonuses and penalties through the existing modifier total.
+Decides prone posture, flanking on a 5-foot grid, off-guard to an attack, and Take Cover, and folds those bonuses and penalties through the existing modifier total.
 
 ## ADDED Requirements
 
@@ -10,16 +10,37 @@ Decides prone posture, flanking on a 5-foot grid, off-guard, and Take Cover, and
 
 The same positioning inputs SHALL return the same result. A call SHALL NOT roll dice, read a clock, or read a file. A fallible call SHALL return a typed error and SHALL NOT panic. The rules crate SHALL gain no dependency.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2356 (Player Core pg. 421, Grid Movement)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
 
 #### Scenario: The same flanking query twice matches
 
-- **GIVEN** a Medium target at (0, 0) and two Medium flankers at (0, 1) and (0, -1), both reach 5, both able to act, sharing a faction that is not the target's, and a scripted d20 holding 8
+- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5, and a scripted d20 holding 8
 - **WHEN** flanking is resolved twice
-- **THEN** the two results are equal and both say the target is flanked
+- **THEN** both results are equal and both say the target is flanked
 - **AND** the scripted 8 is still unused
 
-### Requirement: Posture is caller state
+#### Scenario: The same take cover twice matches
+
+- **GIVEN** a standing creature at (3, 4) with standard cover, no stored benefit, and a scripted d20 holding 8
+- **WHEN** Take Cover is resolved twice
+- **THEN** both results are equal and both store greater cover
+- **AND** the scripted 8 is still unused
+
+#### Scenario: The same drop prone twice matches
+
+- **GIVEN** a standing creature that is not immobilized, square (3, 4), no stored benefit, and a scripted d20 holding 8
+- **WHEN** Drop Prone is resolved twice
+- **THEN** both results are equal and both are prone on (3, 4)
+- **AND** the scripted 8 is still unused
+
+#### Scenario: The same off-guard query twice matches
+
+- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5, a melee attack, and a scripted d20 holding 8
+- **WHEN** off-guard is resolved twice
+- **THEN** both results are equal and both are off-guard
+- **AND** the scripted 8 is still unused
+
+### Requirement: Posture and cover are caller values
 
 Prone and a Take Cover benefit SHALL be values the caller keeps. They SHALL NOT be fields of the creature or of combatant state. A positioning call SHALL NOT change Hit Points, actions remaining, or whether the reaction is ready.
 
@@ -32,9 +53,9 @@ Prone and a Take Cover benefit SHALL be values the caller keeps. They SHALL NOT 
 - **THEN** the returned posture is prone on square (3, 4)
 - **AND** the state still has 2 actions remaining and the reaction is still not ready
 
-### Requirement: Drop Prone names its cost
+### Requirement: Drop Prone and Stand name the move trait
 
-Drop Prone SHALL name a cost of 1 action with the move trait. It SHALL NOT spend that action and SHALL NOT resolve a reaction.
+Drop Prone and Stand SHALL each name a cost of 1 action with the move trait. They SHALL NOT spend that action. They SHALL NOT resolve Reactive Strike. The trait is data for change 8 (FIX-06). The result SHALL NOT include a trigger flag.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2295 (Player Core pg. 416, Drop Prone)
 
@@ -42,594 +63,714 @@ Drop Prone SHALL name a cost of 1 action with the move trait. It SHALL NOT spend
 
 - **GIVEN** a standing creature that is not immobilized
 - **WHEN** Drop Prone succeeds
-- **THEN** the result names 1 action with the move trait
-- **AND** no strike is resolved
-
-### Requirement: Stand names its cost
-
-Stand SHALL name a cost of 1 action with the move trait. It SHALL NOT spend that action and SHALL NOT resolve a reaction. On success the creature SHALL be standing.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2303 (Player Core pg. 418, Stand)
+- **THEN** the cost is 1 action with the move trait
+- **AND** the result has no trigger flag
 
 #### Scenario: Stand reports one move action
 
-- **GIVEN** a prone creature that is not immobilized, and a reaction that is ready
+- **GIVEN** a prone creature that is not immobilized
 - **WHEN** Stand succeeds
-- **THEN** the posture is standing
-- **AND** the result names 1 action with the move trait
-- **AND** no strike is resolved and the reaction is still ready
+- **THEN** the cost is 1 action with the move trait
+- **AND** the result has no trigger flag
 
 ### Requirement: Immobilized blocks Drop Prone and Stand
 
-An immobilized creature SHALL NOT Drop Prone or Stand. The posture and square SHALL stay as given. Take Cover SHALL still be legal.
+Drop Prone, Stand, and Leap SHALL call the existing move-trait check first. Immobilized SHALL return Immobilized and SHALL change nothing. Immobilized SHALL be reported before NotProne and before ProneRestrictsMovement.
 
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=81 (Player Core pg. 444, Immobilized)
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2295 (Player Core pg. 416, Drop Prone)
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2303 (Player Core pg. 418, Stand)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=66 (Player Core pg. 443, Immobilized)
 
-#### Scenario: An immobilized creature cannot Drop Prone or Stand
+#### Scenario: An immobilized creature cannot drop prone or stand
 
-- **GIVEN** an immobilized standing creature on (1, 1), and separately an immobilized prone creature on (2, 2)
-- **WHEN** the standing creature Drops Prone and the prone creature Stands
-- **THEN** both results are an immobilized error
-- **AND** the standing creature is still standing on (1, 1)
-- **AND** the prone creature is still prone on (2, 2)
+- **GIVEN** an immobilized creature at (3, 4), once standing and once prone, with a stored benefit
+- **WHEN** Drop Prone and Stand are each attempted
+- **THEN** each result is Immobilized
+- **AND** posture, square, and the stored benefit stay as they were
 
-### Requirement: Stand requires prone
-
-A creature that is not prone SHALL NOT Stand. The result SHALL be a not-prone error and the posture SHALL stay standing. When the creature is also immobilized, the result SHALL be the immobilized error.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2303 (Player Core pg. 418, Stand)
-
-#### Scenario: Standing cannot Stand
+#### Scenario: Standing cannot stand
 
 - **GIVEN** a standing creature that is not immobilized
-- **WHEN** it Stands
-- **THEN** the result is a not-prone error and the posture stays standing
+- **WHEN** Stand is attempted
+- **THEN** the result is NotProne
 
 #### Scenario: Immobilized wins over not prone
 
-- **GIVEN** an immobilized standing creature
-- **WHEN** it Stands
-- **THEN** the result is an immobilized error
-- **AND** the result is not a not-prone error
+- **GIVEN** a standing immobilized creature
+- **WHEN** Stand is attempted
+- **THEN** the result is Immobilized
 
-### Requirement: Prone limits other moves
+#### Scenario: Immobilized wins over a prone move
 
-While a creature is prone, Stand SHALL be the only successful move. Drop Prone, Stride, and Step SHALL each return a prone-movement error and SHALL leave the posture prone. This capability SHALL NOT return a Crawl distance or a Leap distance.
+- **GIVEN** a prone immobilized creature and a diagonal counter whose count is 1
+- **WHEN** prone movement is attempted with Step
+- **THEN** the result is Immobilized
+- **AND** the counter still counts 1 diagonal
+
+#### Scenario: Immobilized wins over leap while prone
+
+- **GIVEN** a prone immobilized creature
+- **WHEN** Leap is attempted
+- **THEN** the result is Immobilized
+- **AND** the result contains no distance
+
+### Requirement: Only Stand is legal while prone
+
+While prone, Stand SHALL be the only move this change allows. Stride, Step, and Drop Prone SHALL return ProneRestrictsMovement with no distance. Leap while prone SHALL return ProneRestrictsMovement with no distance. A standing Leap SHALL return NotProne with no distance. Crawl and standing Leap distance belong to add-crawl-and-leap.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2293 (Player Core pg. 416, Crawl)
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2298 (Player Core pg. 417, Leap)
 
 #### Scenario: Only Stand is legal while prone
 
-- **GIVEN** a prone creature that is not immobilized, on square (4, 5)
-- **WHEN** it Stands, and separately when it Drops Prone, Strides, or Steps
-- **THEN** Stand succeeds and the posture is standing
-- **AND** Drop Prone, Stride, and Step each return a prone-movement error
-- **AND** those three leave the posture prone on (4, 5)
+- **GIVEN** a prone creature that is not immobilized, on square (3, 4)
+- **WHEN** Stand, Drop Prone, Stride, and Step are each attempted
+- **THEN** Stand succeeds on (3, 4)
+- **AND** Drop Prone, Stride, and Step each return ProneRestrictsMovement
 
-#### Scenario: Crawl and Leap are not resolved
+#### Scenario: No prone move variant returns a distance
 
-- **GIVEN** a prone creature with Speed 25
-- **WHEN** its legal moves are resolved
-- **THEN** no result is a Crawl distance or a Leap distance
+- **GIVEN** a prone creature that is not immobilized and a diagonal counter whose count is 1
+- **WHEN** Stride, Step, and Drop Prone are each passed to prone movement
+- **THEN** each result is ProneRestrictsMovement
+- **AND** none of the results contains a distance
+- **AND** the counter still counts 1 diagonal
 
-### Requirement: Drop Prone keeps the square
+#### Scenario: Leap while prone is rejected
 
-Drop Prone on a standing creature that is not immobilized SHALL make it prone on the same square. A Take Cover benefit already stored SHALL remain stored.
+- **GIVEN** a prone creature that is not immobilized
+- **WHEN** Leap is attempted
+- **THEN** the result is ProneRestrictsMovement
+- **AND** the result contains no distance
 
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2295 (Player Core pg. 416, Drop Prone)
+#### Scenario: A standing leap is not resolved
+
+- **GIVEN** a standing creature that is not immobilized
+- **WHEN** Leap is attempted
+- **THEN** the result is NotProne
+- **AND** the result contains no distance
+
+#### Scenario: Move actions are stride step and drop prone
+
+- **GIVEN** the move actions this change accepts
+- **WHEN** they are listed
+- **THEN** they are Stride, Step, and Drop Prone
+- **AND** Leap and Crawl are not among them
+
+### Requirement: The creature stays in its square
+
+Drop Prone, Stand, and Take Cover SHALL NOT move the creature. The returned square SHALL equal the input square. An occupant SHALL NOT block Stand (DEV-27). This change SHALL NOT permit another creature to end a move in the prone creature's square.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2361 (Player Core pg. 422, Sharing Space)
+
+#### Scenario: The returned square equals the input square
+
+- **GIVEN** a creature at (3, 4) with caller standard cover, standing for Drop Prone and Take Cover, and prone for Stand
+- **WHEN** Drop Prone, Stand, and Take Cover each succeed
+- **THEN** each returned square is (3, 4)
+
+#### Scenario: Stand ignores an occupant
+
+- **GIVEN** a prone creature at (3, 4) and another creature in that square
+- **WHEN** Stand is attempted
+- **THEN** Stand succeeds
+- **AND** the returned square is (3, 4)
+- **AND** the result does not permit the other creature to end a move there
 
 #### Scenario: Drop Prone keeps the square and the cover benefit
 
-- **GIVEN** a standing creature on (6, 1) with greater cover already stored by Take Cover
+- **GIVEN** a standing creature at (3, 4) with stored standard cover
 - **WHEN** Drop Prone succeeds
-- **THEN** the posture is prone on (6, 1)
-- **AND** the stored benefit is still greater cover
+- **THEN** the posture is prone, the square is (3, 4), and the benefit is still standard
 
-### Requirement: Prone applies off-guard and the attack penalty
+### Requirement: Prone uses the existing attack penalty and off-guard
 
-A prone creature SHALL be off-guard to melee and ranged attacks. Off-guard SHALL be one circumstance penalty of -2 to Armor Class. Its attack roll SHALL take one circumstance penalty of -2. Both come from the existing modifiers. Prone alone SHALL grant no cover. Positioning SHALL NOT add the unconscious status penalty.
+A prone creature SHALL be off-guard, and that penalty SHALL be the existing circumstance minus 2 to Armor Class, for melee and for ranged. The prone attack penalty SHALL be the existing circumstance minus 2 from the attack-modifier function. This change SHALL NOT build a second copy of either penalty.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
 
 #### Scenario: Prone off-guard and the attack penalty
 
-- **GIVEN** a prone creature, no cover, and no flanking
-- **WHEN** Armor Class modifiers and attack modifiers are totaled separately
-- **THEN** Armor Class includes one circumstance penalty of -2 and no cover bonus
-- **AND** the attack roll includes one circumstance penalty of -2
-- **AND** neither total includes a status penalty of -4
-
-#### Scenario: Prone off-guard does not wait on an unruled pair
-
-- **GIVEN** a prone target at (0, 0), a creature at (-2, -1) with reach 10, and a creature at (1, 0) with reach 5, both able to act, sharing a faction that is not the target's
-- **WHEN** off-guard is asked for either creature's melee attack
-- **THEN** the answer is off-guard
-- **AND** the result is not a not-yet-ruled error
+- **GIVEN** a prone attacker and a prone defender
+- **WHEN** the attack penalty and the Armor Class total are resolved
+- **THEN** the attack total is minus 2
+- **AND** the Armor Class total is minus 2 for melee and for ranged
 
 #### Scenario: Prone off-guard applies to melee and ranged
 
-- **GIVEN** a prone creature that is not flanked
-- **WHEN** off-guard is asked for a melee attack and for a ranged attack
-- **THEN** both answers are off-guard
+- **GIVEN** a prone defender who is not flanked
+- **WHEN** off-guard is queried for melee and for ranged
+- **THEN** both results are off-guard
 
-### Requirement: The prone penalty stacks as circumstance
+#### Scenario: A standing attacker has no prone penalty
 
-The prone attack penalty SHALL remain circumstance when an untyped penalty from another source is totaled with it. The existing total SHALL add that untyped penalty.
+- **GIVEN** a standing attacker
+- **WHEN** the attack penalty is resolved
+- **THEN** the attack total has no prone penalty
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
+#### Scenario: Prone penalty and an untyped penalty total minus 7
 
-#### Scenario: Prone -2 and an untyped -5 total -7
-
-- **GIVEN** the prone attack penalty and an untyped penalty of -5 from another source
-- **WHEN** the attack roll is totaled
-- **THEN** the total is -7
-- **AND** the circumstance penalty of -2 is applied
-- **AND** the untyped penalty of -5 is applied
+- **GIVEN** a prone attacker and a caller untyped penalty of minus 5 to the attack
+- **WHEN** the prone penalty and that untyped penalty are totaled
+- **THEN** the attack total is minus 7
 
 ### Requirement: Cover and off-guard both apply
 
-On Armor Class, a cover circumstance bonus and the off-guard circumstance penalty SHALL both apply through the existing total. Off-guard from prone and from flanking together SHALL be one circumstance penalty of -2.
+A cover bonus and off-guard SHALL both apply. Standard cover and off-guard SHALL total 0. Greater cover and off-guard SHALL total plus 2. The cover used for an attack SHALL be the higher of the stored benefit and the caller cover for that attack, and it SHALL be passed once to the existing Armor Class modifiers.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2367 (Player Core pg. 424, Cover)
 
 #### Scenario: Standard cover and off-guard total 0
 
-- **GIVEN** standard cover and off-guard, and no other Armor Class modifier from positioning
-- **WHEN** Armor Class modifiers are totaled
-- **THEN** the circumstance bonus of +2 is applied
-- **AND** the circumstance penalty of -2 is applied
-- **AND** the Armor Class total is 0
+- **GIVEN** caller standard cover, no stored benefit, and off-guard
+- **WHEN** Armor Class is totaled for melee and for ranged
+- **THEN** both totals are 0
 
-#### Scenario: Greater cover and off-guard total +2
+#### Scenario: Greater cover and off-guard total plus 2
 
-- **GIVEN** greater cover and off-guard
-- **WHEN** Armor Class modifiers are totaled
-- **THEN** the Armor Class total is +2
+- **GIVEN** caller greater cover, no stored benefit, and off-guard
+- **WHEN** Armor Class is totaled for melee and for ranged
+- **THEN** both totals are plus 2
+
+#### Scenario: Stored standard and caller greater total plus 4
+
+- **GIVEN** stored standard cover and caller greater cover, with the creature standing and not off-guard
+- **WHEN** Armor Class is totaled for melee and for ranged
+- **THEN** both totals are plus 4
+- **AND** the plus 4 is one cover bonus
+
+### Requirement: One off-guard penalty is enough
+
+Off-guard from two causes SHALL be one circumstance minus 2. Another circumstance penalty of minus 1 to Armor Class SHALL leave that total at minus 2. Grabbed SHALL be a caller flag, not a second penalty. A prone attacker and an off-guard defender SHALL each contribute their own minus 2.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 404, Penalties)
+
+#### Scenario: Off-guard and a circumstance penalty total minus 2
+
+- **GIVEN** off-guard and a caller circumstance penalty of minus 1 to Armor Class, with no cover
+- **WHEN** Armor Class is totaled
+- **THEN** the total is minus 2
+
+#### Scenario: Grabbed and flanked are off-guard once
+
+- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5, and the caller flag for another off-guard cause
+- **WHEN** melee off-guard is queried and Armor Class is totaled once from that result
+- **THEN** the query is off-guard
+- **AND** the Armor Class total is minus 2
 
 #### Scenario: Prone and flanking are off-guard once
 
-- **GIVEN** a prone target flanked for a melee attack
-- **WHEN** Armor Class modifiers for that attack are totaled
-- **THEN** one circumstance penalty of -2 is applied
-- **AND** the penalty is not -4
-
-### Requirement: Attacker and defender stay apart
-
-The prone penalty on an attack roll and off-guard on a defender's Armor Class SHALL be totaled separately. Neither total SHALL drop the other's penalty.
-
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
+- **GIVEN** prone Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, and reach 5
+- **WHEN** melee off-guard is queried and Armor Class is totaled once from that result
+- **THEN** the query is off-guard
+- **AND** the Armor Class total is minus 2
 
 #### Scenario: A prone attacker and an off-guard defender
 
-- **GIVEN** a prone attacker and a defender who is off-guard to that attacker's melee attack
-- **WHEN** the attack roll and the Armor Class are totaled separately
-- **THEN** the attack roll includes -2 circumstance
-- **AND** the Armor Class includes -2 circumstance
-- **AND** neither total drops the other's penalty
+- **GIVEN** prone Pc id 2 at (0, 1), Pc id 3 at (0, -1), and standing Enemy id 1 at (0, 0), all Medium, Able, and reach 5
+- **WHEN** the attacker's attack penalty and the defender's Armor Class are resolved
+- **THEN** the attack total is minus 2
+- **AND** the Armor Class total is minus 2
 
-### Requirement: Flanking geometry uses the center line
+### Requirement: A corner counts as both edges
 
-For Small and Medium squares, flanking geometry SHALL hold when the line between the flankers' square centers meets the target square in opposite side interiors or in one pair of opposite corners. A miss, a single point, or two adjacent side interiors SHALL NOT hold. Any other hit SHALL return a not-yet-ruled error and SHALL NOT report flanking.
+A flanking line SHALL be the segment between two allies' square centers. A corner SHALL count as touching both edges that meet there (DEV-23). The line SHALL flank when those edges include an opposite pair, or when it passes through two opposite corners. Otherwise it SHALL NOT flank. There SHALL be no not-yet-ruled result.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
 
 #### Scenario: Opposite sides at reach 5
 
-- **GIVEN** a Medium target at (0, 0) and Medium flankers at (0, 1) and (0, -1), both reach 5, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, -1), all Medium, Able, Standing, and reach 5
 - **WHEN** flanking is resolved
 - **THEN** the target is flanked
-- **AND** flankers at (1, 0) and (-1, 0) with the same reach, faction, and able-to-act flags also flank it
 
 #### Scenario: Opposite corners at reach 5
 
-- **GIVEN** a Medium target at (0, 0) and Medium flankers at (1, 1) and (-1, -1), both reach 5, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (1, 1), and Pc id 3 at (-1, -1), all Medium, Able, Standing, and reach 5
 - **WHEN** flanking is resolved
 - **THEN** the target is flanked
-- **AND** flankers at (-1, 1) and (1, -1) with the same reach, faction, and able-to-act flags also flank it
 
 #### Scenario: The same side does not flank
 
-- **GIVEN** a target at (0, 0) and flankers at (-1, 1) and (0, 1), both reach 5, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (-1, 1), and Pc id 3 at (0, 1), all Medium, Able, Standing, and reach 5
 - **WHEN** flanking is resolved
 - **THEN** the target is not flanked
 
-#### Scenario: Adjacent sides do not flank
+#### Scenario: One corner does not flank
 
-- **GIVEN** a target at (0, 0) and flankers at (0, 1) and (1, 0), both reach 5, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (1, 0), all Medium, Able, Standing, and reach 5
 - **WHEN** flanking is resolved
 - **THEN** the target is not flanked
 
-#### Scenario: Reach 10 opposite sides
+#### Scenario: A corner counts as both edges
 
-- **GIVEN** a target at (0, 0), a flanker at (0, 2) with reach 10, and a flanker at (0, -1) with reach 5, both able to act, sharing a faction that is not the target's
-- **WHEN** flanking is resolved
-- **THEN** the target is flanked
-
-#### Scenario: Reach 10 opposite corners
-
-- **GIVEN** a target at (0, 0) and flankers at (2, 2) and (-2, -2), both reach 10, both able to act, sharing a faction that is not the target's
-- **WHEN** flanking is resolved
-- **THEN** the target is flanked
-
-#### Scenario: Reach 10 off-axis opposite sides
-
-- **GIVEN** a target at (0, 0) and flankers at (-2, -1) and (2, 1), both reach 10, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (-2, -1) with reach 10, and Pc id 3 at (1, 0) with reach 5, all Medium, Able, and Standing
 - **WHEN** flanking is resolved
 - **THEN** the target is flanked
 
 #### Scenario: Adjacent side interiors do not flank
 
-- **GIVEN** a target at (0, 0) and flankers at (-2, -2) and (0, 1), both reach 10, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (-2, -2) with reach 10, and Pc id 3 at (0, 1) with reach 5, all Medium, Able, and Standing
 - **WHEN** flanking is resolved
 - **THEN** the target is not flanked
 
-#### Scenario: A corner and a side are not yet ruled
+#### Scenario: Reach 10 opposite sides
 
-- **GIVEN** a target at (0, 0), a flanker at (-2, -1) with reach 10, and a flanker at (1, 0) with reach 5, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 2) with reach 10, and Pc id 3 at (0, -1) with reach 5, all Medium, Able, and Standing
 - **WHEN** flanking is resolved
-- **THEN** the result is a not-yet-ruled error
-- **AND** the result does not say the target is flanked or not flanked
+- **THEN** the target is flanked
 
-### Requirement: Flanking needs reach and an action
+#### Scenario: Reach 10 opposite corners
 
-Each flanker SHALL have the target inside melee reach by the existing reach query, and SHALL be marked able to act. Otherwise the pair SHALL NOT flank. The same square SHALL NOT count as reach. A prone flanker in reach who can act SHALL still flank. A prone target SHALL still be flankable.
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (2, 2), and Pc id 3 at (-2, -2), all Medium, Able, Standing, and reach 10
+- **WHEN** flanking is resolved
+- **THEN** the target is flanked
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2379 (Player Core pg. 426, Range and Reach)
+#### Scenario: Reach 10 off-axis opposite sides
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (-2, -1), and Pc id 3 at (2, 1), all Medium, Able, Standing, and reach 10
+- **WHEN** flanking is resolved
+- **THEN** the target is flanked
+
+### Requirement: Squares have no map here
+
+Positioning SHALL take raw squares and SHALL NOT take a map. A negative coordinate SHALL be legal. Centers SHALL use checked arithmetic. A value that does not fit SHALL be Overflow and SHALL NOT wrap.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2356 (Player Core pg. 421, Grid Movement)
+
+#### Scenario: Negative squares are legal
+
+- **GIVEN** no map, Enemy id 1 at (0, 0), Pc id 2 at (1, 0), and Pc id 3 at (-1, 0), all Medium, Able, Standing, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is flanked
+
+#### Scenario: Extreme coordinates overflow
+
+- **GIVEN** exactly two flankers, Enemy id 1 at (i32::MAX minus 1, 0), Pc id 2 at (i32::MAX, 0), and Pc id 3 at (i32::MAX minus 2, 0), all Medium, Able, Standing, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the result is Overflow
+
+#### Scenario: Reach at the maximum u32 does not wrap
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, -1), all Medium, Able, and Standing, both allies at reach u32::MAX
+- **WHEN** flanking is resolved
+- **THEN** the result is flanked
+- **AND** the result is not a wrapped value
+
+### Requirement: Threatening is reach and readiness
+
+A creature SHALL threaten the target when the target is inside its supplied reach and its readiness is Able (DEV-25). Reach that is not a multiple of 5 SHALL be InvalidReach. Reach 0 SHALL be legal and SHALL NOT threaten. The reach query SHALL run from the flanker to the target with both creatures' real sizes.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2370 (Player Core pg. 425, Range and Reach)
 
 #### Scenario: Out of reach does not flank
 
-- **GIVEN** a target at (0, 0) and flankers at (0, 1) and (0, -2), both reach 5, both able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1) with reach 5, and Pc id 3 at (0, -2) with reach 5, all Medium, Able, and Standing
 - **WHEN** flanking is resolved
 - **THEN** the target is not flanked
 
-#### Scenario: Unable to act does not flank
+#### Scenario: A reach that is not a multiple of 5 is rejected
 
-- **GIVEN** flankers at (0, 1) and (0, -1), both reach 5, sharing a faction that is not the target's, and one marked unable to act
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, -1), all Medium, Able, and Standing, both allies at reach 7
+- **WHEN** flanking is resolved
+- **THEN** the result is InvalidReach
+
+#### Scenario: Reach 0 does not threaten
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, -1), all Medium, Able, and Standing, both allies at reach 0
 - **WHEN** flanking is resolved
 - **THEN** the target is not flanked
 
-#### Scenario: A prone flanker still flanks
+#### Scenario: Reach 15 opposite corners flank
 
-- **GIVEN** flankers at (1, 0) and (-1, 0), both reach 5 and able to act, sharing a faction that is not the target's, and one of them prone
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (2, 2), and Pc id 3 at (-2, -2), all Medium, Able, Standing, and reach 15
 - **WHEN** flanking is resolved
 - **THEN** the target is flanked
 
-#### Scenario: A prone target can be flanked
+#### Scenario: Reach 15 far corners do not flank
 
-- **GIVEN** a prone target at (0, 0) and flankers at (0, 1) and (0, -1), both reach 5 and able to act, sharing a faction that is not the target's
-- **WHEN** flanking is resolved
-- **THEN** the target is flanked
-
-#### Scenario: The same square is not reach
-
-- **GIVEN** one flanker on the target's square (0, 0) and another at (0, 1), both reach 5 and able to act, sharing a faction that is not the target's
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (3, 3), and Pc id 3 at (-3, -3), all Medium, Able, Standing, and reach 15
 - **WHEN** flanking is resolved
 - **THEN** the target is not flanked
 
-### Requirement: Able to act is caller data
+### Requirement: Flanking errors have one order
 
-The caller SHALL pass whether each flanker can act. This capability SHALL NOT infer that flag, and prone SHALL NOT clear it.
+The checks SHALL run in this order: DuplicateId, then SelfId, then UnsupportedSize, then Overflow, then InvalidReach, then the boolean. An earlier failure SHALL win.
 
-**Rule**: Player Core pg. 425 requires both flankers able to act. https://2e.aonprd.com/Rules.aspx?ID=2375
-**Why**: Unconscious belongs to a later change.
-**Substitute**: The caller passes the flag. Prone leaves it as passed.
-**Intent**: A later change can pass false.
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
+#### Scenario: A duplicate id is rejected
 
-#### Scenario: Prone does not clear able to act
+- **GIVEN** Enemy id 1 at (0, 0) and two Pc entries that both use id 2, at (0, 1) and (0, -1), all Medium and reach 5
+- **WHEN** flanking and, with the defender standing, off-guard are resolved
+- **THEN** both results are DuplicateId
 
-- **GIVEN** a prone flanker marked able to act, opposite an ally who is also able to act and in reach
+#### Scenario: The target cannot flank itself
+
+- **GIVEN** Enemy id 1 at (0, 0) and a second entry with id 1 at (0, 1), plus Pc id 2 at (0, -1), all Medium and reach 5
 - **WHEN** flanking is resolved
-- **THEN** the able-to-act flag is still true
-- **AND** the target is flanked
+- **THEN** the result is SelfId
 
-### Requirement: Flankers are allies against an enemy
+#### Scenario: Duplicate id wins over self id
 
-The flankers SHALL share one faction, and that faction SHALL differ from the target's. Otherwise they SHALL NOT flank.
-
-**Rule**: Player Core pg. 425 requires an ally against an enemy. https://2e.aonprd.com/Rules.aspx?ID=2375
-**Why**: No ally flag exists besides faction.
-**Substitute**: A shared faction counts as allies. The target's faction differs.
-**Intent**: Enemies do not flank each other, and friends do not flank a friend.
-
-#### Scenario: Different factions do not flank
-
-- **GIVEN** flankers at (0, 1) and (0, -1), both reach 5 and able to act, with factions that differ from each other
+- **GIVEN** target id 1 at (0, 0) and two entries that both use id 1, at (0, 1) and (0, -1), reach 5
 - **WHEN** flanking is resolved
-- **THEN** the target is not flanked
+- **THEN** the result is DuplicateId
 
-#### Scenario: Allies of the target do not flank it
+#### Scenario: Self id wins over unsupported size
 
-- **GIVEN** flankers at (1, 0) and (-1, 0), both reach 5 and able to act, sharing the target's faction
+- **GIVEN** target id 1 at (0, 0), a Large entry id 1 at (0, 1), and Medium Pc id 2 at (0, -1), reach 5
 - **WHEN** flanking is resolved
-- **THEN** the target is not flanked
+- **THEN** the result is SelfId
 
-### Requirement: Flanking off-guard is melee from the pair
+#### Scenario: Unsupported size wins over overflow
 
-A flanked target SHALL be off-guard to each flanker's melee attacks and SHALL NOT be off-guard from flanking to a ranged attack or to a creature outside a flanking pair. Prone off-guard SHALL still apply when flanking does not. A not-yet-ruled pair SHALL return that error instead of a boolean.
+- **GIVEN** a Large target at (i32::MAX minus 1, 0) and Medium flankers at (i32::MAX, 0) and (i32::MAX minus 2, 0), reach 5
+- **WHEN** flanking is resolved
+- **THEN** the result is UnsupportedSize
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
+### Requirement: Only Small and Medium can flank
 
-#### Scenario: Melee from a flanker is off-guard
-
-- **GIVEN** a target at (0, 0) that is not prone, and flankers at (0, 1) and (0, -1), both reach 5 and able to act, sharing a faction that is not the target's
-- **WHEN** off-guard is asked for each flanker's melee attack
-- **THEN** both answers are off-guard
-
-#### Scenario: A flanker's ranged attack is not off-guard
-
-- **GIVEN** that same pair and a target that is not prone
-- **WHEN** off-guard is asked for a flanker's ranged attack
-- **THEN** the answer is not off-guard
-
-#### Scenario: A bystander is not a flanker
-
-- **GIVEN** those two flankers and a third creature at (1, 1), reach 5, able to act, and of their faction
-- **WHEN** off-guard is asked for the third creature's melee attack
-- **THEN** the answer is not off-guard
-
-#### Scenario: A clear pair beats an unruled pair
-
-- **GIVEN** a target at (0, 0) that is not prone, an attacker at (1, 0) with reach 5, an ally at (-1, 0) with reach 5, and an ally at (-2, -1) with reach 10, all able to act and sharing a faction that is not the target's
-- **WHEN** off-guard is asked for the attacker's melee attack
-- **THEN** the answer is off-guard
-- **AND** the result is not a not-yet-ruled error
-
-#### Scenario: An unruled pair does not guess off-guard
-
-- **GIVEN** a target at (0, 0) that is not prone, a flanker at (-2, -1) with reach 10, and a flanker at (1, 0) with reach 5, both able to act, sharing a faction that is not the target's
-- **WHEN** off-guard is asked for either flanker's melee attack
-- **THEN** the result is a not-yet-ruled error
-- **AND** the result does not say the target is off-guard or not
-
-#### Scenario: Prone still applies when the attack is ranged
-
-- **GIVEN** a prone target and a flanker pair at (0, 1) and (0, -1)
-- **WHEN** off-guard is asked for a flanker's ranged attack
-- **THEN** the answer is off-guard
-
-### Requirement: Only Small and Medium flank
-
-A creature that is not Small or Medium SHALL return the existing unsupported-size error. The result SHALL NOT say whether anyone flanks. Coordinate overflow from the reach query SHALL return an overflow error and SHALL NOT return a wrapped boolean.
+Tiny, Large, Huge, and Gargantuan SHALL return UnsupportedSize. That check SHALL run before readiness. A Large target, a Tiny flanker, and a Large flanker who is unable to act SHALL each return UnsupportedSize. Tiny at reach 0 SHALL be UnsupportedSize and SHALL NOT be a boolean (DEV-19).
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2359 (Player Core pg. 421, Size, Space, and Reach)
 
 #### Scenario: Large is unsupported
 
-- **GIVEN** a Large flanker opposite a Medium target, both otherwise able to flank
+- **GIVEN** Large Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, -1), the allies Medium, Able, Standing, and reach 5
 - **WHEN** flanking is resolved
-- **THEN** the result is an unsupported-size error
-- **AND** the result does not say the target is flanked
+- **THEN** the result is UnsupportedSize
 
-#### Scenario: Extreme coordinates overflow
+#### Scenario: A tiny flanker is unsupported
 
-- **GIVEN** a Medium target and a Medium flanker on the extreme positive and extreme negative squares these rules store, with a third Medium flanker at a neighbor of the target
+- **GIVEN** Medium Enemy id 1 at (0, 0), Tiny Pc id 2 at (0, 1) with reach 0, and Medium Pc id 3 at (0, -1) with reach 5, all Able and Standing
 - **WHEN** flanking is resolved
-- **THEN** the result is an overflow error
-- **AND** the result is not a flanking boolean
+- **THEN** the result is UnsupportedSize
 
-### Requirement: Creatures are combatant ids
+#### Scenario: A large unable flanker is unsupported
 
-A target and each flanker SHALL be a CombatantId. Two entries with one id, or a flanker id equal to the target id, SHALL return a typed error. List position SHALL NOT identify them.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
-
-#### Scenario: A duplicate id is rejected
-
-- **GIVEN** two flanker entries with one CombatantId, on (0, 1) and (0, -1)
+- **GIVEN** Medium Enemy id 1 at (0, 0), Large Pc id 2 at (0, 1) who is Unable, and Medium Pc id 3 at (0, -1) who is Able, reach 5
 - **WHEN** flanking is resolved
-- **THEN** the result is a duplicate-id error
-- **AND** the result does not say the target is flanked
+- **THEN** the result is UnsupportedSize
 
-#### Scenario: The target cannot flank itself
+### Requirement: Allies are the same Side
 
-- **GIVEN** a flanker whose CombatantId is the target's, and another flanker at (0, 1)
+Two creatures SHALL be allies if and only if they have the same Side (DEV-26). Side SHALL be Pc or Enemy from add-encounter-turns. This change SHALL NOT define a faction id and SHALL NOT read consent or charm. Flankers SHALL share a Side, and the target SHALL have the other Side.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+
+#### Scenario: Different sides do not flank
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Enemy id 3 at (0, -1), all Medium, Able, Standing, and reach 5
 - **WHEN** flanking is resolved
-- **THEN** the result is a self-id error
-- **AND** the target is not reported as flanked
+- **THEN** the target is not flanked
 
-### Requirement: Take Cover upgrades standard cover
+#### Scenario: Same side as the target does not flank
 
-When the creature is not prone and the caller supplies standard cover, Take Cover SHALL store greater cover. Armor Class SHALL show one circumstance bonus of +4 from the existing cover modifier, and SHALL NOT also keep +2.
+- **GIVEN** Enemy id 1 at (0, 0), Enemy id 2 at (0, 1), and Enemy id 3 at (0, -1), all Medium, Able, Standing, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is not flanked
+
+### Requirement: Who can be a flanker
+
+The attacker SHALL be an argument, and the other creatures SHALL be the partner list. Partner order SHALL NOT change the result. An empty partner list SHALL NOT flank. Two partners on opposite sides SHALL NOT flank for an attacker who does not complete a pair. Unable SHALL NOT flank. Prone SHALL NOT clear Able. The same square SHALL NOT flank.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+
+#### Scenario: Unable to act does not flank
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1) who is Unable, and Pc id 3 at (0, -1) who is Able, all Medium, Standing, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is not flanked
+
+#### Scenario: Prone does not clear able to act
+
+- **GIVEN** Enemy id 1 at (0, 0), prone Pc id 2 at (0, 1), and prone Pc id 3 at (0, -1), all Medium, Able, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is flanked
+
+#### Scenario: A prone target can be flanked
+
+- **GIVEN** prone Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, -1), all Medium, Able, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is flanked
+
+#### Scenario: Ally order does not matter
+
+- **GIVEN** Enemy id 1 at (0, 0), attacker Pc id 2 at (0, 1), and partners Pc id 3 at (0, -1) and Pc id 4 at (1, 1), all Medium, Able, Standing, and reach 5
+- **WHEN** flanking is resolved with the partners in either order
+- **THEN** both results are flanked
+
+#### Scenario: An attacker missing from partners does not flank
+
+- **GIVEN** Enemy id 1 at (0, 0) and attacker Pc id 2 at (0, 1), all Medium, Able, Standing, and reach 5, and no partner in the list
+- **WHEN** flanking is resolved
+- **THEN** the target is not flanked
+
+#### Scenario: A bystander is not a flanker
+
+- **GIVEN** Enemy id 1 at (0, 0), attacker Pc id 2 at (1, 0), and partners Pc id 3 at (0, 1) and Pc id 4 at (0, -1), all Medium, Able, Standing, and reach 5
+- **WHEN** melee off-guard is queried
+- **THEN** the target is not off-guard
+
+#### Scenario: Two flankers on one square do not flank
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, 1), all Medium, Able, Standing, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is not flanked
+
+#### Scenario: A flanker on the target square does not flank
+
+- **GIVEN** Enemy id 1 at (0, 0), Pc id 2 at (0, 1), and Pc id 3 at (0, 0), all Medium, Able, Standing, and reach 5
+- **WHEN** flanking is resolved
+- **THEN** the target is not flanked
+
+### Requirement: Off-guard from flanking is melee only
+
+A melee attack from a flanking attacker SHALL be off-guard. A ranged attack SHALL NOT be off-guard from flanking alone. One flanking partner SHALL be enough. When the defender is prone, off-guard SHALL be true for melee and ranged before partner errors are considered.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+
+#### Scenario: Melee from a flanker is off-guard
+
+- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5
+- **WHEN** off-guard is queried for melee
+- **THEN** the target is off-guard
+
+#### Scenario: Ranged from a flanker is not off-guard
+
+- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5
+- **WHEN** off-guard is queried for ranged
+- **THEN** the target is not off-guard
+
+#### Scenario: One flanking partner is enough
+
+- **GIVEN** Enemy id 1 at (0, 0), attacker Pc id 2 at (0, 1), and partners Pc id 3 at (0, -1) and Pc id 4 at (1, 1), all Medium, Able, Standing, and reach 5
+- **WHEN** off-guard is queried for melee
+- **THEN** the target is off-guard
+
+#### Scenario: Prone off-guard does not wait on partner geometry
+
+- **GIVEN** prone Medium Enemy id 1 at (0, 0) and Large Pc id 2 at (0, 1) in the partner list
+- **WHEN** off-guard is queried for melee
+- **THEN** the result is off-guard
+
+### Requirement: Flanking ignores facing and the ground
+
+Flanking SHALL NOT read facing. Terrain and other creatures on the line SHALL NOT change the result. Cover SHALL NOT be a flanking input.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+
+#### Scenario: Terrain and creatures do not block flanking
+
+- **GIVEN** difficult terrain at (0, 1), an Enemy at (1, 1), Enemy id 1 at (0, 0), Pc id 2 at (0, 2) with reach 10, and Pc id 3 at (0, -1) with reach 5, all three Medium, Able, and Standing
+- **WHEN** flanking is resolved with no facing and no terrain argument
+- **THEN** the target is flanked
+
+### Requirement: Take Cover upgrades cover when not prone
+
+When the creature is not prone, standard cover SHALL become greater. Greater cover SHALL stay greater. Lesser cover alone SHALL return RequirementNotMet, store nothing, keep the actions, and leave Armor Class at plus 1. Lesser cover plus a nearby feature SHALL become standard. A nearby feature with no cover SHALL become standard. No cover and no feature SHALL return RequirementNotMet.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2372 (Player Core pg. 424, Cover)
 
 #### Scenario: Standard cover becomes greater
 
-- **GIVEN** a standing creature with standard cover and no Take Cover benefit yet
-- **WHEN** Take Cover succeeds and Armor Class is totaled
-- **THEN** the stored benefit is greater cover
-- **AND** one circumstance bonus of +4 is applied
-- **AND** the Armor Class total is +4
+- **GIVEN** a standing creature with caller standard cover and no stored benefit
+- **WHEN** Take Cover succeeds
+- **THEN** the stored benefit is greater
+- **AND** the Armor Class total is plus 4
+- **AND** that plus 4 is one cover bonus
 
-### Requirement: Take Cover can grant standard cover
+#### Scenario: Lesser cover alone is not enough
 
-When the creature is not prone, and the caller supplies lesser cover or marks a nearby feature with no cover degree, Take Cover SHALL store standard cover. The Armor Class bonus SHALL be +2 circumstance. The nearby feature SHALL be caller data. This capability SHALL NOT test walls.
+- **GIVEN** a standing creature with caller lesser cover, no nearby feature, no stored benefit, and a combatant state with 2 actions remaining
+- **WHEN** Take Cover is attempted without that state as an argument
+- **THEN** the result is RequirementNotMet
+- **AND** nothing is stored
+- **AND** the Armor Class total is plus 1
+- **AND** the state still has 2 actions remaining
 
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2372 (Player Core pg. 424, Cover)
+#### Scenario: Lesser cover and a feature become standard
 
-#### Scenario: Lesser cover becomes standard
-
-- **GIVEN** a standing creature with lesser cover and no nearby-feature flag
-- **WHEN** Take Cover succeeds and Armor Class is totaled
-- **THEN** the stored benefit is standard cover
-- **AND** the circumstance bonus is +2
+- **GIVEN** a standing creature with caller lesser cover and a nearby feature
+- **WHEN** Take Cover succeeds
+- **THEN** the stored benefit is standard
+- **AND** the Armor Class total is plus 2
 
 #### Scenario: A nearby feature grants standard cover
 
-- **GIVEN** a standing creature with no cover degree and a nearby feature marked
-- **WHEN** Take Cover succeeds and Armor Class is totaled
-- **THEN** the stored benefit is standard cover
-- **AND** the circumstance bonus is +2
-- **AND** no wall geometry was required
-
-### Requirement: Take Cover needs a requirement
-
-When the creature is not prone, has no cover degree, and has no nearby feature, Take Cover SHALL return a requirement error and SHALL store no benefit. Actions remaining SHALL stay unchanged.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
+- **GIVEN** a standing creature with no cover degree and a nearby feature
+- **WHEN** Take Cover succeeds
+- **THEN** the stored benefit is standard
+- **AND** the Armor Class total is plus 2
 
 #### Scenario: No cover and not prone
 
-- **GIVEN** a standing creature with no cover, no nearby feature, and 3 actions remaining
+- **GIVEN** a standing creature with no cover degree and no nearby feature
 - **WHEN** Take Cover is attempted
-- **THEN** the result is a requirement error
-- **AND** no cover benefit is stored
-- **AND** 3 actions remain
-
-### Requirement: Greater cover stays greater
-
-When the creature is not prone and the caller supplies greater cover, Take Cover SHALL succeed and the stored benefit SHALL stay greater cover. The Armor Class bonus SHALL stay +4 circumstance.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2372 (Player Core pg. 424, Cover)
+- **THEN** the result is RequirementNotMet
+- **AND** nothing is stored
 
 #### Scenario: Greater cover is not reduced
 
-- **GIVEN** a standing creature with greater cover
+- **GIVEN** a standing creature with caller greater cover
+- **WHEN** Take Cover succeeds
+- **THEN** the stored benefit is greater
+- **AND** the Armor Class total is plus 4
+
+### Requirement: Take Cover while prone stacks
+
+While prone, Take Cover SHALL stack with the cover the caller already has (DEV-24). For each attack the circumstance bonus SHALL be the higher of the two. The totals below include the prone minus 2. No prone case in this list SHALL return RequirementNotMet.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
+
+#### Scenario: Prone with standard cover totals plus 2
+
+- **GIVEN** a prone creature with caller standard cover and no nearby feature
+- **WHEN** Take Cover succeeds and Armor Class is totaled for melee and ranged
+- **THEN** both totals are plus 2
+
+#### Scenario: Prone with greater cover totals plus 2
+
+- **GIVEN** a prone creature with caller greater cover
+- **WHEN** Take Cover succeeds and Armor Class is totaled for melee and ranged
+- **THEN** both totals are plus 2
+
+#### Scenario: Prone with a feature and no cover totals 0 and plus 2
+
+- **GIVEN** a prone creature with no cover degree and a nearby feature
 - **WHEN** Take Cover succeeds and Armor Class is totaled
-- **THEN** the stored benefit is greater cover
-- **AND** the circumstance bonus is +4
+- **THEN** the melee total is 0 and the ranged total is plus 2
 
-### Requirement: Prone Take Cover is ranged only
+#### Scenario: Prone with lesser cover totals minus 1 and plus 2
 
-When the creature is prone, has no cover degree, and has no nearby feature, Take Cover SHALL grant greater cover against a ranged attack and no cover against a melee attack. Off-guard SHALL still apply to both. The ranged total SHALL be +2. The melee total SHALL be -2.
+- **GIVEN** a prone creature with caller lesser cover and no nearby feature
+- **WHEN** Take Cover succeeds and Armor Class is totaled
+- **THEN** the melee total is minus 1 and the ranged total is plus 2
 
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
+#### Scenario: Prone with lesser cover and a feature totals 0 and plus 2
 
-#### Scenario: Prone Take Cover against ranged
+- **GIVEN** a prone creature with caller lesser cover and a nearby feature
+- **WHEN** Take Cover succeeds and Armor Class is totaled
+- **THEN** the melee total is 0 and the ranged total is plus 2
 
-- **GIVEN** a prone creature with no cover and no nearby feature
-- **WHEN** Take Cover succeeds and Armor Class is totaled for a ranged attack
-- **THEN** the circumstance bonus of +4 is applied
-- **AND** the circumstance penalty of -2 is applied
-- **AND** the Armor Class total is +2
+#### Scenario: Prone with no cover totals minus 2 and plus 2
 
-#### Scenario: Prone Take Cover against melee
+- **GIVEN** a prone creature with no cover degree and no nearby feature
+- **WHEN** Take Cover succeeds and Armor Class is totaled
+- **THEN** the melee total is minus 2 and the ranged total is plus 2
 
-- **GIVEN** that same stored benefit
-- **WHEN** Armor Class is totaled for a melee attack
-- **THEN** no cover bonus is applied
-- **AND** the circumstance penalty of -2 is applied
-- **AND** the Armor Class total is -2
+### Requirement: Repeating Take Cover keeps the better benefit
 
-### Requirement: Prone plus other cover is not yet ruled
-
-When the creature is prone and the caller supplies a cover degree or a nearby feature, Take Cover SHALL return a not-yet-ruled error. The posture SHALL stay prone and no new benefit SHALL be stored.
+Take Cover SHALL replace the stored benefit with the better bonus for each attack. Stored greater, then Take Cover with caller standard, SHALL stay greater at plus 4. RequirementNotMet SHALL NOT replace the stored benefit. Dismissing when nothing is stored SHALL return Ok with no benefit.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
 
-#### Scenario: Prone and standard cover are not ruled
+#### Scenario: Stored greater survives a later standard
 
-- **GIVEN** a prone creature with standard cover and no stored Take Cover benefit
+- **GIVEN** a standing creature with stored greater cover and caller standard cover
+- **WHEN** Take Cover succeeds
+- **THEN** the stored benefit is still greater
+- **AND** the Armor Class total is plus 4
+
+#### Scenario: A failed requirement keeps the stored benefit
+
+- **GIVEN** a standing creature with stored greater cover, caller lesser cover, and no nearby feature
 - **WHEN** Take Cover is attempted
-- **THEN** the result is a not-yet-ruled error
-- **AND** no benefit is stored
-- **AND** the creature stays prone
+- **THEN** the result is RequirementNotMet
+- **AND** the stored benefit is still greater
 
-#### Scenario: Prone and a nearby feature are not ruled
+#### Scenario: Dismissing nothing stores nothing
 
-- **GIVEN** a prone creature with no cover degree and a nearby feature marked
-- **WHEN** Take Cover is attempted
-- **THEN** the result is a not-yet-ruled error
-- **AND** the creature stays prone
+- **GIVEN** no stored benefit
+- **WHEN** the benefit is dismissed
+- **THEN** the result is Ok and no benefit is stored
 
-### Requirement: Take Cover names its cost
+### Requirement: Take Cover has a cost and an end
 
-Take Cover SHALL name a cost of 1 action and SHALL NOT carry the move trait. Dismissing the benefit SHALL name a free action. Neither SHALL spend actions or resolve a reaction. Immobilized SHALL NOT block Take Cover.
+Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Immobilized SHALL NOT block it. Dismiss SHALL be free and SHALL clear a stored benefit. Leaving the square, an attack, unconscious, dismiss, and forced movement SHALL clear the benefit and SHALL NOT clear prone. Stand and Drop Prone SHALL NOT clear it. After Stand, greater-against-ranged SHALL remain and prone off-guard SHALL end.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
 
 #### Scenario: Take Cover is one action without the move trait
 
-- **GIVEN** an immobilized prone creature with no cover, no nearby feature, and 2 actions remaining
+- **GIVEN** an immobilized standing creature with caller standard cover
 - **WHEN** Take Cover succeeds
-- **THEN** the result names 1 action and no move trait
-- **AND** greater cover against ranged attacks is stored
-- **AND** 2 actions remain
+- **THEN** the cost is 1 action and the trait list is empty
+- **AND** the stored benefit is greater
 
 #### Scenario: Dismiss is free
 
-- **GIVEN** a stored Take Cover benefit and 2 actions remaining
+- **GIVEN** a stored greater benefit
 - **WHEN** the benefit is dismissed
-- **THEN** the result names a free action
-- **AND** the benefit is cleared
-- **AND** 2 actions remain
-
-### Requirement: Take Cover ends when the caller says so
-
-The stored benefit SHALL end when the caller reports that the creature left its square, used an attack action, became unconscious, or dismissed the benefit. Ending SHALL NOT clear prone. Cover the caller still supplies SHALL remain. Drop Prone and Stand SHALL NOT end the benefit.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
+- **THEN** the cost is a free action
+- **AND** no benefit remains
 
 #### Scenario: Leaving the square clears the benefit
 
-- **GIVEN** greater cover stored by Take Cover over caller-supplied standard cover
-- **WHEN** the caller reports the creature left its square and Armor Class is totaled
-- **THEN** the Take Cover benefit is gone
-- **AND** the circumstance bonus is +2
+- **GIVEN** a prone creature with a stored benefit and caller standard cover underneath
+- **WHEN** the benefit ends because the creature left the square
+- **THEN** the benefit is gone and the posture is still prone
+- **AND** Armor Class with caller standard cover and off-guard is 0
 
 #### Scenario: An attack action clears the benefit
 
-- **GIVEN** a stored Take Cover benefit
-- **WHEN** the caller reports an attack action
-- **THEN** the benefit is gone
+- **GIVEN** a prone creature with a stored benefit
+- **WHEN** the benefit ends because the creature used an attack action
+- **THEN** the benefit is gone and the posture is still prone
 
 #### Scenario: Unconscious clears the benefit only
 
-- **GIVEN** a prone creature with greater cover against ranged attacks from Take Cover
-- **WHEN** the caller reports unconscious
-- **THEN** the benefit is gone
-- **AND** the creature is still prone
+- **GIVEN** a prone creature with a stored benefit
+- **WHEN** the benefit ends because the creature became unconscious
+- **THEN** the benefit is gone and the posture is still prone
+- **AND** Armor Class with no cover and no off-guard flag is 0
+
+#### Scenario: Forced movement clears the benefit
+
+- **GIVEN** a prone creature with a stored benefit
+- **WHEN** the benefit ends because the creature was moved by force
+- **THEN** the benefit is gone and the posture is still prone
 
 #### Scenario: Stand keeps the cover benefit
 
-- **GIVEN** a prone creature that is not immobilized, with greater cover against ranged attacks from Take Cover
+- **GIVEN** a prone creature with the greater-against-ranged benefit, not immobilized
 - **WHEN** Stand succeeds
-- **THEN** the posture is standing
-- **AND** a ranged attack still has the +4 circumstance bonus
-- **AND** a melee attack has no cover bonus from that benefit
-- **AND** the creature is not off-guard from prone
+- **THEN** the posture is standing, the benefit remains, and prone off-guard is gone
+- **AND** ranged Armor Class is plus 4 and melee Armor Class has no cover from that benefit
 
-### Requirement: Shields and hidden stay out
+### Requirement: This change does not invent the deferred rules
 
-Positioning SHALL NOT apply a shield bonus. It SHALL NOT treat hidden, undetected, or concealed as off-guard. A creature that is not prone and not flanked SHALL NOT be off-guard.
+Greater cover plus a shield SHALL stay plus 4 (change 7). This change SHALL NOT emit a cover bonus to a save or to Stealth. Standard cover from a creature two sizes larger SHALL NOT be computed. Hidden SHALL NOT be an input; that off-guard is change 10 only (FIX-14). An Armor Class total that does not fit in i32 SHALL return the modifier overflow and SHALL NOT wrap.
 
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2316 (Player Core pg. 419, Raise a Shield)
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2311 (Player Core pg. 419, Raise a Shield)
 
-#### Scenario: No shield and no hidden off-guard
+#### Scenario: Greater cover does not add a shield
 
-- **GIVEN** a standing creature who is not flanked, and a raised shield that would grant +2 Armor Class
-- **WHEN** positioning totals Armor Class
-- **THEN** the total is 0
-- **AND** the shield bonus is not applied
-- **AND** the creature is not off-guard
+- **GIVEN** greater cover and no shield argument
+- **WHEN** Armor Class is totaled
+- **THEN** the total is plus 4
+- **AND** the total is not plus 6
 
-### Requirement: Squares are not shared
+#### Scenario: Cover is an Armor Class bonus only
 
-Drop Prone, Stand, and Take Cover SHALL keep the creature on its square. This capability SHALL NOT permit another creature to end a move in a prone creature's square.
+- **GIVEN** greater cover
+- **WHEN** the totals are read
+- **THEN** Armor Class is plus 4
+- **AND** Perception and Damage are 0
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2361 (Player Core pg. 422, Sharing a Space)
+#### Scenario: A larger neighbour is not cover
 
-#### Scenario: Prone does not open the square
+- **GIVEN** a standing Medium creature at (0, 0), a Large creature at (1, 0), no cover degree, and no nearby feature
+- **WHEN** Take Cover is attempted
+- **THEN** the result is RequirementNotMet
 
-- **GIVEN** a prone creature on (8, 8)
-- **WHEN** Stand and Take Cover are resolved, and Drop Prone is attempted
-- **THEN** every result that succeeds stays on (8, 8)
-- **AND** no result permits another creature to end a move on (8, 8)
+#### Scenario: A standing defender with no flank is not off-guard
+
+- **GIVEN** standing Enemy id 1 at (0, 0) and Pc id 2 at (0, 1), both Medium, Able, and reach 5, with no partner and no other off-guard flag
+- **WHEN** melee off-guard is queried
+- **THEN** the target is not off-guard
+
+#### Scenario: An Armor Class overflow does not wrap
+
+- **GIVEN** off-guard and a caller untyped Armor Class penalty of the minimum i32
+- **WHEN** Armor Class is totaled
+- **THEN** the result is the modifier overflow
+- **AND** the result is not a wrapped total
