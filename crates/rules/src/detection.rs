@@ -204,7 +204,7 @@ pub struct HideResult {
     pub detections: Detections,
 }
 
-/// Whether a targeted effect hits, and whether a failed hidden check still spends the attack.
+/// Whether a targeted effect hits, and whether a failed concealed or hidden check still spends the attack.
 ///
 /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,13 +215,15 @@ pub struct TargetingResult {
     pub dc: Option<i32>,
     /// The numeric degree, or nothing when no die was drawn. Player Core pg. 400, "Checks (Flat Checks)".
     pub degree: Option<DegreeOfSuccess>,
-    /// A failed hidden flat check still uses the action. This module does not spend it.
+    /// A failed concealed or hidden flat check still uses the action. This module does not spend it.
     ///
-    /// Player Core pg. 444, Hidden.
+    /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
     pub action_spent: bool,
-    /// A failed hidden flat check still counts for the multiple attack penalty.
+    /// A failed concealed or hidden flat check still counts for the multiple attack penalty.
+    /// The caller applies that count only when the action has the attack trait.
     ///
-    /// Player Core pg. 444, Hidden.
+    /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
+    /// Player Core pg. 402, "Multiple Attack Penalty".
     pub counts_for_map: bool,
 }
 
@@ -341,10 +343,14 @@ pub fn off_guard_against(relation: Relation, other: OffGuard) -> OffGuard {
 /// Resolves the flat check to affect `subject`, or rejects an undetected choice.
 ///
 /// An observed creature that is not concealed, and every area effect, is affected and draws no die.
-/// Hidden and concealed roll once, at DC 11. A hidden failure reports the action and the attack
-/// count and does not call `spend_actions` or Strike. The relation is not changed.
+/// Hidden and concealed roll once, at DC 11. A concealed failure and a hidden failure report the
+/// action spent and the attack counting for the multiple attack penalty. `counts_for_map` names
+/// that attack case: the caller applies it only when the action has the attack trait. This function
+/// does not read the attack trait, does not call `spend_actions` or Strike, and does not change
+/// the relation.
 ///
-/// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden. Player Core pg. 400, "Checks (Flat Checks)".
+/// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
+/// Player Core pg. 402, "Multiple Attack Penalty". Player Core pg. 400, "Checks (Flat Checks)".
 pub fn resolve_targeting(
     detections: &Detections,
     observer: CombatantId,
@@ -373,13 +379,13 @@ pub fn resolve_targeting(
     };
     let effect = fallback_unlisted_critical(roll.degree, false, false);
     let affected = effect == DegreeOfSuccess::Success;
-    let hidden_failure = relation.detection == Detection::Hidden && !affected && roll.dc == 11;
+    let not_affected = !affected;
     Ok(TargetingResult {
         affected,
         dc: Some(roll.dc),
         degree: Some(roll.degree),
-        action_spent: hidden_failure,
-        counts_for_map: hidden_failure,
+        action_spent: not_affected,
+        counts_for_map: not_affected,
     })
 }
 
@@ -1135,6 +1141,7 @@ mod tests {
     }
 
     /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    /// Player Core pg. 402, "Multiple Attack Penalty".
     #[test]
     fn a_natural_5_at_dc_5_affects_the_target() {
         let detections = remember(
@@ -1156,6 +1163,7 @@ mod tests {
     }
 
     /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    /// Player Core pg. 402, "Multiple Attack Penalty".
     #[test]
     fn a_natural_4_at_dc_5_does_not_affect_the_target() {
         let detections = remember(
@@ -1166,17 +1174,22 @@ mod tests {
             Concealment::Concealed,
             None,
         );
-        let (result, dice) = run_target(&detections, 1, 2, false, &[4]);
-        let result = result.expect("flat check");
-        assert_eq!(dice.remaining(), 0);
-        assert_eq!(result.dc, Some(5));
-        assert_eq!(result.degree, Some(DegreeOfSuccess::Failure));
-        assert!(!result.affected);
-        assert!(!result.action_spent);
-        assert!(!result.counts_for_map);
+        let (first, dice_a) = run_target(&detections, 1, 2, false, &[4]);
+        let (second, dice_b) = run_target(&detections, 1, 2, false, &[4]);
+        let first = first.expect("first flat check");
+        let second = second.expect("second flat check");
+        assert_eq!(first, second);
+        assert_eq!(dice_a.remaining(), 0);
+        assert_eq!(dice_b.remaining(), 0);
+        assert_eq!(first.dc, Some(5));
+        assert_eq!(first.degree, Some(DegreeOfSuccess::Failure));
+        assert!(!first.affected);
+        assert!(first.action_spent);
+        assert!(first.counts_for_map);
     }
 
     /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    /// Player Core pg. 402, "Multiple Attack Penalty".
     #[test]
     fn a_natural_1_at_dc_5_does_not_affect_the_target() {
         let detections = remember(
@@ -1187,14 +1200,21 @@ mod tests {
             Concealment::Concealed,
             None,
         );
-        let (result, dice) = run_target(&detections, 1, 2, false, &[1]);
-        let result = result.expect("flat check");
-        assert_eq!(dice.remaining(), 0);
-        assert_eq!(result.degree, Some(DegreeOfSuccess::CriticalFailure));
-        assert!(!result.affected);
+        let (first, dice_a) = run_target(&detections, 1, 2, false, &[1]);
+        let (second, dice_b) = run_target(&detections, 1, 2, false, &[1]);
+        let first = first.expect("first flat check");
+        let second = second.expect("second flat check");
+        assert_eq!(first, second);
+        assert_eq!(dice_a.remaining(), 0);
+        assert_eq!(dice_b.remaining(), 0);
+        assert_eq!(first.degree, Some(DegreeOfSuccess::CriticalFailure));
+        assert!(!first.affected);
+        assert!(first.action_spent);
+        assert!(first.counts_for_map);
     }
 
     /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    /// Player Core pg. 402, "Multiple Attack Penalty".
     #[test]
     fn a_natural_20_at_dc_5_affects_the_target() {
         let detections = remember(
@@ -1210,6 +1230,8 @@ mod tests {
         assert_eq!(dice.remaining(), 0);
         assert_eq!(result.degree, Some(DegreeOfSuccess::CriticalSuccess));
         assert!(result.affected);
+        assert!(!result.action_spent);
+        assert!(!result.counts_for_map);
     }
 
     /// Player Core pg. 444, Hidden. Player Core pg. 434, Hidden.
