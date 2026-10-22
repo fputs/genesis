@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Prone, flanking, off-guard, and Take Cover. ([#50](https://github.com/fputs/genesis/pull/50))
 - Initiative, the three-action turn, and Strike. ([#52](https://github.com/fputs/genesis/pull/52))
 - Modifier stacking for circumstance, item, status, and untyped penalties, and a damage minimum of 1 before critical doubling. ([#25](https://github.com/fputs/genesis/pull/25))
 - 5-foot grid movement for Stride and Step, diagonal cost across a turn, and range-increment data. ([#26](https://github.com/fputs/genesis/pull/26))
