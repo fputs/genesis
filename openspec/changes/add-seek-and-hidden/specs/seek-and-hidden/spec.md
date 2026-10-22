@@ -428,7 +428,7 @@ One Perception check SHALL be compared with each hidden or undetected subject th
 
 ### Requirement: Seek rejects before it rolls
 
-Before any die, Seek SHALL reject in this order: NotConscious, DuplicateId, SameCreature, EmptyArea, AreaTooLarge, then PerceptionOutOfRange. PerceptionOutOfRange SHALL be a failed checked_add(20). An area of 0 by 0 by 0 feet SHALL be EmptyArea. Perception 2147483500 SHALL be accepted and rolled.
+Before any die, Seek SHALL reject in this order: NotConscious, DuplicateId, SameCreature, EmptyArea, AreaTooLarge, then PerceptionOutOfRange. PerceptionOutOfRange SHALL be a failed checked_add(20). Any dimension of 0 SHALL be EmptyArea. A modifier that passes the gate SHALL be rolled.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2301 (Player Core pg. 417, Seek)
 
@@ -470,12 +470,33 @@ Before any die, Seek SHALL reject in this order: NotConscious, DuplicateId, Same
 - **AND** the scripted 12 is still unused
 - **AND** the error is not SameCreature
 
-#### Scenario: Perception 2147483628 rolls nothing
+#### Scenario: A Seek area with a zero dimension rolls nothing
+
+- **GIVEN** an area of 30 by 0 by 10 feet, Perception modifier +5, a scripted natural 12, and CombatantId(2) undetected by CombatantId(1) with Stealth DC 17
+- **WHEN** Seek is resolved
+- **THEN** the error is EmptyArea
+- **AND** the relation is still undetected and the scripted 12 is still unused
+
+#### Scenario: A Seek at Perception 2147483628 rolls nothing
 
 - **GIVEN** Perception modifier 2147483628, a scripted natural 12, an area of 30 by 10 by 10 feet, and CombatantId(2) hidden from CombatantId(1) with Stealth DC 17
 - **WHEN** Seek is resolved
 - **THEN** the error is PerceptionOutOfRange
 - **AND** the relation is still hidden and the scripted 12 is still unused
+
+#### Scenario: A Seek at Perception 2147483627 is a critical success
+
+- **GIVEN** Perception modifier 2147483627, a scripted natural 20, an area of 30 by 10 by 10 feet, and CombatantId(2) hidden from CombatantId(1) with Stealth DC 17 and not concealed
+- **WHEN** Seek is resolved
+- **THEN** the natural is 20, the total is 2147483647, and the numeric degree is critical success
+- **AND** the detection is observed
+
+#### Scenario: A Seek at Perception i32 minimum stays hidden
+
+- **GIVEN** Perception modifier i32::MIN, a scripted natural 20, an area of 30 by 10 by 10 feet, and CombatantId(2) hidden from CombatantId(1) with Stealth DC 17 and not concealed
+- **WHEN** Seek is resolved
+- **THEN** the natural is 20, the total is -2147483628, and the degree is failure
+- **AND** the detection is still hidden
 
 #### Scenario: Perception 2147483500 is a critical success
 
@@ -628,6 +649,19 @@ The Stealth modifier SHALL be the Stealth DC minus 10, plus 2 for standard cover
 - **THEN** one total of 19 is a success against DC 15 and a failure against DC 20
 - **AND** CombatantId(2) is hidden from CombatantId(1) and still observed by CombatantId(5)
 
+### Requirement: Hide uses the caller's Perception modifier
+
+perception_modifier SHALL be the caller's final value, and this module SHALL NOT read the observer's Vital.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2404 (Player Core pg. 244, Hide)
+
+#### Scenario: The caller passes the final Perception modifier
+
+- **GIVEN** Stealth DC 17, standard cover, an Unconscious observer, Perception modifier +1 from +5 minus 4, a scripted natural 2, and CombatantId(2) observed by CombatantId(1) and not concealed
+- **WHEN** Hide is resolved
+- **THEN** the modifier is +9, the DC is 11, the total is 11, and the degree is success
+- **AND** the relation is hidden
+
 ### Requirement: Hide costs one action and follows the success entry
 
 Hide SHALL cost DetectionCost::Hide: 1 action, with none of the concentrate, move, or manipulate traits. The caller SHALL spend that 1 action through spend_actions. This module SHALL NOT call it. Success and critical success SHALL hide an observed subject. Failure SHALL leave that subject observed. An observer who already has the subject hidden or undetected SHALL be skipped and SHALL NOT be rolled.
@@ -755,13 +789,27 @@ note_action SHALL NOT call refresh. Stride SHALL leave the hider hidden, includi
 
 ### Requirement: An undetected Strike becomes observed
 
-A Strike while undetected SHALL read the target's OffGuard::Yes before any relation changes. With no cover and no unconscious penalty, Armor Class SHALL be −2. The striker SHALL then become observed.
+A Strike while undetected SHALL read the target's OffGuard::Yes before any relation changes. With no cover and no unconscious penalty, Armor Class SHALL be −2. Every observer who had the striker hidden or undetected SHALL observe them.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2405 (Player Core pg. 245, Sneak)
 
 #### Scenario: An undetected Strike is off-guard, then the striker is observed
 
-- **GIVEN** CombatantId(2) undetected and not concealed from CombatantId(1), with Stealth DC 17
+- **GIVEN** CombatantId(2) undetected and not concealed from CombatantId(1) and from CombatantId(3), with Stealth DC 17
 - **WHEN** note_strike is called with striker CombatantId(2) and target CombatantId(1), and Armor Class is totaled once with no cover
 - **THEN** the off-guard result is OffGuard::Yes and the Armor Class total is −2
-- **AND** the relation is observed and not concealed
+- **AND** CombatantId(1) and CombatantId(3) read CombatantId(2) as observed and not concealed
+
+### Requirement: note_strike reports detection off-guard only
+
+note_strike's OffGuard SHALL cover detection only. The caller SHALL combine it with other OffGuard sources through off_guard_against. An observed striker SHALL give OffGuard::No, and the relations SHALL stay unchanged.
+
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
+
+#### Scenario: An observed striker is not off-guard from detection
+
+- **GIVEN** CombatantId(2) observed and not concealed from CombatantId(1), and a scripted natural 8
+- **WHEN** note_strike is called with striker CombatantId(2) and target CombatantId(1)
+- **THEN** the off-guard result is OffGuard::No
+- **AND** off_guard_against of that observed relation with OffGuard::Yes is OffGuard::Yes
+- **AND** the relation is still observed and the scripted 8 is still unused

@@ -194,7 +194,7 @@ pub fn seek(
 ) -> Result<SeekResult, DetectionError>;
 ```
 
-`DetectionCost::Seek` means 1 action with the concentrate trait. The area is three dimensions in feet. The caller decides which subjects are inside. This change does not test squares against the area. DEV-08 (Seek, https://2e.aonprd.com/Actions.aspx?ID=2301, Player Core pg. 417): the roll is open, and every dimension above 30 feet is rejected. A cone or a burst is a non-goal. An area of 0 by 0 by 0 feet is `EmptyArea`.
+`DetectionCost::Seek` means 1 action with the concentrate trait. The area is three dimensions in feet. The caller decides which subjects are inside. This change does not test squares against the area. DEV-08 (Seek, https://2e.aonprd.com/Actions.aspx?ID=2301, Player Core pg. 417): the roll is open, and every dimension above 30 feet is rejected. A cone or a burst is a non-goal. Any dimension of 0 is `EmptyArea`, including 0 by 0 by 0 and 30 by 0 by 10.
 
 Before any die, in this order: `NotConscious` when `vital` is not `Alive`; `DuplicateId` when a subject id repeats; `SameCreature` when the seeker id is a subject; `EmptyArea`; `AreaTooLarge`; `PerceptionOutOfRange` when `perception_modifier.checked_add(20)` is `None`. A `Dying(1)` seeker in a 35-foot area is `NotConscious`, not `AreaTooLarge`. A duplicate in that area is `DuplicateId`. The seeker listed twice is `DuplicateId`, not `SameCreature`. The seeker listed once in that area is `SameCreature`.
 
@@ -204,7 +204,7 @@ If no subject is hidden or undetected with a Stealth DC, the call succeeds, draw
 - success: undetected becomes hidden, hidden becomes observed
 - failure, including a critical failure read as failure: unchanged
 
-Concealment is copied. Invisibility and an imprecise sense do not change the effect (proposed DEV-42). `OpenRoll` exposes `natural`, `total`, and `degree` (DEV-08, open roll). Perception 2147483500 and a natural 12 total 2147483512 against Stealth DC 17, a critical success.
+Concealment is copied. Invisibility and an imprecise sense do not change the effect (proposed DEV-42). `OpenRoll` exposes `natural`, `total`, and `degree` (DEV-08, open roll). Perception 2147483500 and a natural 12 total 2147483512 against Stealth DC 17, a critical success. Perception 2147483627 and a natural 20 total 2147483647, also a critical success. `i32::MIN` and a natural 20 total -2147483628. That degree is failure, and a hidden subject stays hidden. Both modifiers pass `checked_add(20)`.
 
 ### Hide
 
@@ -231,7 +231,7 @@ pub fn hide(
 ) -> Result<HideResult, DetectionError>;
 ```
 
-`DetectionCost::Hide` means 1 action and none of concentrate, move, or manipulate.
+`DetectionCost::Hide` means 1 action and none of concentrate, move, or manipulate. `perception_modifier` is the caller's final value. Hide does not read the observer's `Vital`. An unconscious observer's −4 is already included: +5 minus 4 is +1, the DC is 11, and a natural 2 with standard cover totals 11.
 
 The Stealth modifier is `stealth_dc - 10`, then +2 for `Cover::Standard`, +4 for `Cover::Greater`, or +0 when the only qualifier is `Concealed`. `checked_sub` and `checked_add`, then `CheckModifier::new`. `DcModifier::new` rejects a Perception modifier for which `10 + modifier` does not fit. Perception 2147483638 is that failure. `stealth_dc` of `i32::MIN` fails `checked_sub(10)`. `i32::MAX` with greater cover is `(i32::MAX - 10) + 4`, which `CheckModifier::new` rejects. Either failure is `Overflow` and draws no die. This is not `PerceptionOutOfRange`.
 
@@ -271,7 +271,7 @@ pub fn note_action(
 ) -> Detections;
 ```
 
-`note_strike` reads `off_guard_against` for the target's relation to the striker first, then returns that `OffGuard`. Every stored observer who has the striker `Hidden` or `Undetected` then becomes `Observed`. Concealment on those pairs stays. A pair whose subject is not the striker stays, including the other direction. Designer, round 1: a hidden Strike reveals the striker to every observer (Hide, Actions 2404, Player Core pg. 244), and an undetected Strike becomes observed after the target is off-guard (Sneak, https://2e.aonprd.com/Actions.aspx?ID=2405, Player Core pg. 245). `note_action` for `MoveAction::Stride`, `Step`, or `DropProne` returns the same relations and does not call `refresh` (proposed DEV-43). Neither function rolls.
+`note_strike` returns detection off-guard only: `Hidden` or `Undetected` is `OffGuard::Yes`, and observed is `OffGuard::No`. That is `off_guard_against(relation, OffGuard::No)`. The caller combines prone, flanking, and any other source by calling `off_guard_against` with that source. An observed striker returns `OffGuard::No` and the relations stay. Every stored observer who has the striker `Hidden` or `Undetected` then becomes `Observed`. Concealment on those pairs stays. A pair whose subject is not the striker stays, including the other direction. Designer, round 1: a hidden Strike reveals the striker to every observer (Hide, Actions 2404, Player Core pg. 244), and an undetected Strike becomes observed after the target is off-guard (Sneak, https://2e.aonprd.com/Actions.aspx?ID=2405, Player Core pg. 245). `note_action` for `MoveAction::Stride`, `Step`, or `DropProne` returns the same relations and does not call `refresh` (proposed DEV-43). Neither function rolls.
 
 ### Proposed deviations
 
