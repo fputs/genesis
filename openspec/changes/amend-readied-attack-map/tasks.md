@@ -10,8 +10,8 @@
 
 ## 3. Changelog, proof, and archive
 
-- [ ] 3.1 Add one bullet under `### Changed` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet says a readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved, and it links to the implementation pull request. Verify the new bullet is under `### Changed` and contains that link
-- [ ] 3.2 Run the AGENTS.md proof commands and verify each exits 0.
+- [x] 3.1 Add one bullet under `### Changed` in `## [Unreleased]` of root `CHANGELOG.md`. The bullet says a readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved, and it links to the implementation pull request. Verify the new bullet is under `### Changed` and contains that link
+- [x] 3.2 Run the AGENTS.md proof commands and verify each exits 0.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
