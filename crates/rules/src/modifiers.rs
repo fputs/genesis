@@ -51,7 +51,7 @@ pub enum ModifierError {
     ///
     /// Player Core, Penalties.
     Overflow,
-    /// Frightened or sickened had no rank, or a declared type other than status.
+    /// Frightened or sickened had no rank, a declared type other than status, or was a bonus.
     ///
     /// Player Core, Frightened. Player Core, Sickened.
     /// Player Core, "Redundant Conditions With Values".
@@ -271,9 +271,9 @@ impl Modifier {
     /// Marks this modifier as coming from a condition.
     ///
     /// `rank` is the condition's own value. `None` is a condition with no value, such as off-guard.
-    /// Rank is not the algebraic value of the penalty. Frightened or sickened with no rank, or
-    /// with a declared type other than status, returns [`ModifierError::InvalidValuedCondition`]
-    /// and is not rewritten to status.
+    /// Rank is not the algebraic value of the penalty. Frightened or sickened with no rank, a
+    /// declared type other than status, or a bonus at any rank including 0, returns
+    /// [`ModifierError::InvalidValuedCondition`] and is not rewritten into a penalty.
     ///
     /// Player Core, "Redundant Conditions With Values" and "Condition Values".
     /// Player Core, Frightened. Player Core, Sickened.
@@ -282,9 +282,9 @@ impl Modifier {
         id: ConditionId,
         rank: Option<u32>,
     ) -> Result<Self, ModifierError> {
-        if (id == ConditionId::FRIGHTENED || id == ConditionId::SICKENED)
-            && (rank.is_none() || !is_status_kind(self.kind))
-        {
+        let valued = id == ConditionId::FRIGHTENED || id == ConditionId::SICKENED;
+        let bonus = matches!(self.kind, ModifierKind::Bonus(_));
+        if valued && (rank.is_none() || !is_status_kind(self.kind) || bonus) {
             return Err(ModifierError::InvalidValuedCondition);
         }
         self.condition = Some(Condition { id, rank });
@@ -455,8 +455,9 @@ fn collapse_conditions(modifiers: &[Modifier]) -> Result<Vec<Modifier>, Modifier
 /// a level over none, and the duplicate-key comparison decides what remains.
 ///
 /// A frightened or sickened penalty then contributes one status penalty equal to the
-/// negation of the kept rank. A bonus with those ids, and any other ranked condition,
-/// keeps its declared type and value.
+/// negation of the kept rank. Construction rejects a bonus with those ids, so this
+/// function does not rewrite one into a penalty. Any other ranked condition keeps its
+/// declared type and value.
 fn keep_condition(group: &[Modifier]) -> Result<Option<Modifier>, ModifierError> {
     let Some(mut best) = group.first().copied() else {
         return Ok(None);
@@ -551,8 +552,8 @@ fn apply_ranked_penalty(mut modifier: Modifier) -> Result<Option<Modifier>, Modi
         return Ok(Some(modifier));
     };
     // Only a frightened or sickened penalty becomes a status penalty of -rank.
-    // A bonus tagged with those ids keeps its declared type and value. Any other
-    // ranked condition, including rank 0, keeps the type and value the caller declared.
+    // Construction rejects a bonus tagged with those ids, so it is not rewritten here.
+    // Any other ranked condition, including rank 0, keeps the type and value the caller declared.
     let valued = modifier.condition.is_some_and(|condition| {
         condition.id == ConditionId::FRIGHTENED || condition.id == ConditionId::SICKENED
     });
@@ -1830,23 +1831,53 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core, Frightened.
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    /// Player Core pg. 442, "Redundant Conditions With Values".
     ///
-    /// The rank rewrite applies to penalties. A status bonus tagged frightened stays +2.
+    /// A frightened status bonus of +2 at rank 3 is not totaled as +2.
     #[test]
     fn a_frightened_bonus_keeps_its_declared_value() {
         let dice = script();
-        let modifier = bonus(BonusType::Status, 2, 1, 1, None, Statistic::Attack)
-            .with_condition(ConditionId::FRIGHTENED, Some(3))
-            .expect("condition");
-        let stacked = summed(&[modifier]);
-        assert_eq!(stacked.applied().len(), 1);
-        let kept = stacked.applied()[0];
-        assert_eq!(kept.bonus_type(), Some(BonusType::Status));
-        assert_eq!(kept.penalty_type(), None);
-        assert_eq!(kept.value(), 2);
-        assert_eq!(kept.rank(), Some(3));
-        assert_eq!(stacked.get(Statistic::Attack), 2);
+        let result = bonus(BonusType::Status, 2, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(3));
+        assert_eq!(result, Err(ModifierError::InvalidValuedCondition));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    #[test]
+    fn frightened_bonus_rank_0_plus_2_is_rejected() {
+        let dice = script();
+        let result = bonus(BonusType::Status, 2, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(0));
+        assert_eq!(result, Err(ModifierError::InvalidValuedCondition));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    #[test]
+    fn frightened_bonus_rank_2_plus_2_is_rejected() {
+        let dice = script();
+        let result = bonus(BonusType::Status, 2, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::FRIGHTENED, Some(2));
+        assert_eq!(result, Err(ModifierError::InvalidValuedCondition));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 446, Sickened.
+    /// Player Core pg. 442, "Redundant Conditions With Values".
+    #[test]
+    fn sickened_bonus_rank_1_plus_1_is_rejected() {
+        let dice = script();
+        let result = bonus(BonusType::Status, 1, 1, 1, None, Statistic::Attack)
+            .with_condition(ConditionId::SICKENED, Some(1));
+        assert_eq!(result, Err(ModifierError::InvalidValuedCondition));
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -2310,18 +2341,18 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
-    /// Player Core pg. 444, Frightened.
+    /// Player Core pg. 400, Penalties.
     /// Player Core pg. 442, "Redundant Conditions With Values".
     ///
-    /// The case is synthetic: frightened never grants a bonus, and this is a robustness check.
+    /// Condition 10 is a condition whose modifiers are not derived from its value.
     #[test]
-    fn a_frightened_bonus_does_not_hide_a_frightened_penalty() {
+    fn a_condition_bonus_does_not_hide_that_conditions_penalty() {
         let dice = script();
         let bonus = bonus(BonusType::Status, 2, 7, 4, None, Statistic::Attack)
-            .with_condition(ConditionId::FRIGHTENED, Some(3))
+            .with_condition(ConditionId(10), Some(3))
             .expect("condition");
         let penalty = penalty(PenaltyType::Status, -1, 7, 4, None, Statistic::Attack)
-            .with_condition(ConditionId::FRIGHTENED, Some(1))
+            .with_condition(ConditionId(10), Some(1))
             .expect("condition");
         for modifiers in orders_of_two(bonus, penalty) {
             let stacked = summed(&modifiers);
@@ -3326,11 +3357,17 @@ mod tests {
                 if modifier.source().is_none() {
                     reserved += 1;
                 }
-                if modifier.condition_id() == Some(ConditionId::FRIGHTENED) {
-                    assert!(
-                        modifier.bonus_type() == Some(BonusType::Status)
-                            || modifier.penalty_type() == Some(PenaltyType::Status)
+                let valued_bonus = modifier.bonus_type().is_some()
+                    && matches!(
+                        modifier.condition_id(),
+                        Some(ConditionId::FRIGHTENED | ConditionId::SICKENED)
                     );
+                assert!(
+                    !valued_bonus,
+                    "generator drew a frightened or sickened bonus"
+                );
+                if modifier.condition_id() == Some(ConditionId::FRIGHTENED) {
+                    assert_eq!(modifier.penalty_type(), Some(PenaltyType::Status));
                     let rank = modifier.rank().expect("frightened rank");
                     assert!(rank <= 2);
                     frightened_ranks[rank as usize] += 1;
@@ -3487,7 +3524,7 @@ mod tests {
         };
         let magnitude = 1 + rng.below(5) as i32;
         match rng.below(5) {
-            0 => frightened_status(rng, magnitude, source, sequence, level, statistic),
+            0 => frightened_status_penalty(rng, magnitude, source, sequence, level, statistic),
             1 => sickened_status_penalty(rng, magnitude, source, sequence, level, statistic),
             2 => conditioned_other(rng, magnitude, source, sequence, level, statistic),
             _ => unconditioned(rng, magnitude, source, sequence, level, statistic),
@@ -3527,7 +3564,7 @@ mod tests {
         }
     }
 
-    fn frightened_status(
+    fn frightened_status_penalty(
         rng: &mut Lcg,
         magnitude: i32,
         source: ModifierSource,
@@ -3535,27 +3572,15 @@ mod tests {
         level: Option<u32>,
         statistic: Statistic,
     ) -> Modifier {
-        let base = if rng.below(2) == 0 {
-            Modifier::bonus_from(
-                BonusType::Status,
-                magnitude,
-                source,
-                sequence,
-                level,
-                statistic,
-            )
-            .expect("bonus")
-        } else {
-            Modifier::penalty_from(
-                PenaltyType::Status,
-                -magnitude,
-                source,
-                sequence,
-                level,
-                statistic,
-            )
-            .expect("penalty")
-        };
+        let base = Modifier::penalty_from(
+            PenaltyType::Status,
+            -magnitude,
+            source,
+            sequence,
+            level,
+            statistic,
+        )
+        .expect("penalty");
         let rank = Some(rng.below(3) as u32);
         built_ok(base.with_condition(ConditionId::FRIGHTENED, rank))
     }
@@ -3605,9 +3630,10 @@ mod tests {
         result.expect("generated modifier builds")
     }
 
-    /// Frightened and sickened penalties use status -rank, and rank 0 is dropped. A frightened
-    /// status bonus keeps its declared value. (a) Group by condition. (b) Collapse the
-    /// duplicate key. (c) Best bonus, worst penalty, and every untyped penalty.
+    /// Frightened and sickened penalties use status -rank, and rank 0 is dropped. The
+    /// generator never draws a frightened or sickened bonus, so this oracle has no branch
+    /// that keeps one. (a) Group by condition. (b) Collapse the duplicate key. (c) Best
+    /// bonus, worst penalty, and every untyped penalty.
     /// This table is the test's own source order. It does not call the production helpers.
     fn oracle_total(modifiers: &[Modifier], statistic: Statistic) -> i32 {
         let mut sum = 0i64;
