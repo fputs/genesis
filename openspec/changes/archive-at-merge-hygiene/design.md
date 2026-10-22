@@ -33,7 +33,7 @@ A missing `pull_request.draft` field is not true, so existing fixtures keep toda
 
 When the pull request is not a draft, today's archive-last rules run. A non-exempt implementation pull request also fails if an `OpenSpec-Change:` body line names an id whose `openspec/changes/<id>/` directory is still on the head. Non-exempt means an implementation pull request that is not bullet-exempt. A pull request with no `OpenSpec-Change:` line does not fail because another change is active on the merge-base.
 
-A removed id still has to satisfy the archive-last requirements already in the spec: subject, dated directory, and the head commit performing the delete. Those scenarios stay as they are. They describe a run whose draft flag is not true. Archive-last still does not read the body. The body line is only how this extra failure finds the pull request's own change.
+A removed id still has to satisfy the archive-last requirements already in the spec: subject, dated directory, and the head commit performing the delete. Those scenarios stay as they are. They describe a run whose draft flag is not true. Archive-last reads the body only to find the pull request's own change id for that non-draft failure. The body never exempts a removal and is never required for one.
 
 `synchronize` on a non-draft pull request runs the bullet check and archive-last again. A fix commit after the archive fails until a new archive commit is last and the agent marks ready again.
 
@@ -53,6 +53,7 @@ Run 39705218352 threw `ENOTEMPTY` from `rmdir` of `.git/objects` while `node:tes
 
 - [Ready is clicked before the archive commit] → The `ready_for_review` run fails when the body names that change and it is still active. Convert back to draft, archive as the last commit, then mark ready again.
 - [Architect merges a draft] → GitHub does not offer merge on a draft. The enforced run is the non-draft head.
+- spec-drift still requires the OpenSpec-Change line for code-path PRs, so the "no change of its own passes" path only matters for PRs that spec-drift exempts.
 
 ## Migration Plan
 

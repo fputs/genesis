@@ -28,7 +28,7 @@ When `pull_request.draft` is true, the job SHALL NOT apply archive-last and SHAL
 
 ### Requirement: Ready pull request enforces archive-last
 
-When `pull_request.draft` is not true, including when the field is absent, the job SHALL apply archive-last. A non-exempt implementation pull request SHALL fail when an `OpenSpec-Change:` body line names an id that is still active on the head. The log SHALL include `archive commit is not last`. A pull request with no `OpenSpec-Change:` line SHALL NOT fail because another change is active. A removed id SHALL satisfy the archive-last requirements already in this capability.
+When `pull_request.draft` is not true, including when absent, the job SHALL apply archive-last. Own-change lines SHALL follow spec-drift's "Change reference line" on unfenced lines only: exact `OpenSpec-Change: <id>`, every matching line counts. A non-exempt implementation pull request SHALL fail when such an id is still active on the head. The log SHALL include `archive commit is not last`. No such line SHALL NOT fail because another change is active. A removed id SHALL satisfy archive-last.
 
 #### Scenario: Archive then mark ready passes
 
@@ -55,6 +55,18 @@ When `pull_request.draft` is not true, including when the field is absent, the j
 
 - **GIVEN** a pull_request whose `pull_request.draft` is false
 - **AND** the body has no `OpenSpec-Change:` line
+- **AND** the diff changes `crates/rules/src/lib.rs`
+- **AND** the merge-base and the head both have `openspec/changes/add-foo/`
+- **AND** the head adds an Unreleased bullet absent from the base
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+- **AND** the log does not include `archive commit is not last`
+
+#### Scenario: A fenced or extra-word line is not its own change
+
+- **GIVEN** a pull_request whose `pull_request.draft` is false
+- **AND** its only `OpenSpec-Change:` line is fenced, or is `OpenSpec-Change: add-foo extra`
 - **AND** the diff changes `crates/rules/src/lib.rs`
 - **AND** the merge-base and the head both have `openspec/changes/add-foo/`
 - **AND** the head adds an Unreleased bullet absent from the base
@@ -132,6 +144,30 @@ Archive-last SHALL NOT fail while `openspec/changes/<id>/` remains on the head. 
 - **AND** the body has no `OpenSpec-Change: add-foo` line
 - **AND** the head has no `openspec/changes/archive/2026-10-21-add-foo/`
 - **AND** the head commit also changes `README.md`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `archive commit is not last`
+
+### Requirement: Archive-last ignores the body
+
+Archive-last SHALL read the pull request body only to find the pull request's own change id for the non-draft failure. Extra words, a fenced `OpenSpec-Change` line, or a dropped line SHALL NOT exempt a removed change and SHALL NOT be required for the check.
+
+#### Scenario: Extra words are not a change reference
+
+- **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
+- **AND** the only body line is `OpenSpec-Change: add-foo extra`
+- **AND** the head commit also changes `README.md`
+- **AND** the head has no `openspec/changes/archive/2026-10-21-add-foo/`
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `archive commit is not last`
+
+#### Scenario: A fenced line does not exempt a removal
+
+- **GIVEN** a pull_request whose diff removes `openspec/changes/add-foo/`
+- **AND** the body contains a fenced `OpenSpec-Change: add-foo` line
+- **AND** the head commit message does not contain `openspec archive add-foo`
+- **AND** the head has no `openspec/changes/archive/2026-10-21-add-foo/`
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
