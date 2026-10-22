@@ -14,11 +14,12 @@ The same participants and the same scripted dice SHALL produce the same order an
 
 #### Scenario: The same encounter twice matches
 
-- **GIVEN** two rosters with the same two creatures and the same scripted dice
-- **WHEN** each roster rolls initiative and the first combatant Strikes the second once
-- **THEN** the orders are equal
-- **AND** the Strike totals are equal
-- **AND** the damage results are equal
+- **GIVEN** two encounters, each with PC CombatantId(1) at Perception +5 and PC CombatantId(2) at Perception +0, attack bonus +0, Armor Class 11, damage 1d8+4, and the script 10, 14, 12, 3
+- **WHEN** each rolls initiative and CombatantId(1) Strikes CombatantId(2)
+- **THEN** both orders are CombatantId(1) then CombatantId(2)
+- **AND** both Strike totals are 12 and both damage results are 7
+- **AND** each script is fully consumed
+- **AND** the arithmetic is 10 + 5 = 15, 14 + 0 = 14, then 12 against Armor Class 11, then 3 + 4 = 7
 
 ### Requirement: Initiative is one Perception total
 
@@ -60,7 +61,7 @@ Each combatant SHALL add one d20 to that creature's Perception modifier. The ran
 
 ### Requirement: A bad roster rolls nothing
 
-A duplicate CombatantId, an empty roster, or a Perception modifier that cannot be added to a d20 SHALL return a typed error. No die SHALL be rolled.
+A duplicate CombatantId SHALL return DuplicateCombatant. An empty roster SHALL return EmptyRoster. No die SHALL be rolled.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
 
@@ -68,160 +69,205 @@ A duplicate CombatantId, an empty roster, or a Perception modifier that cannot b
 
 - **GIVEN** two participants with CombatantId(1) and a scripted natural 8
 - **WHEN** initiative is rolled
-- **THEN** the result is a typed error
+- **THEN** the error is DuplicateCombatant
 - **AND** the scripted 8 is still unused
 
 #### Scenario: An empty roster rolls nothing
 
 - **GIVEN** no participants and a scripted natural 8
 - **WHEN** initiative is rolled
-- **THEN** the result is a typed error
+- **THEN** the error is EmptyRoster
 - **AND** the scripted 8 is still unused
 
-#### Scenario: A Perception modifier that does not fit rolls nothing
+### Requirement: Perception is checked against a d20 of 20
 
-- **GIVEN** a Perception modifier of 2147483647 and a scripted natural 8
+Before any die is drawn, Perception SHALL be rejected when it cannot be added to 20. Perception 2147483627 and a natural 20 SHALL total 2147483647. Perception 2147483628 SHALL return PerceptionOutOfRange and SHALL draw no die. i32::MIN SHALL be accepted, and the total SHALL be the face plus i32::MIN.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
+
+#### Scenario: Perception 2147483627 and a natural 20 fit
+
+- **GIVEN** Perception modifier 2147483627 and a scripted natural 20
 - **WHEN** initiative is rolled
-- **THEN** the result is a typed error
-- **AND** the scripted 8 is still unused
+- **THEN** the total is 2147483647
+- **AND** the scripted 20 was drawn
+
+#### Scenario: Perception 2147483628 rolls nothing
+
+- **GIVEN** Perception modifier 2147483628 and a scripted natural 20
+- **WHEN** initiative is rolled
+- **THEN** the error is PerceptionOutOfRange
+- **AND** the scripted 20 is still unused
+
+#### Scenario: Perception at i32::MIN is added
+
+- **GIVEN** Perception modifier -2147483648 and a scripted natural 1
+- **WHEN** initiative is rolled
+- **THEN** the total is -2147483647
+- **AND** the scripted 1 was drawn
 
 ### Requirement: The higher total acts earlier
 
-The higher initiative total SHALL act earlier than a lower total.
+The higher initiative total SHALL act earlier than a lower total. The participant's team SHALL be Side, Pc or Enemy.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
 
 #### Scenario: A higher PC total acts before a lower enemy total
 
-- **GIVEN** a PC, CombatantId(1), with total 18, and an enemy, CombatantId(2), with total 15
+- **GIVEN** PC CombatantId(1) with Perception +8 and enemy CombatantId(2) with Perception +5, and scripted naturals 10 then 10
 - **WHEN** initiative is rolled
-- **THEN** CombatantId(1) acts before CombatantId(2)
+- **THEN** the totals are 18 and 15
+- **AND** the order is CombatantId(1) then CombatantId(2)
 
 ### Requirement: A PC and an enemy on the same total give the enemy the earlier turn
 
-On an equal total, an enemy SHALL act before a PC. Side SHALL be the participant's side, not `uses_dying_rules`.
+On an equal total, an enemy SHALL act before a PC. Same-Side ties SHALL use the lower CombatantId, which is DEV-05 amended to that order. Side SHALL be the participant's Side.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
 
 #### Scenario: An enemy acts before a tied PC
 
-- **GIVEN** a PC, CombatantId(1), and an enemy, CombatantId(9), with the same initiative total
+- **GIVEN** PC CombatantId(1) and enemy CombatantId(9), both with Perception +0, and scripted naturals 10 then 10
 - **WHEN** initiative is rolled
-- **THEN** CombatantId(9) acts before CombatantId(1)
-
-#### Scenario: Side is not the dying flag
-
-- **GIVEN** an enemy with `uses_dying_rules` true and a PC with `uses_dying_rules` false, on the same total, the enemy having the lower CombatantId
-- **WHEN** initiative is rolled
-- **THEN** the enemy acts before the PC
-
-### Requirement: The same side breaks a tie by the lower CombatantId
-
-On an equal total and the same side, the lower CombatantId SHALL act earlier. This SHALL apply to two PCs and to two enemies.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
+- **THEN** both totals are 10
+- **AND** the order is CombatantId(9) then CombatantId(1)
 
 #### Scenario: Two tied PCs act by the lower id
 
-- **GIVEN** two PCs, CombatantId(4) and CombatantId(2), with the same initiative total
+- **GIVEN** two PCs, CombatantId(4) and CombatantId(2), both with Perception +0, and scripted naturals 8 then 8
 - **WHEN** initiative is rolled
-- **THEN** CombatantId(2) acts before CombatantId(4)
+- **THEN** both totals are 8
+- **AND** the order is CombatantId(2) then CombatantId(4)
 
 #### Scenario: Two tied enemies act by the lower id
 
-- **GIVEN** two enemies, CombatantId(8) and CombatantId(3), with the same initiative total
+- **GIVEN** two enemies, CombatantId(8) and CombatantId(3), both with Perception +0, and scripted naturals 7 then 7
 - **WHEN** initiative is rolled
-- **THEN** CombatantId(3) acts before CombatantId(8)
+- **THEN** both totals are 7
+- **AND** the order is CombatantId(3) then CombatantId(8)
 
 #### Scenario: A three-way tie puts both enemies first
 
-- **GIVEN** enemy CombatantId(5), enemy CombatantId(2), and PC CombatantId(1), all with the same total
+- **GIVEN** PC CombatantId(1), enemy CombatantId(2), and enemy CombatantId(5), each with Perception +0, and scripted naturals 12, 12, 12
 - **WHEN** initiative is rolled
-- **THEN** the order is CombatantId(2), then CombatantId(5), then CombatantId(1)
+- **THEN** every total is 12
+- **AND** the order is CombatantId(2), then CombatantId(5), then CombatantId(1)
 
 #### Scenario: Six combatants all appear in the order
 
-- **GIVEN** six participants with CombatantId(0) through CombatantId(5)
+- **GIVEN** PC 0, enemy 1, PC 2, enemy 3, PC 4, and enemy 5, each with Perception +0, and scripted naturals 10, 10, 12, 12, 8, 8 in CombatantId order
 - **WHEN** initiative is rolled
-- **THEN** the order contains each of those six ids once
+- **THEN** the order is CombatantId(3), CombatantId(2), CombatantId(1), CombatantId(0), CombatantId(5), CombatantId(4)
 
-### Requirement: The start step changes nothing
+### Requirement: The start step changes nothing for an Alive creature
 
-The start step SHALL run before actions are regained. It SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded.
+The Alive start step SHALL run before actions are regained. It SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
 
-#### Scenario: A start with dying entered rolls nothing
+#### Scenario: An alive start rolls nothing
 
-- **GIVEN** a creature that has entered dying, at 0 Hit Points, and a scripted natural 8
+- **GIVEN** an Alive creature at 12 Hit Points and a scripted natural 8
 - **WHEN** that creature's turn starts
 - **THEN** the scripted 8 is still unused
-- **AND** Hit Points stay 0
+- **AND** Hit Points stay 12
 - **AND** wounded stays 0
 - **AND** the creature has 3 actions
 
 ### Requirement: A turn regains 3 actions and 1 reaction
 
-After the start step, the creature SHALL have 3 actions and one reaction ready. A second start while that turn is open SHALL return a typed error and SHALL NOT grant more actions.
+After the start step, an Alive creature SHALL have exactly 3 actions and one reaction ready. A second start while that turn is open SHALL return TurnInProgress and SHALL NOT grant more actions.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
 #### Scenario: Start sets 3 actions and a reaction
 
-- **GIVEN** initiative has been rolled and no turn has started
+- **GIVEN** Alive CombatantId(1) with Perception +0 and a scripted natural 10, and no turn has started
 - **WHEN** the first turn starts
-- **THEN** that combatant has 3 actions
+- **THEN** the initiative total is 10 and the round is 1
+- **AND** CombatantId(1) has 3 actions
 - **AND** that combatant's reaction is ready
 
 #### Scenario: A second start does not add actions
 
-- **GIVEN** a turn that has already started
+- **GIVEN** Alive CombatantId(1) whose turn has started with 3 actions and a ready reaction
 - **WHEN** start is requested again
-- **THEN** the result is a typed error
-- **AND** the combatant still has 3 actions
+- **THEN** the error is TurnInProgress
+- **AND** CombatantId(1) still has 3 actions
+- **AND** the reaction is still ready
 
 #### Scenario: The next start sets 3 rather than adding leftovers
 
-- **GIVEN** a combatant who ended a turn with actions still unspent
+- **GIVEN** a combatant who ended a turn with 2 actions still unspent
 - **WHEN** that combatant's next turn starts
 - **THEN** the combatant has 3 actions
 
 #### Scenario: A spent reaction is ready again next turn
 
 - **GIVEN** a combatant who spent the reaction on the previous turn
-- **WHEN** that combatant's next turn starts
-- **THEN** the reaction is ready
-- **AND** it can be spent once
-- **AND** a second spend returns a typed error
+- **WHEN** that combatant's next turn starts and the reaction is spent twice
+- **THEN** the reaction is ready after the start
+- **AND** the first spend succeeds
+- **AND** the second spend is NoReaction
 
 #### Scenario: An unused reaction is still one reaction
 
 - **GIVEN** a combatant who did not spend the reaction last turn
-- **WHEN** that combatant's next turn starts and the reaction is spent
+- **WHEN** that combatant's next turn starts and the reaction is spent twice
 - **THEN** the first spend succeeds
-- **AND** the second spend returns a typed error
+- **AND** the second spend is NoReaction
 
 ### Requirement: Reactions are ready before the first turn
 
-After initiative and before any turn starts, each living combatant's reaction SHALL be ready and that combatant SHALL have 0 actions.
+After initiative and before any turn starts, each Alive combatant's reaction SHALL be ready and that combatant SHALL have 0 actions. A non-Alive combatant's reaction SHALL NOT be ready.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
 
 #### Scenario: A reaction before the first turn spends once
 
 - **GIVEN** initiative has been rolled, no turn has started, and a scripted natural 8
-- **WHEN** one living combatant spends a reaction, and spends it again
+- **WHEN** one Alive combatant spends a reaction, and spends it again
 - **THEN** the first spend succeeds and rolls nothing
-- **AND** the second spend returns a typed error
+- **AND** the second spend is NoReaction
 - **AND** that combatant still has 0 actions
 - **AND** the scripted 8 is still unused
 
+### Requirement: A creature that is not Alive cannot act
+
+A combatant that is not Alive SHALL have 0 actions and no reaction. Dead combatants SHALL be skipped. Any other non-Alive combatant, including EnterDying, SHALL open a turn and close it empty. An action, free action, reaction, or Strike for that combatant SHALL return NotConscious and SHALL NOT change the reaction.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
+
+#### Scenario: A not-alive turn opens with no actions
+
+- **GIVEN** Alive CombatantId(1) then EnterDying CombatantId(2), and CombatantId(1) has ended
+- **WHEN** CombatantId(2)'s turn starts
+- **THEN** the open turn is CombatantId(2)
+- **AND** CombatantId(2) has 0 actions
+- **AND** the reaction is not ready
+- **WHEN** CombatantId(2) spends a reaction, spends 1 action, spends a free action, and Strikes with a scripted natural 8
+- **THEN** each error is NotConscious
+- **AND** the reaction is still not ready
+- **AND** actions stay 0
+- **AND** the scripted 8 is still unused
+- **WHEN** the turn ends
+- **THEN** no turn is open
+- **AND** CombatantId(2) still has 0 actions
+
+#### Scenario: A dead combatant cannot spend a reaction
+
+- **GIVEN** a dead combatant and an Alive combatant whose reaction is ready
+- **WHEN** the dead combatant spends a reaction
+- **THEN** the error is NotConscious
+- **AND** the Alive combatant's reaction is still ready
+- **AND** the dead combatant's reaction is unchanged
+
 ### Requirement: Ending a turn drops actions and keeps the reaction
 
-Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent reaction ready. The end step SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded.
+Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent reaction ready. The end step SHALL run once. The end step SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded. end_turn with no open turn SHALL return TurnNotOpen.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
 #### Scenario: Ending early drops leftover actions and keeps the reaction
 
@@ -238,29 +284,33 @@ Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent 
 
 - **GIVEN** initiative has been rolled and no turn has started
 - **WHEN** a turn end is requested
-- **THEN** the result is a typed error
+- **THEN** the error is TurnNotOpen
 - **AND** every combatant still has 0 actions
 
-### Requirement: The action that reaches zero ends the turn
+### Requirement: Spending the last action leaves the turn open
 
-Spending the action that leaves 0 SHALL end the turn. The next combatant's turn SHALL start only when a start is requested.
+Spending the action that leaves 0 SHALL leave the turn open. end_turn SHALL advance once. A second end_turn SHALL return TurnNotOpen and SHALL NOT advance again. The next turn SHALL start only when a start is requested.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
-#### Scenario: Spending the last action ends the turn
+#### Scenario: Spending the last action leaves the turn open
 
-- **GIVEN** an open turn with 3 actions and the reaction ready
+- **GIVEN** Alive CombatantId(1) then Alive CombatantId(2), with CombatantId(1)'s turn open, 3 actions, and the reaction ready
 - **WHEN** 3 actions are spent
-- **THEN** the turn is no longer open
-- **AND** that combatant has 0 actions
+- **THEN** the open turn is still CombatantId(1)
+- **AND** CombatantId(1) has 0 actions
 - **AND** the reaction is still ready
-- **AND** the next start begins the next living combatant
+- **WHEN** the turn ends, and a turn end is requested again
+- **THEN** the second end is TurnNotOpen
+- **AND** the round is still 1
+- **AND** the next start is CombatantId(2)
 
 ### Requirement: An action spend is all or nothing
 
-A spend of 1, 2, or 3 actions SHALL subtract that many at once during an open turn. A spend the combatant cannot finish SHALL return a typed error and leave the count unchanged. A cost of 0 or greater than 3 SHALL return a typed error.
+A spend of 1, 2, or 3 actions SHALL subtract that many at once during an open Alive turn. A spend the combatant cannot finish SHALL return InsufficientActions and leave the count unchanged. A cost of 0 or greater than 3 SHALL return InvalidActionCost.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2336 (Player Core pg. 414, Activities)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
 #### Scenario: Spending 1 leaves 2
 
@@ -280,19 +330,19 @@ A spend of 1, 2, or 3 actions SHALL subtract that many at once during an open tu
 
 - **GIVEN** an open turn with 1 action left
 - **WHEN** 2 actions are spent
-- **THEN** the result is a typed error
+- **THEN** the error is InsufficientActions
 - **AND** 1 action remains
 
 #### Scenario: A cost of 0 or 4 is rejected
 
 - **GIVEN** an open turn with 3 actions
 - **WHEN** a cost of 0 is spent, and a cost of 4 is spent
-- **THEN** both results are typed errors
+- **THEN** both errors are InvalidActionCost
 - **AND** 3 actions remain
 
-### Requirement: A free action does not spend an action
+### Requirement: An untriggered free action does not spend an action
 
-During an open turn, a free action SHALL leave the action count and the reaction unchanged and SHALL NOT end the turn. Outside an open turn it SHALL return a typed error.
+During an open Alive turn, an untriggered free action SHALL leave the action count and the reaction unchanged and SHALL NOT end the turn. With no open turn, that free action SHALL return TurnNotOpen.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2336 (Player Core pg. 414, Activities)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
@@ -305,15 +355,15 @@ During an open turn, a free action SHALL leave the action count and the reaction
 - **AND** the reaction is still ready
 - **AND** the turn stays open
 
-#### Scenario: A free action off turn fails
+#### Scenario: An untriggered free action off turn fails
 
 - **GIVEN** initiative has been rolled and no turn is open
-- **WHEN** a free action is spent
-- **THEN** the result is a typed error
+- **WHEN** an untriggered free action is spent
+- **THEN** the error is TurnNotOpen
 
 ### Requirement: Spending a reaction does not take an action
 
-Spending a ready reaction SHALL clear it and SHALL NOT change the action count, roll a die, or end the turn. A second spend, and a spend for a dead combatant, SHALL return a typed error.
+Spending a ready reaction of the active Alive creature SHALL clear it and SHALL NOT change the action count, roll a die, or end the turn. A second spend SHALL return NoReaction.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
 
@@ -326,29 +376,45 @@ Spending a ready reaction SHALL clear it and SHALL NOT change the action count, 
 - **AND** the reaction is not ready
 - **AND** the scripted 8 is still unused
 
-#### Scenario: A dead combatant cannot spend a reaction
+### Requirement: The round is a u32
 
-- **GIVEN** a dead combatant and a living combatant whose reaction is ready
-- **WHEN** the dead combatant spends a reaction
-- **THEN** the result is a typed error
-- **AND** the living combatant's reaction is still ready
-
-### Requirement: The round advances after the last combatant
-
-The round SHALL start at 1. After the last combatant in the order ends a turn, the round SHALL increase by 1 and the next start SHALL be the first living combatant.
+The round SHALL be a u32 and SHALL start at 1. Moving the cursor past the last index SHALL wrap it and SHALL add 1 to the round. An add that does not fit SHALL return RoundOverflow and SHALL leave the round, the order, and the open turn unchanged.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
 
 #### Scenario: The second round starts with the first living combatant
 
-- **GIVEN** two living combatants and a finished initiative order
+- **GIVEN** Alive CombatantId(1) then Alive CombatantId(2), both with Perception +0, and scripted naturals 10 then 8
 - **WHEN** each of them starts and ends one turn
-- **THEN** the round is 2
-- **AND** the next start is the first combatant in the order
+- **THEN** the round is 2 before the next start
+- **AND** the next start is CombatantId(1)
+
+#### Scenario: After 2 ends, a dead 3 wraps to 1 in round 2
+
+- **GIVEN** CombatantId(1), CombatantId(2), and CombatantId(3), each with Perception +0, scripted naturals 12, 11, and 10, and CombatantId(3) dead
+- **WHEN** CombatantId(1) and CombatantId(2) each start and end
+- **THEN** the round is still 1 after CombatantId(2) ends
+- **AND** the next start is CombatantId(1) in round 2
+
+#### Scenario: A dead first combatant starts the other in round 1
+
+- **GIVEN** CombatantId(1) and CombatantId(2), both with Perception +0, scripted naturals 10 then 5, and CombatantId(1) dead at the start
+- **WHEN** the first turn starts
+- **THEN** the started combatant is CombatantId(2)
+- **AND** the round is 1
+
+#### Scenario: A round at the u32 maximum does not advance
+
+- **GIVEN** the round is 4294967295, the order is CombatantId(1) then CombatantId(2), and CombatantId(2)'s turn is open
+- **WHEN** that turn ends
+- **THEN** the error is RoundOverflow
+- **AND** the round is 4294967295
+- **AND** the order is unchanged
+- **AND** the open turn is still CombatantId(2)
 
 ### Requirement: A dead combatant is skipped
 
-A dead combatant SHALL remain in the order and SHALL NOT start a turn. The next living combatant SHALL start instead. A creature that has entered dying SHALL still start a turn.
+A dead combatant SHALL remain in the order and SHALL NOT start a turn. The next combatant who is not dead SHALL start instead. Only Vital::Dead is skipped.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
 
@@ -372,13 +438,13 @@ A dead combatant SHALL remain in the order and SHALL NOT start a turn. The next 
 
 - **GIVEN** every combatant is already dead and the round is 1
 - **WHEN** a start is requested
-- **THEN** the result is a typed error
+- **THEN** the error is NoLivingCombatant
 - **AND** the round stays 1
 - **AND** the order is unchanged
 
 ### Requirement: Strike spends one action against baked Armor Class
 
-On an open turn, a Strike SHALL spend 1 action, roll one d20, add the strike's attack bonus and the multiple attack penalty, and compare that total with the target's baked Armor Class. No square and no reach SHALL be required.
+On an open Alive turn, a Strike SHALL spend 1 action, roll one d20, add the strike's attack bonus and the multiple attack penalty, and compare that total with the target's baked Armor Class. No square and no reach SHALL be required. The degree SHALL use that baked Armor Class, with no unconscious reduction.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 
@@ -390,26 +456,27 @@ On an open turn, a Strike SHALL spend 1 action, roll one d20, add the strike's a
 - **AND** the total is 18
 - **AND** the degree is success
 - **AND** 2 actions remain
+- **AND** the turn stays open
 
 #### Scenario: Strike before the turn starts rolls nothing
 
 - **GIVEN** initiative has been rolled, no turn is open, and a scripted natural 10
 - **WHEN** a Strike is attempted
-- **THEN** the result is a typed error
+- **THEN** the error is TurnNotOpen
 - **AND** the scripted 10 is still unused
 
 #### Scenario: A Strike off the active turn rolls nothing
 
 - **GIVEN** it is another combatant's open turn, and a scripted natural 10
 - **WHEN** a combatant who is not active Strikes
-- **THEN** the result is a typed error
+- **THEN** the error is NotYourTurn
 - **AND** the scripted 10 is still unused
 
 #### Scenario: An unknown target rolls nothing
 
 - **GIVEN** an open turn with 3 actions and a scripted natural 10
 - **WHEN** the active combatant Strikes a CombatantId that is not in the encounter
-- **THEN** the result is a typed error
+- **THEN** the error is UnknownCombatant
 - **AND** 3 actions remain
 - **AND** the scripted 10 is still unused
 
@@ -417,9 +484,25 @@ On an open turn, a Strike SHALL spend 1 action, roll one d20, add the strike's a
 
 - **GIVEN** an open turn with 3 actions and a scripted natural 10
 - **WHEN** the active combatant Strikes their own CombatantId
-- **THEN** the result is a typed error
+- **THEN** the error is SelfTarget
 - **AND** 3 actions remain
 - **AND** the scripted 10 is still unused
+
+#### Scenario: A Strike on a dead target spends nothing
+
+- **GIVEN** an open turn with 3 actions, a dead target, and a scripted natural 10
+- **WHEN** the active combatant Strikes that target
+- **THEN** the error is TargetDead
+- **AND** 3 actions remain
+- **AND** the scripted 10 is still unused
+
+#### Scenario: A Strike with no actions rolls nothing
+
+- **GIVEN** an open Alive turn with 0 actions and a scripted natural 10
+- **WHEN** the active combatant Strikes another creature
+- **THEN** the error is InsufficientActions
+- **AND** the scripted 10 is still unused
+- **AND** the turn stays open
 
 #### Scenario: Armor Class in the caller list does not change the result
 
@@ -430,7 +513,7 @@ On an open turn, a Strike SHALL spend 1 action, roll one d20, add the strike's a
 
 ### Requirement: Strike passes caller modifiers through the attack total
 
-A Strike SHALL pass the caller's attack-statistic modifiers through the attack check total. A modifier on another statistic SHALL NOT change that total. Damage modifiers SHALL NOT change it either.
+A Strike SHALL pass the caller's attack-statistic modifiers through the attack check total. A modifier on another statistic SHALL NOT change that total. Damage modifiers SHALL NOT change it either. A caller untyped penalty SHALL stack with the multiple attack penalty.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 
@@ -451,9 +534,12 @@ A Strike SHALL pass the caller's attack-statistic modifiers through the attack c
 
 #### Scenario: A circumstance bonus and penalty on the attack both apply
 
-- **GIVEN** attack bonus +0, 0 damage dice, a caller circumstance bonus of +2, a caller circumstance penalty of -2, and a scripted natural 10
+- **GIVEN** attack bonus +0, baked Armor Class 10, 0 damage dice, a caller circumstance bonus of +2, a caller circumstance penalty of -2, and a scripted natural 10
 - **WHEN** the Strike is resolved
 - **THEN** the total is 10
+- **AND** the degree is success
+- **AND** the total is not 12
+- **AND** the total is not 8
 
 #### Scenario: A damage penalty does not change the attack total
 
@@ -462,9 +548,18 @@ A Strike SHALL pass the caller's attack-statistic modifiers through the attack c
 - **THEN** the total is 18
 - **AND** the degree is success
 
+#### Scenario: A caller untyped penalty stacks with MAP
+
+- **GIVEN** a second non-agile Strike, attack bonus +0, Armor Class 11, 0 damage dice, a scripted natural 10, and a caller untyped penalty of -5
+- **WHEN** the Strike is resolved
+- **THEN** the multiple attack penalty is -5
+- **AND** the total is 0
+- **AND** the total is not 5
+- **AND** the degree is failure
+
 ### Requirement: The multiple attack penalty follows this turn's count
 
-On the striker's turn the penalty SHALL be 0, then -5, then -10, or 0, then -4, then -8 when that strike is agile. A resolved Strike SHALL count, including a miss. A rejected Strike SHALL NOT count.
+On the striker's turn the penalty SHALL be 0, then -5, then -10, or 0, then -4, then -8 when that strike is agile. A resolved Strike SHALL count, including a miss. A rejected Strike SHALL NOT count. The stored count SHALL be a u8.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 
@@ -483,7 +578,8 @@ On the striker's turn the penalty SHALL be 0, then -5, then -10, or 0, then -4, 
 - **THEN** the third multiple attack penalty is -10
 - **AND** the third total is 13
 - **AND** the third degree is failure
-- **AND** the turn is no longer open
+- **AND** 0 actions remain
+- **AND** the turn stays open
 
 #### Scenario: A rejected Strike does not count
 
@@ -492,26 +588,34 @@ On the striker's turn the penalty SHALL be 0, then -5, then -10, or 0, then -4, 
 - **THEN** the failed attempt rolls nothing
 - **AND** the resolved Strike has multiple attack penalty 0 and total 18
 
+#### Scenario: An attack count at the u8 maximum does not increment
+
+- **GIVEN** the active creature's stored attack count is 255, 3 actions remain, and a scripted natural 10
+- **WHEN** that creature Strikes
+- **THEN** the error is AttackCountOverflow
+- **AND** 3 actions remain
+- **AND** the stored count is 255
+- **AND** the scripted 10 is still unused
+
 ### Requirement: A reaction attack penalty stays 0
 
-An attack-trait check while it is not that creature's turn SHALL take penalty 0 and SHALL NOT change that creature's count. This change SHALL NOT keep a penalty frozen from Ready.
+An attack-trait check while it is not that creature's open turn SHALL take penalty 0 and SHALL NOT change that creature's count. The turn SHALL be taken from the encounter. This change SHALL NOT keep a penalty frozen from Ready.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2299 (Player Core pg. 417, Ready)
 
 #### Scenario: A reaction after two Strikes keeps penalty 0
 
-- **GIVEN** a non-agile creature with 0 damage dice that has resolved two Strikes this turn, and whose turn has since ended
-- **WHEN** an attack-trait penalty is read for that creature off its turn, and read again as if it were that creature's turn
-- **THEN** the off-turn penalty is 0
-- **AND** the on-turn penalty is -10
-- **AND** neither read rolls a die
-- **WHEN** that creature's next turn starts and the on-turn penalty is read
+- **GIVEN** a non-agile creature that has resolved two Strikes this turn, and whose turn has since ended
+- **WHEN** an attack-trait penalty is read for that creature while the turn is not open
+- **THEN** the penalty is 0
+- **AND** the read rolls no die
+- **WHEN** that creature's next turn starts and the penalty is read
 - **THEN** the penalty is 0
 
 ### Requirement: The degree after the natural shift selects damage
 
-A success SHALL deal one damage roll. A critical success SHALL double that total. A failure or a critical failure SHALL deal no damage and SHALL NOT roll a damage die. The degree after a natural 20 or natural 1 SHALL be the degree that selects damage.
+A success SHALL deal one damage roll. A critical success SHALL double that total. A failure or a critical failure SHALL deal no damage and SHALL NOT roll a damage die. The degree after a natural 20 or natural 1 SHALL be the degree that selects damage. strike SHALL pass critical only when that degree is a critical success.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2287 (Player Core pg. 401, Natural 1 and Natural 20)
@@ -552,6 +656,15 @@ A success SHALL deal one damage roll. A critical success SHALL double that total
 - **WHEN** the Strike is resolved
 - **THEN** the degree is success
 - **AND** the damage is 7
+
+#### Scenario: A natural 20 that stays a failure deals no damage
+
+- **GIVEN** attack bonus +0, Armor Class 30, a scripted natural 20, and a scripted damage die of 8
+- **WHEN** the Strike is resolved
+- **THEN** the total is 20
+- **AND** the degree is failure
+- **AND** the damage is 0
+- **AND** the scripted 8 is still unused
 
 #### Scenario: A natural 1 that becomes a failure deals no damage
 
@@ -628,7 +741,7 @@ Dice and modifiers SHALL be added, then penalties. The floor of 1 SHALL apply on
 
 ### Requirement: Strike damage removes temporary Hit Points first
 
-Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder SHALL reduce current Hit Points. Damage of 0 SHALL leave both unchanged.
+Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder SHALL reduce current Hit Points. Damage of 0 SHALL leave both unchanged. One helper SHALL apply that amount. apply_dice_damage SHALL stay unchanged.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2321 (Player Core pg. 410, Temporary Hit Points)
 
@@ -653,38 +766,20 @@ Damage from a Strike SHALL remove temporary Hit Points first. Only the remainder
 - **THEN** temporary Hit Points stay 5
 - **AND** current Hit Points are unchanged
 
-### Requirement: Reaching 0 Hit Points does not apply the later rules
+### Requirement: Reaching 0 Hit Points floors at 0
 
-At 0 current Hit Points, `uses_dying_rules` false SHALL mark the combatant dead, and true SHALL record that dying applies, with no dying value. Wounded, the initiative order, and shield Hit Points SHALL stay unchanged. A blow of at least twice maximum Hit Points SHALL use that same result.
+Current Hit Points from a Strike SHALL NOT go below 0. With uses_dying_rules false, 0 Hit Points SHALL mark the combatant dead. Wounded and shield Hit Points SHALL stay unchanged.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2332 (Player Core pg. 412, Massive Damage)
 
 #### Scenario: Without dying rules, 0 Hit Points is death
 
-- **GIVEN** a creature with 9 Hit Points, `uses_dying_rules` false, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+1 with a scripted damage die of 8
+- **GIVEN** a creature with 9 Hit Points, uses_dying_rules false, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+1 with a scripted damage die of 8
 - **WHEN** the Strike is resolved
 - **THEN** current Hit Points are 0
 - **AND** the combatant is dead
 - **AND** wounded stays 0
 - **AND** the Creature still has 9 Hit Points
-
-#### Scenario: With dying rules, 0 Hit Points does not move initiative
-
-- **GIVEN** a creature with 9 Hit Points and `uses_dying_rules` true, acting after the striker, and a Strike of attack bonus +0 against Armor Class 11, natural 11, and damage 1d8+1 with a damage die of 8
-- **WHEN** that Strike is resolved
-- **THEN** the creature is not dead
-- **AND** dying applies
-- **AND** wounded stays 0
-- **AND** the initiative order is unchanged
-
-#### Scenario: A blow of twice maximum Hit Points is not massive damage
-
-- **GIVEN** a creature with 9 Hit Points, `uses_dying_rules` true, attack bonus +0, Armor Class 11, a scripted natural 11, and damage 1d8+12 with a scripted damage die of 8
-- **WHEN** the Strike is resolved
-- **THEN** the creature is not dead
-- **AND** dying applies
-- **AND** wounded stays 0
 
 #### Scenario: A Strike does not change the shield
 
@@ -695,15 +790,38 @@ At 0 current Hit Points, `uses_dying_rules` false SHALL mark the combatant dead,
 
 ### Requirement: An overflowing Strike changes nothing
 
-An overflowing damage total SHALL return a typed error. Actions, Hit Points, temporary Hit Points, and the attack count SHALL stay as they were.
+An attack total that overflows SHALL return AttackOverflow of that modifier error. A damage sum that overflows SHALL return DamageOverflow of that modifier error. Dice already drawn SHALL stay drawn. Actions, Hit Points, and the attack count SHALL stay as they were. The sum of the damage dice fits in i32 because the dice count and the faces are each at most 255. Adding the damage bonus SHALL be checked.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, Damage Rolls)
+
+#### Scenario: An overflowing attack total leaves the turn
+
+- **GIVEN** an open turn with 3 actions, attack bonus +0, Armor Class 11, 0 damage dice, a scripted natural 11, a following scripted 8, and two caller untyped penalties of -2147483648 from different sources
+- **WHEN** the Strike is attempted
+- **THEN** the error is AttackOverflow of the modifier overflow
+- **AND** the scripted 11 was drawn
+- **AND** the scripted 8 is still unused
+- **AND** 3 actions remain
+- **AND** the next Strike on that turn has multiple attack penalty 0
 
 #### Scenario: An overflowing damage total leaves the turn
 
 - **GIVEN** an open turn with 3 actions, 9 current Hit Points, 0 temporary Hit Points, attack bonus +0, Armor Class 11, a scripted natural 11, damage bonus 2147483647, and a damage die showing 1
 - **WHEN** the Strike hits
-- **THEN** the result is a typed overflow error
+- **THEN** the error is DamageOverflow of the modifier overflow
+- **AND** both the natural 11 and the damage die were drawn
 - **AND** 3 actions remain
 - **AND** current Hit Points stay 9
 - **AND** the next Strike on that turn has multiple attack penalty 0
+
+### Requirement: The encounter alone mutates its combatants
+
+No public free function SHALL take a mutable participant or a mutable combatant state. A state copied out of the encounter SHALL NOT be the encounter's state.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
+
+#### Scenario: A copied state does not change the encounter
+
+- **GIVEN** an encounter whose CombatantId(1) has 0 actions before any turn
+- **WHEN** a copied state for CombatantId(1) is given 9 actions
+- **THEN** the encounter still shows 0 actions for CombatantId(1)

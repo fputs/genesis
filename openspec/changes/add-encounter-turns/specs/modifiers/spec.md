@@ -14,7 +14,6 @@
 `attack_check_total` SHALL take the caller modifiers as a public list and fold that list with its internal terms by the stacking rules. A success SHALL be that total. An overflowing fold SHALL return a typed error and SHALL NOT panic.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects)
 
 #### Scenario: An empty caller list keeps the stacked total
 
@@ -69,6 +68,7 @@ The multiple attack penalty SHALL apply once per check through its reserved sour
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2290 (Player Core pg. 403, Range Penalty)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Rules Overview, section Duplicate Effects)
 
 #### Scenario: A caller source 1 does not collapse an internal term
 

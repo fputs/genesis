@@ -6,69 +6,92 @@
 
 `crates/rules` stays dependency-free. Library code does not panic on bad input. This change names no file on `v1-reference`, so none is ported.
 
+`dice-and-checks` names multiple-attack totals as scenario results. It does not name `attack_check_total`'s return type, so this change does not modify that spec. `attack_check_parts` stays. Its callers in `check.rs` and `modifiers.rs` keep compiling.
+
 ## Goals / Non-Goals
 
 **Goals:**
 
 - One new module, `crates/rules/src/encounter.rs`, re-exported from `lib.rs`.
-- Initiative, rounds, the start and end steps, action accounting, and Strike as public functions on an encounter value.
+- Initiative, rounds, the start and end steps, action accounting, and Strike as methods on `Encounter`.
 - `attack_check_total` takes `&[Modifier]` again and returns `Result<i32, ModifierError>`. Scenario tests call that function.
 
 **Non-Goals:**
 
-- Dying values, wounded changes, unconscious, recovery checks, massive damage, and victory. Those are `add-dying-and-victory`.
+- Dying values, wounded changes, unconscious, massive damage, and victory. Those are `add-dying-and-victory`.
+- Wiring dying into the turn. `wire-dying-into-turns` owns the initiative move, the recovery check at start, temporary-Hit-Point ticks, outcome and victory checks, and rulings R-08 and R-10. This change only leaves the empty steps and the not-Alive turn seam.
 - Gaining temporary Hit Points, choosing between two amounts (DEV-13), durations, expiry, and healing. R-06 applies here only as "damage removes temporary Hit Points first."
 - A readied attack's frozen multiple attack penalty (R-05). A reaction check in this change is penalty 0.
-- Stride, Step, reach, flanking, prone, cover, and shields. No call to `stride` or `step`. The diagonal counter stays with the caller of those functions.
-- A callback list for the start and end steps. The steps are ordered and empty.
+- Delay, Ready, quickened, slowed, and stunned. An Alive creature regains exactly 3 actions.
+- Joining or leaving mid-encounter.
+- Initiative skills other than Perception (DEV-37).
+- Dying or unconscious Armor Class reduction. Until `wire-dying-into-turns`, Strike uses the baked Armor Class (DEV-36).
+- Stride and Step, owned by `add-positioning`. Reach, flanking, prone, cover, and shields. No call to `stride` or `step`. The diagonal counter stays with the caller of those functions.
+- A callback list for the start and end steps. The steps are private, ordered, and empty.
 
 ## Decisions
 
 ### Module and state
 
-`Encounter` owns the participants. Each participant is a `CombatantId`, a `Side` (`Pc` or `Enemy`), a `Creature`, and a `CombatantState`. The attack-trait count for the current turn lives on the encounter, keyed by `CombatantId`, not as a new field of `CombatantState`. Actions and `reaction_ready` stay the fields creature-template already defined. The encounter sets them.
+`Encounter` owns the participants. Each participant is a `CombatantId`, a `Side` (`Pc` or `Enemy`), a `Creature`, and a `CombatantState`. `Side` is the only team type. In Phase 1 a faction is a `Side` (DEV-26). This module does not read `FactionId`.
+
+The attack-trait count for the current turn lives on the encounter, keyed by `CombatantId`, as a `u8`. It is not a new field of `CombatantState`. The increment is `checked_add(1)`. A failure returns `AttackCountOverflow` and writes nothing, including drawing no die. Actions and `reaction_ready` stay the fields creature-template already defined. Only `Encounter` methods write them, the order, and Strike's Hit Points. There is no public free function that takes `&mut CombatantState` or `&mut Participant`.
+
+The order is a `Vec<CombatantId>`. Only the encounter mutates it. `order` returns a shared slice.
 
 Alternative considered: store the attack count on `CombatantState`. Rejected. That amends the creature-template state for a count only this turn needs.
 
-`begin_encounter` rejects a duplicate id, an empty roster, and a Perception modifier that `CheckModifier::new` rejects, before any die is drawn.
+`begin_encounter` takes ownership of the participants and the dice. It rejects `DuplicateCombatant` and `EmptyRoster` before any die is drawn. It then rejects a Perception modifier that cannot be added to a d20 of 20, as `PerceptionOutOfRange`, also before any die is drawn. That gate is `checked_add(20)`, not `CheckModifier::new`. `CheckModifier::new` rejects a modifier that cannot be added to 255, which would refuse Perception 2147483627. A natural 20 on that modifier totals `i32::MAX` and is `Ok`. Perception 2147483628 does not fit and draws no die. `i32::MIN` fits in that gate. A die is drawn, and the total is the face plus `i32::MIN` (a face of 1 totals -2147483647). Every accepted face in 1..=20 fits in `i32` once the +20 gate has passed.
 
 ### Initiative
 
-Draw one d20 per combatant in ascending `CombatantId` order. The total is the face plus the baked Perception modifier. Do not call `degree_of_success`. A natural 20 does not add 10.
+Draw one d20 per combatant in ascending `CombatantId` order, including a dead combatant. The total is the face plus the baked Perception modifier. Do not call `degree_of_success`. A natural 20 does not add 10.
 
 Sort the order by higher total, then `Enemy` before `Pc`, then lower `CombatantId`. Side is the participant's `Side`, not `uses_dying_rules`.
 
 Each combatant rolls its own check. Player Core allows the GM to roll identical creatures as a group or one by one. This change always rolls one by one. That is the book's individual option, not a deviation.
 
-Tabletop substitute for ties other than PC versus enemy. Rule: tied PCs choose who goes first, and the GM orders tied foes (Player Core pg. 435, Rules 2423). Why not: there are no players and no GM. Substitute: the lower `CombatantId` acts earlier. Intent: the same roster and the same dice always produce the same order. A PC–enemy tie is not this substitute. The enemy acts earlier, which is the book. This is DEV-05, using the same id order for two enemies.
+Tabletop substitute for same-Side ties. Rule: tied PCs choose who goes first, and the GM orders tied foes (Player Core pg. 435, Rules 2423). Why not: there are no players and no GM. Substitute: the lower `CombatantId` acts earlier. Intent: the same roster and the same dice always produce the same order. This is DEV-05, amended so the id order covers every same-Side tie, including two enemies. A PC–enemy tie is not this substitute. The enemy acts earlier, which is the book. Enemy `CombatantId(9)` before PC `CombatantId(1)` on equal totals is the case that fails if the sort uses the lower id alone.
 
 ### Start, end, and the action count
 
-`start_turn` skips dead combatants, runs the start step, then sets actions to 3, the reaction to ready, and that creature's attack count to 0. The start step rolls no die and does not change Hit Points, temporary Hit Points, or wounded. A creature that has entered dying still starts. Only `Vital::Dead` is skipped.
+`start_of_turn_step(&mut self, id)` and `end_of_turn_step(&mut self, id)` are private and empty. `start_turn` and `end_turn` call them in that order: the start step, then the action regain; the end step, then dropping actions. `wire-dying-into-turns` fills the steps. Deferred work, not done here: duration ticks, the recovery check, fast healing, persistent damage at the end of the turn (Player Core pg. 436, Rules 2430), and frightened decreasing by 1 at the end of the turn.
 
-Tabletop substitute for a dying creature's turn. Rule: an unconscious creature cannot act (Player Core pg. 446). Why not: unconscious and dying are `add-dying-and-victory`. Substitute: `Vital::EnterDying` still regains 3 actions. Intent: this change does not invent the skip those rules will add.
+The round is a `u32` starting at 1. `end_turn` moves the cursor one step. `start_turn` skips `Vital::Dead` without opening a turn. Whoever moves the cursor past the last index wraps it to the first index and increments the round with `checked_add(1)`. A failure returns `RoundOverflow` and leaves the round, the order, the cursor, and the open turn unchanged. The end step does not commit on that failure.
 
-`end_turn`, and any spend that leaves 0 actions, runs the end step, sets actions to 0, leaves an unspent reaction ready, and advances the index. The end step rolls no die. The round starts at 1 and increases by 1 when the index wraps. The next turn starts only when `start_turn` is called. If a skip wraps the order, the round increases there too. If every combatant is dead, `start_turn` returns `NoLivingCombatant` and leaves the round and the order unchanged. There is no victory variant.
+For order `[1, 2, 3]` with 3 dead, ending 2 leaves the cursor on 3 and the round at 1. The next start skips 3, wraps, increments the round, and opens 1 in round 2. For order `[1, 2]` with 1 dead at the start, the first start skips 1 and opens 2 in round 1.
 
-Tabletop substitute for the handoff. Rule: spending the last action ends the turn and the next creature's turn begins (Player Core pg. 436, Rules 2429). Why not: the function that spent the action cannot also play the next creature. Substitute: the turn ends, and the caller starts the next one. Intent: the empty end step is visible before the next start.
+`start_turn` on an Alive creature runs the empty start step, then sets actions to 3, the reaction to ready, and that creature's attack count to 0. The Alive start step rolls no die and does not change Hit Points, temporary Hit Points, or wounded. A second start while a turn is open returns `TurnInProgress`.
 
-Reactions are ready after `begin_encounter`, before any start (DEV-06). Rule: the GM decides whether reactions work before the first turn (Player Core pg. 436, Rules 2432). Why not: there is no GM. Substitute: a living combatant's reaction is ready at encounter start. Intent: one fixed answer. Spending it does not roll, does not change actions, and does not change the attack count. A dead combatant cannot spend it.
+A creature that is not Alive does not act (Player Core pg. 436, Rules 2429). `Vital::Dead` is skipped and stays in the order. Any other non-Alive state, including `EnterDying`, still has a turn: `start_turn` opens it, the start step runs, actions are 0, and the reaction is not ready. `end_turn` runs the end step and closes it. The turn does not close inside `start_turn`. That empty open and empty close is the seam. `spend_actions`, `spend_free_action`, `spend_reaction`, and `strike` for that creature return `NotConscious` and do not change the reaction.
 
-`spend_actions` accepts 1, 2, or 3, subtracts them at once, and returns `InsufficientActions` or `InvalidActionCost` without a partial spend. A free action during an open turn changes neither count and does not end the turn. Off an open turn it returns `TurnNotOpen`.
+`end_turn` is the only closer. `spend_actions`, `spend_free_action`, `spend_reaction`, and `strike` do not call it. Spending down to 0 actions leaves the turn open. `end_turn` runs the end step once, sets actions to 0, leaves an unspent reaction ready, and advances once. A second `end_turn` returns `TurnNotOpen` and does not advance again. `end_turn` with no open turn returns `TurnNotOpen`. The end step rolls no die. The next turn starts only when `start_turn` is called. If every combatant is dead, `start_turn` returns `NoLivingCombatant` and leaves the round and the order unchanged. There is no victory variant.
+
+Tabletop substitute for the handoff. Rule: spending the last action ends the turn and the next creature's turn begins (Player Core pg. 436, Rules 2429). Why not: the spend cannot also play the next creature, and closing inside the spend would hide the end step. Substitute: the spend leaves 0 actions and the turn open. `end_turn` runs the empty end step once and advances once. The caller starts the next turn. Intent: the end step runs once, where the caller can see it.
+
+Reactions of Alive creatures are ready after `begin_encounter`, before any start (DEV-06). A non-Alive creature's reaction is not ready. Rule: the GM decides whether reactions work before the first turn (Player Core pg. 436, Rules 2432). Why not: there is no GM. Substitute: an Alive combatant's reaction is ready at encounter start. Intent: one fixed answer. Spending it does not roll, does not change actions, and does not change the attack count. A dead or otherwise non-Alive combatant returns `NotConscious`, and the reaction stays as it was. A second spend by an Alive creature returns `NoReaction`.
+
+`spend_actions` takes a `u8` cost. It accepts 1, 2, or 3, subtracts them at once, and returns `InsufficientActions` or `InvalidActionCost` without a partial spend. A free action during an open turn is an untriggered free action: it changes neither count and does not end the turn. An untriggered free action with no open turn returns `TurnNotOpen`. Triggered free actions are not in this change.
 
 ### Strike
 
-`strike` requires the open turn's active id, a different target id, and at least one action. On those failures it rolls nothing and does not increment the count. It rolls one d20, passes the strike's attack bonus, the current multiple attack penalty, a circumstance term of 0, a range term of 0, and the caller's attack-statistic modifiers to `attack_check_total`. Damage-statistic modifiers go to `damage_dealt`. Any other statistic is ignored, so a caller Armor Class penalty does not change the total or the baked Armor Class.
+`strike` checks, in order: a turn is open (`TurnNotOpen`); the attacker is the active id (`NotYourTurn`); the attacker is Alive (`NotConscious`); the attacker has at least one action (`InsufficientActions`); the target is known (`UnknownCombatant`); the target is not the attacker (`SelfTarget`); the target is not dead (`TargetDead`). Each failure rolls nothing and does not spend an action or increment the count. `TargetDead` spends no action.
 
-Tabletop substitute for reach. Rule: a melee Strike targets a creature within reach (Player Core pg. 418, Strike). Why not: reach, flanking, and prone are a later change. Substitute: the caller names the target, and this module stores no squares. Intent: Strike is testable without the grid.
+It then requires `checked_add(1)` on the attack count. `AttackCountOverflow` draws no die. Otherwise it rolls one d20 and passes the profile's attack bonus, the current multiple attack penalty, a circumstance term of 0, a range term of 0, and the caller's attack-statistic modifiers to `attack_check_total`. `Err` becomes `AttackOverflow(ModifierError)` with that cause. The attack die stays drawn. No damage die is drawn. Actions and the count stay as they were.
 
-The degree after the natural 20 or natural 1 selects damage. Success rolls the strike's damage dice once and adds `damage_bonus`. Critical success doubles that total. Failure and critical failure roll no damage die. Doubling rolls the dice once and doubles the total. The book's option to roll the dice twice and double the modifiers is not used (Player Core pg. 407, Rules 2307).
+Damage-statistic modifiers go to `damage_dealt`. Any other statistic is ignored, so a caller Armor Class penalty does not change the total or the baked Armor Class. There is no dying or unconscious Armor Class reduction (DEV-36).
 
-Damage then follows `damage_dealt`: dice plus the baked bonus, then penalties, then the floor of 1 only when penalties reduce a pre-penalty total of at least 1, or a clamp at 0 otherwise, then doubling. R-07 and DEV-14 are this order. The smallest floored crit is 2. A clamped 0 stays 0 on a crit. Apply the result to temporary Hit Points first and the remainder to current Hit Points, floored at 0 (R-06, the damage sentence only). Reuse `note_hit_points` for the existing dead versus enter-dying result. Do not change wounded, do not move the initiative entry, do not touch shield Hit Points, and do not treat a blow of at least twice maximum Hit Points as a separate result.
+Tabletop substitute for reach. Rule: a melee Strike targets a creature within reach (Player Core pg. 418, Strike). Why not: reach, flanking, and prone are `add-positioning`. Substitute: the caller names the target, and this module stores no squares. Intent: Strike is testable without the grid.
 
-An overflow from the attack total or from damage returns a typed error before any of those writes. Dice already drawn stay drawn. The attack count stays where it was, so the next Strike on that turn is still the first if the failed Strike was the first.
+The degree after the natural 20 or natural 1 selects damage. `strike` does not take a `critical: bool`. It calls `damage_dealt` with `degree == CriticalSuccess`. Success rolls the profile's damage dice once and adds `damage_bonus`. Critical success doubles that total inside `damage_dealt`. Failure and critical failure roll no damage die. A natural 20 that is still a failure, because the total is 10 or more under Armor Class, deals no damage. Doubling rolls the dice once and doubles the total. The book's option to roll the dice twice and double the modifiers is not used (Player Core pg. 407, Rules 2307).
 
-`attack_trait_penalty(id, on_own_turn, agile)` reads the count and does not increment it. Off that creature's turn it returns 0. It does not store a Ready snapshot.
+`StrikeProfile.damage_dice` is a `DieCount` (`u8`) and `damage_faces` is `Faces` (at most 255). The sum of that many faces fits in `i32` (at most 255 times 255). The sum still uses `checked_add`. Adding `damage_bonus` uses `checked_add`. A failure is `DamageOverflow(ModifierError::Overflow)`. `damage_dealt`'s `Err` is `DamageOverflow` of that `ModifierError`, so the cause is kept. Dice already drawn stay drawn. Actions, Hit Points, temporary Hit Points, and the attack count stay as they were.
+
+On success, one `pub(crate)` helper applies the dealt amount to temporary Hit Points first and the remainder to current Hit Points, floored at 0 (R-06, the damage sentence only). It does not roll. It returns `Result<(), HpError>`. `Err` becomes `HitPoints(HpError)` with that cause, and the strike writes no Hit Points, spends no action, and does not increment the count. `apply_dice_damage` is left alone, including for a state whose temporary Hit Points are 0. Do not add a second damage formula. Reuse `note_hit_points` for the existing dead-versus-enter-dying result of reaching 0. Do not choose a dying value, do not change wounded, do not move the initiative entry, and do not treat a blow of at least twice maximum Hit Points as its own result. Those belong to `add-dying-and-victory` and `wire-dying-into-turns`.
+
+Damage follows `damage_dealt`: dice plus the baked bonus, then penalties, then the floor of 1 only when penalties reduce a pre-penalty total of at least 1, or a clamp at 0 otherwise, then doubling. R-07 and DEV-14 are this order. The smallest floored crit is 2. A clamped 0 stays 0 on a crit.
+
+`attack_trait_penalty(&self, id, agility)` derives on-turn from the open turn: it is that creature's turn only when the open turn is `id`. The caller cannot pass a bool. `Agility` is `Agile` or `NotAgile`. The method builds `MapInput` and calls `multiple_attack_penalty`. It does not increment the count. Off that creature's turn the penalty is 0. It does not store a Ready snapshot. An unknown id is `UnknownCombatant`.
 
 ### The caller list on the attack total
 
@@ -87,13 +110,24 @@ Fold the internal terms and `caller` with `total`. The success value is the natu
 
 Alternative considered: keep the `i32` return and map a fold error to the natural roll, which is what the function did before `d6da856`. Rejected. A caller list can overflow, and returning the face would drop the modifiers. `Result` matches the modifiers overflow rule and AGENTS.md §7. An empty list still returns `Ok` with the totals dice-and-checks already specifies. Call sites in tests pass `&[]` and read the `Ok` value.
 
-The scenario tests for the removed requirement call `attack_check_total`. They do not call `attack_check_parts`. The private helper may remain.
+The scenario tests for the removed requirement call `attack_check_total`. They do not call `attack_check_parts`. The private helper remains, and its callers stay.
 
 ### Public shape
 
 ```rust
-pub enum Side { Pc, Enemy }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Pc,
+    Enemy,
+}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Agility {
+    Agile,
+    NotAgile,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Participant {
     pub id: CombatantId,
     pub side: Side,
@@ -101,10 +135,20 @@ pub struct Participant {
     pub state: CombatantState,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StrikeProfile {
+    pub attack_bonus: i32,
+    pub agility: Agility,
+    pub damage_dice: DieCount,
+    pub damage_faces: Faces,
+    pub damage_bonus: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EncounterError {
     DuplicateCombatant,
     EmptyRoster,
-    PerceptionModifier,
+    PerceptionOutOfRange,
     UnknownCombatant,
     TurnInProgress,
     TurnNotOpen,
@@ -112,12 +156,18 @@ pub enum EncounterError {
     InsufficientActions,
     InvalidActionCost,
     NoReaction,
-    Dead,
+    NotConscious,
+    TargetDead,
     SelfTarget,
     NoLivingCombatant,
-    DamageOverflow,
+    AttackCountOverflow,
+    RoundOverflow,
+    AttackOverflow(ModifierError),
+    DamageOverflow(ModifierError),
+    HitPoints(HpError),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StrikeOutcome {
     pub natural: u8,
     pub total: i32,
@@ -125,16 +175,55 @@ pub struct StrikeOutcome {
     pub map: i32,
     pub damage: i32,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Encounter {
+    // private fields
+}
+
+pub fn begin_encounter(
+    participants: Vec<Participant>,
+    dice: &mut impl Dice,
+) -> Result<Encounter, EncounterError>;
+
+impl Encounter {
+    pub fn round(&self) -> u32;
+    pub fn order(&self) -> &[CombatantId];
+    pub fn turn_open(&self) -> Option<CombatantId>;
+    pub fn state(&self, id: CombatantId) -> Result<&CombatantState, EncounterError>;
+    pub fn creature(&self, id: CombatantId) -> Result<&Creature, EncounterError>;
+    pub fn start_turn(&mut self) -> Result<CombatantId, EncounterError>;
+    pub fn end_turn(&mut self) -> Result<(), EncounterError>;
+    pub fn spend_actions(&mut self, id: CombatantId, n: u8) -> Result<(), EncounterError>;
+    pub fn spend_free_action(&mut self, id: CombatantId) -> Result<(), EncounterError>;
+    pub fn spend_reaction(&mut self, id: CombatantId) -> Result<(), EncounterError>;
+    pub fn attack_trait_penalty(
+        &self,
+        id: CombatantId,
+        agility: Agility,
+    ) -> Result<i32, EncounterError>;
+    pub fn strike(
+        &mut self,
+        attacker: CombatantId,
+        target: CombatantId,
+        profile: &StrikeProfile,
+        modifiers: &[Modifier],
+        dice: &mut impl Dice,
+    ) -> Result<StrikeOutcome, EncounterError>;
+}
 ```
 
-`round`, `order`, and `turn_open` are readable. `state` and `creature` are borrowed by id. `strike` returns `StrikeOutcome` on success. Every public item gets a `///` comment citing the Player Core section when it states a rule. No `unwrap`, `expect`, `panic!`, or unchecked indexing outside tests. Sums use checked arithmetic.
+Scenario errors map to those variants: duplicate id `DuplicateCombatant`; empty roster `EmptyRoster`; Perception 2147483628 `PerceptionOutOfRange`; a second start `TurnInProgress`; end with no open turn `TurnNotOpen`; a strike by someone other than the active id `NotYourTurn`; a cost of 0 or greater than 3 `InvalidActionCost`; a cost the creature cannot pay `InsufficientActions`; a Strike with 0 actions `InsufficientActions`; a second reaction `NoReaction`; a reaction, action, free action, or Strike for a non-Alive creature `NotConscious`; a dead target `TargetDead`; striking oneself `SelfTarget`; an id that is not in the encounter `UnknownCombatant`; every combatant dead `NoLivingCombatant`; a `u8` attack-count increment that does not fit `AttackCountOverflow`; a round increment that does not fit `RoundOverflow`; an attack-total `Err` `AttackOverflow` of that `ModifierError`; a damage sum or `damage_dealt` `Err` `DamageOverflow` of that `ModifierError`; the Hit Point helper's `Err` `HitPoints` of that `HpError`.
+
+`round`, `order`, and `turn_open` are readable. `state` and `creature` are borrowed by id. Every public item gets a `///` comment citing the Player Core section when it states a rule. No `unwrap`, `expect`, `panic!`, or unchecked indexing outside tests. Sums use checked arithmetic.
 
 ## Risks / Trade-offs
 
 - [Call sites of `attack_check_total` still expect `i32`] → Update them in the same change. An empty caller list keeps the existing success totals. The proof run is `cargo test --workspace`.
-- [`damage_dealt` ignores temporary Hit Points] → Strike applies the dealt amount temporary-Hit-Points first. Extending `apply_dice_damage` is fine only when a state at 0 temporary Hit Points still matches the creature-template tests. Do not add a second damage formula.
-- [A creature that has entered dying can still Strike] → Called out above. `add-dying-and-victory` is the change that stops that turn.
-- [The attack count is invisible if only `strike` exists] → `attack_trait_penalty` is the read the reaction scenario uses, and it does not increment.
+- [`damage_dealt` ignores temporary Hit Points] → The `pub(crate)` helper applies the dealt amount temporary-Hit-Points first. `apply_dice_damage` stays as it is, so a state at 0 temporary Hit Points still matches the creature-template tests.
+- [A not-Alive creature still occupies a turn] → The turn is empty. `wire-dying-into-turns` fills the steps. This change does not give that creature 3 actions.
+- [`add-dying-and-victory` owns massive damage and the initiative move] → This change does not specify those results, so that change does not inherit a test it must loosen.
+- [The attack count is invisible if only `strike` exists] → `attack_trait_penalty` is the read. It derives the turn from the encounter and does not increment.
 
 ## Migration Plan
 
