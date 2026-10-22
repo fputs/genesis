@@ -642,42 +642,6 @@ Frightened and sickened penalties use status -rank. Rank 0 entries are dropped. 
 - **AND** the total is not -5
 - **AND** one circumstance penalty is applied
 
-### Requirement: Attack check internal terms use reserved sources
-
-The multiple attack penalty SHALL apply once per check and SHALL reuse MultipleAttackPenalty. The attack check SHALL NOT add a separate internal multiple attack penalty source. The other untyped internal penalty SHALL be the range penalty (Player Core pg. 403, Rules 2290). A reserved source SHALL NOT exempt a term from same-type stacking. A caller SHALL NOT construct a reserved source.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2290 (Player Core pg. 403, Range Penalty)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2266 (Player Core pg. 398, Duplicate Effects; context only)
-
-#### Scenario: A caller source 1 does not collapse an internal term
-
-- **GIVEN** the attack check total's internal terms for an untyped multiple attack penalty of -5, a circumstance penalty of -2, and a range penalty of -2, plus a caller untyped penalty of -3 from source 1
-- **WHEN** they are totaled on the attack roll
-- **THEN** the caller penalty of -3 is applied
-- **AND** the multiple attack penalty of -5 and the range penalty of -2 are applied
-- **AND** the circumstance penalty of -2 is applied
-- **AND** the attack-roll total is -12
-- **AND** no internal term is caller source 1
-- **AND** the substitute is recorded as rule, Duplicate Effects keys a repeated effect on its source; why not, these internal terms are not caller effects; substitute, each internal term uses a reserved source no caller can construct; intent, caller source 1 cannot collapse an internal term
-
-#### Scenario: A second attack with no caller MAP gets -5 once
-
-- **GIVEN** a second non-agile attack on the creature's own turn and no caller multiple attack penalty
-- **WHEN** the attack-roll modifiers for that check are totaled
-- **THEN** one untyped penalty of -5 is applied
-- **AND** that penalty is applied once
-- **AND** the multiple attack penalty is not -10
-
-#### Scenario: An internal circumstance penalty and a caller circumstance penalty total -3
-
-- **GIVEN** an internal circumstance penalty of -2 and a caller circumstance penalty of -3 from source 1
-- **WHEN** they are totaled on the attack roll
-- **THEN** the total is -3
-- **AND** the circumstance penalty is -3
-- **AND** the total is not -5
-
 ### Requirement: Valued conditions are validated at construction
 
 Frightened or sickened with no rank, non-status type, or a bonus including rank 0 SHALL return InvalidValuedCondition at construction and SHALL NOT panic. A penalty above rank 0 SHALL apply as status -rank and SHALL NOT be rewritten from another type. A rank 0 penalty SHALL stay legal and contribute nothing. Other unranked conditions SHALL stay legal. A bonus and a penalty of a condition whose modifiers are not derived from its value SHALL both apply (Rules 2282, Player Core p.400, Penalties).
@@ -781,3 +745,86 @@ Frightened or sickened with no rank, non-status type, or a bonus including rank 
 - **THEN** the result is InvalidValuedCondition
 - **AND** no modifier is returned
 - **AND** creation does not panic
+
+### Requirement: Attack check total takes caller modifiers
+
+`attack_check_total` SHALL take the caller modifiers as a public list and fold that list with its internal terms by the stacking rules. A success SHALL be that total. An overflowing fold SHALL return a typed error and SHALL NOT panic.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
+
+#### Scenario: An empty caller list keeps the stacked total
+
+- **GIVEN** a natural 12, attack bonus +9, multiple attack penalty -5, circumstance penalty -2, range penalty 0, and an empty caller list
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 14
+
+#### Scenario: A caller untyped penalty stacks with the multiple attack penalty
+
+- **GIVEN** a natural 12, attack bonus +9, multiple attack penalty -5, and a caller untyped penalty of -2 from source 1
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 14
+- **AND** the total is not 16
+
+#### Scenario: Two caller circumstance bonuses keep the higher
+
+- **GIVEN** a natural 10, attack bonus +0, and caller circumstance bonuses of +4 and +1 from different sources
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 14
+- **AND** the total is not 15
+
+#### Scenario: A caller circumstance bonus and an internal circumstance penalty both apply
+
+- **GIVEN** a natural 10, attack bonus +0, an internal circumstance penalty of -2, and a caller circumstance bonus of +2 from source 1
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 10
+
+#### Scenario: An Armor Class modifier does not change the attack total
+
+- **GIVEN** a natural 10, attack bonus +0, and a caller circumstance penalty of -2 on Armor Class from source 1
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 10
+- **AND** the total is not 8
+
+#### Scenario: An overflowing caller list returns an error
+
+- **GIVEN** a natural 12 and two caller untyped penalties of -2147483648 from different sources
+- **WHEN** `attack_check_total` is called
+- **THEN** the result is a typed overflow error
+- **AND** the result is not a total of 12
+- **AND** the call does not panic
+
+#### Scenario: The same caller list totals twice
+
+- **GIVEN** a natural 10, attack bonus +4, multiple attack penalty -5, and a caller circumstance penalty of -2 from source 3
+- **WHEN** `attack_check_total` is called twice with that list
+- **THEN** the two totals are equal
+
+### Requirement: Internal attack terms keep reserved sources
+
+The multiple attack penalty SHALL apply once per check through its reserved source. The range penalty SHALL be the other untyped internal term. A reserved source SHALL NOT skip same-type stacking. A caller SHALL NOT construct a reserved source.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2290 (Player Core pg. 403, Range Penalty)
+**Source**: Player Core pg. 398, Duplicate Effects
+
+#### Scenario: A caller source 1 does not collapse an internal term
+
+- **GIVEN** a natural 10, attack bonus +0, multiple attack penalty -5, circumstance penalty -2, range penalty -2, and a caller untyped penalty of -3 from source 1
+- **WHEN** `attack_check_total` is called
+- **THEN** the caller's source id is 1
+- **AND** the total is -2
+- **AND** the total is not 1
+
+#### Scenario: A second attack with no caller MAP gets -5 once
+
+- **GIVEN** a natural 10, attack bonus +0, the multiple attack penalty of -5 for a second non-agile attack on the creature's own turn, and an empty caller list
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 5
+- **AND** the total is not 0
+
+#### Scenario: An internal circumstance penalty and a caller circumstance penalty total -3
+
+- **GIVEN** a natural 10, attack bonus +0, an internal circumstance penalty of -2, and a caller circumstance penalty of -3 from source 1
+- **WHEN** `attack_check_total` is called
+- **THEN** the total is 7
+- **AND** the total is not 5
