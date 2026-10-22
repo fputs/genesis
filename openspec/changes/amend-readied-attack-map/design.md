@@ -34,9 +34,11 @@ pub struct MapInput {
 }
 ```
 
-When `readied_attack_count` is `Some(count)`, the existing match uses `count` and `current_weapon_agile`: 0, then -5, then -10, or 0, then -4, then -8. `on_own_turn` does not zero that result. When it is `None` and `on_own_turn` is false, the result is 0. When it is `None` and `on_own_turn` is true, the match uses `prior_attack_trait_checks_this_turn`, as it does today.
+When `readied_attack_count` is `Some(count)`, the existing match uses `count` and `current_weapon_agile`: 0, then -5, then -10, or 0, then -4, then -8. Count 2 or more is the third and later attacks, including 3 and 255. `on_own_turn` does not zero that result. When it is `None` and `on_own_turn` is false, the result is 0. When it is `None` and `on_own_turn` is true, the match uses `prior_attack_trait_checks_this_turn`, as it does today. Only a readied check passes `Some`. A Reactive Strike passes `None`, `on_own_turn: false`, and prior 2, and the penalty is 0.
 
-The function takes `MapInput` by value and returns `i32`. It does not increment a count. A caller-held `u8` is unchanged after the call.
+The function takes `MapInput` by value and returns `i32`. It cannot advance a count. Tests do not assert that a caller-held `u8` is unchanged. The next-own-turn scenario is the penalty-0 coverage. Advancing the count on the current turn is the ready change's job.
+
+In Phase 1, an attack-trait check and Ready's attack action are the same set. This change does not add a second list of actions.
 
 Alternative considered: store the penalty number at Ready time. Rejected. Ruling R-05 says the snapshot is the count, because the weapon used for the readied attack sets agile. Two non-agile checks then an agile readied attack are -8, not a stored -10. One agile check then a non-agile readied attack is -5, not a stored -4.
 
@@ -50,14 +52,14 @@ Alternative considered: teach `attack_trait_penalty` to store the count now. Rej
 
 ### 3. No new error
 
-`Some` together with `on_own_turn: true` still uses the frozen count. A readied attack is on another creature's turn, and the scenarios pass it that way. The function stays `i32`, with no new error variant and no panic. `u8` needs no overflow check here, because the function does not add to the count.
+`Some` together with `on_own_turn: true` still uses the frozen count. The usual readied scenarios are on another creature's turn. The scenario "A readied attack on your own turn uses the frozen count" is the other case: prior count 0, frozen count 2, non-agile, penalty -10. The function stays `i32`, with no new error variant and no panic. `u8` needs no overflow check here, because the function does not add to the count. Frozen count 255 is the third-and-later penalty, -10 or -8.
 
 ## Risks / Trade-offs
 
-- [Encounter-turns still says every off-turn attack-trait check takes penalty 0 and that the encounter does not keep a frozen penalty] → This change does not amend that requirement and does not pass `Some` from `attack_trait_penalty`. The later ready change amends "A reaction attack penalty stays 0", keeps the scenario title "A reaction after two Strikes keeps penalty 0" for a reaction that is not readied, snapshots the `u8` count when Ready resolves, and calls `multiple_attack_penalty` with that count and the readied weapon's agile trait. It does not increment the own-turn count. It owns the B-06 trigger scenario: two own-turn attacks, then the readied non-agile Strike fires at -10. `attack_modifiers` already accepts the `i32` this function returns.
+- [Encounter-turns still says every off-turn attack-trait check takes penalty 0 and that the encounter does not keep a frozen penalty] → This change does not amend that requirement and does not pass `Some` from `attack_trait_penalty`. The later ready change amends "A reaction attack penalty stays 0", keeps the scenario title "A reaction after two Strikes keeps penalty 0" for a reaction that is not readied, snapshots the `u8` count when Ready resolves, and calls `multiple_attack_penalty` with that count and the readied weapon's agile trait. It does not increment the own-turn count. Ready expires at the start of the creature's next turn. That change covers a readied attack against a Dying, Unconscious, or Dead target. It owns the B-06 trigger scenario (two own-turn attacks, then the readied non-agile Strike fires at -10) and keeps R-05's freeze-the-count reading there. `attack_modifiers` already accepts the `i32` this function returns.
 - [Delay might assume every reaction has penalty 0] → The later delay change treats a readied attack as a reaction whose penalty comes from this function. Delay's own rule is availability: no reactions while delayed (Player Core pg. 416, Actions 2294). This change does not specify Delay.
-- [The requirement sentence is 496 characters, and strict validation fails a main-spec requirement past 500] → Keep the sentence within that limit. The table and the count-versus-number cases live in the scenarios.
-- [A readied attack does not add to the count, but this function does not hold the count] → Tests keep a local `u8`, pass `Some` of that value, and assert the local value is unchanged. The same inputs twice return the same `i32`.
+- [Strict validation fails a main-spec requirement past 500 characters] → The requirement sentence stays at or under 500. Ruling R-05 is cited on a Source line. The table and the count-versus-number cases live in the scenarios.
+- [MapInput is by value, so an assert that the call leaves a local count unchanged proves nothing] → Tests do not make that assert. The scenario "A readied attack leaves the next own turn at no penalty" is the penalty-0 coverage. The ready change covers the current-turn count. The same inputs twice still return the same `i32`.
 
 ## Migration Plan
 
