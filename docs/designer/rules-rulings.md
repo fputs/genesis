@@ -64,3 +64,8 @@ Rules 2302, PC 406: "If the combined penalties on an attack would reduce the dam
 - A blow fully absorbed by temporary HP still counts as taking damage, so dying still rises (Player Core p.411, Rules 2327; Player Core p.410, Rules 2321). This is a ruling, not a deviation. Example: dying 1 with 5 temp HP takes 3 damage, giving dying 2 and 2 temp HP.
 - A knockout blow hits temp HP first. Example: 3 HP with 5 temp HP takes 7 damage, leaving 0 temp HP, 1 HP and no dying.
 - Every death clears temp HP, from massive damage and from reaching dying 4 alike. RAW doesn't say (Player Core p.411, Rules 2329); we do it for consistency.
+
+## R-11 Take Cover after Stand (PR #45 review, 2026-10-22)
+- Stand does not end Take Cover. The end triggers are moving from your space, an attack action, becoming unconscious, or a free action (Player Core p.418, Actions 2307). But the greater cover against ranged attacks comes from being prone ("If you're prone, you gain greater cover against ranged attacks"; Prone, Player Core p.445, Conditions 88), so it lasts only while the creature is prone.
+- Ruling: on Stand, drop only the part that came from prone. StandardPlusGreaterVsRanged becomes Standard (+2 against melee and ranged, with no prone off-guard). GreaterVsRanged alone (prone, with no feature and no cover) leaves nothing, so the Take Cover ends. Greater from standard cover stays Greater (+4). This extends DEV-24.
+- Unconscious and prone: unconscious ends Take Cover. Off-guard from prone and off-guard from unconscious are the same condition and apply once, as -2 circumstance (Player Core p.445, Conditions 58; Player Core p.400, Rules 2282). With the unconscious -4 status penalty, AC totals -6, never -8.
