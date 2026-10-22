@@ -10,7 +10,7 @@ Decides prone posture, flanking on a 5-foot grid, off-guard to an attack, and Ta
 
 The same positioning inputs SHALL return the same result. A call SHALL NOT roll dice, read a clock, or read a file. A fallible call SHALL return a typed error and SHALL NOT panic. The rules crate SHALL gain no dependency.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: The same flanking query twice matches
 
@@ -28,7 +28,7 @@ The same positioning inputs SHALL return the same result. A call SHALL NOT roll 
 
 #### Scenario: The same drop prone twice matches
 
-- **GIVEN** a standing creature that is not immobilized, square (3, 4), no stored benefit, and a scripted d20 holding 8
+- **GIVEN** a standing creature with Mobility::Free, square (3, 4), no stored benefit, and a scripted d20 holding 8
 - **WHEN** Drop Prone is resolved twice
 - **THEN** both results are equal and both are prone on (3, 4)
 - **AND** the scripted 8 is still unused
@@ -48,86 +48,93 @@ Prone and a Take Cover benefit SHALL be values the caller keeps. They SHALL NOT 
 
 #### Scenario: Drop Prone leaves the combatant state
 
-- **GIVEN** a standing creature that is not immobilized, a combatant state with 2 actions remaining and the reaction not ready, and square (3, 4)
+- **GIVEN** a standing creature with Mobility::Free, a combatant state with 2 actions remaining and the reaction not ready, and square (3, 4)
 - **WHEN** Drop Prone succeeds without that state as an argument
 - **THEN** the returned posture is prone on square (3, 4)
 - **AND** the state still has 2 actions remaining and the reaction is still not ready
 
 ### Requirement: Drop Prone and Stand name the move trait
 
-Drop Prone and Stand SHALL each name a cost of 1 action with the move trait. They SHALL NOT spend that action. They SHALL NOT resolve Reactive Strike. The trait is data for change 8 (FIX-06). The result SHALL NOT include a trigger flag.
+Drop Prone and Stand SHALL each name a cost of 1 action with the move trait. They SHALL NOT spend that action. They SHALL NOT resolve Reactive Strike. The result SHALL NOT include a trigger flag. Change 8 treats any PostureChange whose cost includes the move trait as its reactive trigger (FIX-06).
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2295 (Player Core pg. 416, Drop Prone)
 
 #### Scenario: Drop Prone reports one move action
 
-- **GIVEN** a standing creature that is not immobilized
+- **GIVEN** a standing creature with Mobility::Free
 - **WHEN** Drop Prone succeeds
 - **THEN** the cost is 1 action with the move trait
 - **AND** the result has no trigger flag
 
 #### Scenario: Stand reports one move action
 
-- **GIVEN** a prone creature that is not immobilized
+- **GIVEN** a prone creature with Mobility::Free
 - **WHEN** Stand succeeds
 - **THEN** the cost is 1 action with the move trait
 - **AND** the result has no trigger flag
 
 ### Requirement: Immobilized blocks Drop Prone and Stand
 
-Drop Prone, Stand, and Leap SHALL call the existing move-trait check first. Immobilized SHALL return Immobilized and SHALL change nothing. Immobilized SHALL be reported before NotProne and before ProneRestrictsMovement.
+Drop Prone, Stand, Leap, and prone movement SHALL take Mobility, not a bool. Mobility::Immobilized SHALL return Immobilized and SHALL change nothing. That error SHALL be reported before NotProne and before ProneRestrictsMovement. A standing creature with Mobility::Free SHALL get Ok from prone movement for Step, and the caller's diagonal counter SHALL stay as it was.
 
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=66 (Player Core pg. 443, Immobilized)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=81 (Player Core pg. 444, Immobilized)
 
 #### Scenario: An immobilized creature cannot drop prone or stand
 
-- **GIVEN** an immobilized creature at (3, 4), once standing and once prone, with a stored benefit
+- **GIVEN** a creature at (3, 4) with Mobility::Immobilized, once standing and once prone, with a stored benefit
 - **WHEN** Drop Prone and Stand are each attempted
 - **THEN** each result is Immobilized
 - **AND** posture, square, and the stored benefit stay as they were
 
 #### Scenario: Standing cannot stand
 
-- **GIVEN** a standing creature that is not immobilized
+- **GIVEN** a standing creature with Mobility::Free
 - **WHEN** Stand is attempted
 - **THEN** the result is NotProne
 
 #### Scenario: Immobilized wins over not prone
 
-- **GIVEN** a standing immobilized creature
+- **GIVEN** a standing creature with Mobility::Immobilized
 - **WHEN** Stand is attempted
 - **THEN** the result is Immobilized
 
 #### Scenario: Immobilized wins over a prone move
 
-- **GIVEN** a prone immobilized creature and a diagonal counter whose count is 1
+- **GIVEN** a prone creature with Mobility::Immobilized and a diagonal counter whose count is 1
 - **WHEN** prone movement is attempted with Step
 - **THEN** the result is Immobilized
 - **AND** the counter still counts 1 diagonal
 
 #### Scenario: Immobilized wins over leap while prone
 
-- **GIVEN** a prone immobilized creature
+- **GIVEN** a prone creature with Mobility::Immobilized
 - **WHEN** Leap is attempted
 - **THEN** the result is Immobilized
 - **AND** the result contains no distance
 
+#### Scenario: Standing prone move step is ok
+
+- **GIVEN** a standing creature with Mobility::Free and a diagonal counter whose count is 1
+- **WHEN** prone movement is attempted with Step
+- **THEN** the result is Ok
+- **AND** the counter still counts 1 diagonal
+
 ### Requirement: Only Stand is legal while prone
 
-While prone, Stand SHALL be the only move this change allows. Stride, Step, and Drop Prone SHALL return ProneRestrictsMovement with no distance. Leap while prone SHALL return ProneRestrictsMovement with no distance. A standing Leap SHALL return NotProne with no distance. Crawl and standing Leap distance belong to add-crawl-and-leap.
+While prone, Stand SHALL be the only move this change allows. This change SHALL NOT implement Stride or Step; they stay in grid-movement. Naming them, or Drop Prone, while prone SHALL return ProneRestrictsMovement and no distance. Leap while prone SHALL return the same. A standing Leap SHALL return Unsupported and no distance. Crawl and standing Leap distance belong to add-crawl-and-leap.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
 
 #### Scenario: Only Stand is legal while prone
 
-- **GIVEN** a prone creature that is not immobilized, on square (3, 4)
+- **GIVEN** a prone creature with Mobility::Free, on square (3, 4)
 - **WHEN** Stand, Drop Prone, Stride, and Step are each attempted
 - **THEN** Stand succeeds on (3, 4)
 - **AND** Drop Prone, Stride, and Step each return ProneRestrictsMovement
 
 #### Scenario: No prone move variant returns a distance
 
-- **GIVEN** a prone creature that is not immobilized and a diagonal counter whose count is 1
+- **GIVEN** a prone creature with Mobility::Free and a diagonal counter whose count is 1
 - **WHEN** Stride, Step, and Drop Prone are each passed to prone movement
 - **THEN** each result is ProneRestrictsMovement
 - **AND** none of the results contains a distance
@@ -135,16 +142,16 @@ While prone, Stand SHALL be the only move this change allows. Stride, Step, and 
 
 #### Scenario: Leap while prone is rejected
 
-- **GIVEN** a prone creature that is not immobilized
+- **GIVEN** a prone creature with Mobility::Free
 - **WHEN** Leap is attempted
 - **THEN** the result is ProneRestrictsMovement
 - **AND** the result contains no distance
 
 #### Scenario: A standing leap is not resolved
 
-- **GIVEN** a standing creature that is not immobilized
+- **GIVEN** a standing creature with Mobility::Free
 - **WHEN** Leap is attempted
-- **THEN** the result is NotProne
+- **THEN** the result is Unsupported
 - **AND** the result contains no distance
 
 #### Scenario: Move actions are stride step and drop prone
@@ -153,10 +160,11 @@ While prone, Stand SHALL be the only move this change allows. Stride, Step, and 
 - **WHEN** they are listed
 - **THEN** they are Stride, Step, and Drop Prone
 - **AND** Leap and Crawl are not among them
+- **AND** Stride and Step are not implemented by this change
 
 ### Requirement: The creature stays in its square
 
-Drop Prone, Stand, and Take Cover SHALL NOT move the creature. The returned square SHALL equal the input square. An occupant SHALL NOT block Stand (DEV-27). This change SHALL NOT permit another creature to end a move in the prone creature's square.
+Drop Prone, Stand, and Take Cover SHALL NOT move the creature. The returned square SHALL equal the input square. An occupant SHALL NOT block Stand (DEV-27). PostureChange SHALL have exactly the fields posture, square, benefit, and cost. Another creature ending a move in the square is grid-movement's OccupiedEnd.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2361 (Player Core pg. 422, Sharing Space)
 
@@ -170,9 +178,8 @@ Drop Prone, Stand, and Take Cover SHALL NOT move the creature. The returned squa
 
 - **GIVEN** a prone creature at (3, 4) and another creature in that square
 - **WHEN** Stand is attempted
-- **THEN** Stand succeeds
-- **AND** the returned square is (3, 4)
-- **AND** the result does not permit the other creature to end a move there
+- **THEN** Stand succeeds on square (3, 4)
+- **AND** the result has exactly the fields posture, square, benefit, and cost
 
 #### Scenario: Drop Prone keeps the square and the cover benefit
 
@@ -182,16 +189,16 @@ Drop Prone, Stand, and Take Cover SHALL NOT move the creature. The returned squa
 
 ### Requirement: Prone uses the existing attack penalty and off-guard
 
-A prone creature SHALL be off-guard, and that penalty SHALL be the existing circumstance minus 2 to Armor Class, for melee and for ranged. The prone attack penalty SHALL be the existing circumstance minus 2 from the attack-modifier function. This change SHALL NOT build a second copy of either penalty.
+A prone creature SHALL be off-guard, and that penalty SHALL be the existing circumstance minus 2 to Armor Class, for melee and for ranged. The attack penalty SHALL take Posture. Posture::Prone SHALL be the existing circumstance minus 2. Posture::Standing SHALL add no prone penalty. This change SHALL NOT build a second copy of either penalty.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
 
 #### Scenario: Prone off-guard and the attack penalty
 
-- **GIVEN** a prone attacker and a prone defender
-- **WHEN** the attack penalty and the Armor Class total are resolved
+- **GIVEN** Posture::Prone for the attacker and OffGuard::Yes for the defender, with no cover
+- **WHEN** the attack penalty and the Armor Class total are resolved for melee and for ranged
 - **THEN** the attack total is minus 2
-- **AND** the Armor Class total is minus 2 for melee and for ranged
+- **AND** each Armor Class total is minus 2
 
 #### Scenario: Prone off-guard applies to melee and ranged
 
@@ -201,13 +208,13 @@ A prone creature SHALL be off-guard, and that penalty SHALL be the existing circ
 
 #### Scenario: A standing attacker has no prone penalty
 
-- **GIVEN** a standing attacker
+- **GIVEN** Posture::Standing
 - **WHEN** the attack penalty is resolved
 - **THEN** the attack total has no prone penalty
 
 #### Scenario: Prone penalty and an untyped penalty total minus 7
 
-- **GIVEN** a prone attacker and a caller untyped penalty of minus 5 to the attack
+- **GIVEN** Posture::Prone and a caller untyped penalty of minus 5 to the attack
 - **WHEN** the prone penalty and that untyped penalty are totaled
 - **THEN** the attack total is minus 7
 
@@ -215,42 +222,50 @@ A prone creature SHALL be off-guard, and that penalty SHALL be the existing circ
 
 A cover bonus and off-guard SHALL both apply. Standard cover and off-guard SHALL total 0. Greater cover and off-guard SHALL total plus 2. The cover used for an attack SHALL be the higher of the stored benefit and the caller cover for that attack, and it SHALL be passed once to the existing Armor Class modifiers.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2367 (Player Core pg. 424, Cover)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2372 (Player Core pg. 424, Cover)
 
 #### Scenario: Standard cover and off-guard total 0
 
-- **GIVEN** caller standard cover, no stored benefit, and off-guard
+- **GIVEN** caller standard cover, no stored benefit, and OffGuard::Yes
 - **WHEN** Armor Class is totaled for melee and for ranged
 - **THEN** both totals are 0
 
 #### Scenario: Greater cover and off-guard total plus 2
 
-- **GIVEN** caller greater cover, no stored benefit, and off-guard
+- **GIVEN** caller greater cover, no stored benefit, and OffGuard::Yes
 - **WHEN** Armor Class is totaled for melee and for ranged
 - **THEN** both totals are plus 2
 
 #### Scenario: Stored standard and caller greater total plus 4
 
-- **GIVEN** stored standard cover and caller greater cover, with the creature standing and not off-guard
+- **GIVEN** stored standard cover, caller greater cover, and OffGuard::No
 - **WHEN** Armor Class is totaled for melee and for ranged
 - **THEN** both totals are plus 4
 - **AND** the plus 4 is one cover bonus
 
 ### Requirement: One off-guard penalty is enough
 
-Off-guard from two causes SHALL be one circumstance minus 2. Another circumstance penalty of minus 1 to Armor Class SHALL leave that total at minus 2. Grabbed SHALL be a caller flag, not a second penalty. A prone attacker and an off-guard defender SHALL each contribute their own minus 2.
+Off-guard from two causes SHALL be one circumstance minus 2, passed as OffGuard. A circumstance penalty of minus 1 SHALL leave that total at minus 2. Grabbed is OffGuard::Yes, not a second penalty. A caller status of minus 4 plus OffGuard::Yes SHALL total minus 6, not minus 8.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 404, Penalties)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
 
 #### Scenario: Off-guard and a circumstance penalty total minus 2
 
-- **GIVEN** off-guard and a caller circumstance penalty of minus 1 to Armor Class, with no cover
+- **GIVEN** OffGuard::Yes and a caller circumstance penalty of minus 1 to Armor Class, with no cover
 - **WHEN** Armor Class is totaled
 - **THEN** the total is minus 2
 
+#### Scenario: Unconscious status and off-guard total minus 6
+
+- **GIVEN** OffGuard::Yes, no cover, and a caller status penalty of minus 4, with no second off-guard
+- **WHEN** Armor Class is totaled
+- **THEN** the total is minus 6
+- **AND** the total is not minus 8
+
 #### Scenario: Grabbed and flanked are off-guard once
 
-- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5, and the caller flag for another off-guard cause
+- **GIVEN** Enemy id 1 at (0, 0) and Pc ids 2 and 3 at (0, 1) and (0, -1), all Medium, Able, Standing, and reach 5, and OffGuard::Yes for the other cause
 - **WHEN** melee off-guard is queried and Armor Class is totaled once from that result
 - **THEN** the query is off-guard
 - **AND** the Armor Class total is minus 2
@@ -265,7 +280,7 @@ Off-guard from two causes SHALL be one circumstance minus 2. Another circumstanc
 #### Scenario: A prone attacker and an off-guard defender
 
 - **GIVEN** prone Pc id 2 at (0, 1), Pc id 3 at (0, -1), and standing Enemy id 1 at (0, 0), all Medium, Able, and reach 5
-- **WHEN** the attacker's attack penalty and the defender's Armor Class are resolved
+- **WHEN** attack_penalty is called with Posture::Prone and the defender's Armor Class is totaled once with OffGuard::Yes
 - **THEN** the attack total is minus 2
 - **AND** the Armor Class total is minus 2
 
@@ -273,7 +288,7 @@ Off-guard from two causes SHALL be one circumstance minus 2. Another circumstanc
 
 A flanking line SHALL be the segment between two allies' square centers. A corner SHALL count as touching both edges that meet there (DEV-23). The line SHALL flank when those edges include an opposite pair, or when it passes through two opposite corners. Otherwise it SHALL NOT flank. There SHALL be no not-yet-ruled result.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: Opposite sides at reach 5
 
@@ -358,7 +373,7 @@ Positioning SHALL take raw squares and SHALL NOT take a map. A negative coordina
 
 A creature SHALL threaten the target when the target is inside its supplied reach and its readiness is Able (DEV-25). Reach that is not a multiple of 5 SHALL be InvalidReach. Reach 0 SHALL be legal and SHALL NOT threaten. The reach query SHALL run from the flanker to the target with both creatures' real sizes.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2370 (Player Core pg. 425, Range and Reach)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2379 (Player Core pg. 426, Range and Reach)
 
 #### Scenario: Out of reach does not flank
 
@@ -394,7 +409,7 @@ A creature SHALL threaten the target when the target is inside its supplied reac
 
 The checks SHALL run in this order: DuplicateId, then SelfId, then UnsupportedSize, then Overflow, then InvalidReach, then the boolean. An earlier failure SHALL win.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: A duplicate id is rejected
 
@@ -410,13 +425,13 @@ The checks SHALL run in this order: DuplicateId, then SelfId, then UnsupportedSi
 
 #### Scenario: Duplicate id wins over self id
 
-- **GIVEN** target id 1 at (0, 0) and two entries that both use id 1, at (0, 1) and (0, -1), reach 5
+- **GIVEN** Pc id 1 at (0, 0) and two Pc entries that both use id 1, at (0, 1) and (0, -1), all Able, Standing, Medium, and reach 5
 - **WHEN** flanking is resolved
 - **THEN** the result is DuplicateId
 
 #### Scenario: Self id wins over unsupported size
 
-- **GIVEN** target id 1 at (0, 0), a Large entry id 1 at (0, 1), and Medium Pc id 2 at (0, -1), reach 5
+- **GIVEN** Pc id 1 at (0, 0), a Large Pc id 1 at (0, 1), and Medium Pc id 2 at (0, -1), all Able, Standing, and reach 5
 - **WHEN** flanking is resolved
 - **THEN** the result is SelfId
 
@@ -454,7 +469,7 @@ Tiny, Large, Huge, and Gargantuan SHALL return UnsupportedSize. That check SHALL
 
 Two creatures SHALL be allies if and only if they have the same Side (DEV-26). Side SHALL be Pc or Enemy from add-encounter-turns. This change SHALL NOT define a faction id and SHALL NOT read consent or charm. Flankers SHALL share a Side, and the target SHALL have the other Side.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: Different sides do not flank
 
@@ -472,7 +487,7 @@ Two creatures SHALL be allies if and only if they have the same Side (DEV-26). S
 
 The attacker SHALL be an argument, and the other creatures SHALL be the partner list. Partner order SHALL NOT change the result. An empty partner list SHALL NOT flank. Two partners on opposite sides SHALL NOT flank for an attacker who does not complete a pair. Unable SHALL NOT flank. Prone SHALL NOT clear Able. The same square SHALL NOT flank.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: Unable to act does not flank
 
@@ -526,7 +541,7 @@ The attacker SHALL be an argument, and the other creatures SHALL be the partner 
 
 A melee attack from a flanking attacker SHALL be off-guard. A ranged attack SHALL NOT be off-guard from flanking alone. One flanking partner SHALL be enough. When the defender is prone, off-guard SHALL be true for melee and ranged before partner errors are considered.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: Melee from a flanker is off-guard
 
@@ -548,21 +563,22 @@ A melee attack from a flanking attacker SHALL be off-guard. A ranged attack SHAL
 
 #### Scenario: Prone off-guard does not wait on partner geometry
 
-- **GIVEN** prone Medium Enemy id 1 at (0, 0) and Large Pc id 2 at (0, 1) in the partner list
-- **WHEN** off-guard is queried for melee
-- **THEN** the result is off-guard
+- **GIVEN** prone Medium Enemy id 1 at (0, 0), attacker Pc id 3 at (0, -1), Medium, Able, Standing, and reach 5, and Large Pc id 2 at (0, 1) in the partner list
+- **WHEN** off-guard is queried for melee and for ranged
+- **THEN** both results are Ok and off-guard
+- **AND** neither result is UnsupportedSize
 
 ### Requirement: Flanking ignores facing and the ground
 
 Flanking SHALL NOT read facing. Terrain and other creatures on the line SHALL NOT change the result. Cover SHALL NOT be a flanking input.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2374 (Player Core pg. 425, Flanking)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2375 (Player Core pg. 425, Flanking)
 
 #### Scenario: Terrain and creatures do not block flanking
 
-- **GIVEN** difficult terrain at (0, 1), an Enemy at (1, 1), Enemy id 1 at (0, 0), Pc id 2 at (0, 2) with reach 10, and Pc id 3 at (0, -1) with reach 5, all three Medium, Able, and Standing
-- **WHEN** flanking is resolved with no facing and no terrain argument
-- **THEN** the target is flanked
+- **GIVEN** Enemy id 1 at (0, 0), attacker Pc id 2 at (0, 2) with reach 10, and partner Pc id 3 at (0, -1) with reach 5, all three Medium, Able, and Standing. Difficult terrain at (0, 1) and an Enemy at (1, 1) are narrative only
+- **WHEN** flanks is called for defender 1, attacker 2, and partners containing 3
+- **THEN** the result is Ok and the target is flanked
 
 ### Requirement: Take Cover upgrades cover when not prone
 
@@ -685,13 +701,13 @@ Take Cover SHALL replace the stored benefit with the better bonus for each attac
 
 ### Requirement: Take Cover has a cost and an end
 
-Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Immobilized SHALL NOT block it. Dismiss SHALL be free and SHALL clear a stored benefit. Leaving the square, an attack, unconscious, dismiss, and forced movement SHALL clear the benefit and SHALL NOT clear prone. Stand and Drop Prone SHALL NOT clear it. After Stand, greater-against-ranged SHALL remain and prone off-guard SHALL end.
+Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Mobility::Immobilized SHALL NOT block it. Dismiss SHALL be free and SHALL clear a stored benefit. Leaving the square, an attack, unconscious, dismiss, and forced movement SHALL clear the benefit and SHALL NOT clear prone. Drop Prone SHALL NOT clear it. Stand follows R-11.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
 
 #### Scenario: Take Cover is one action without the move trait
 
-- **GIVEN** an immobilized standing creature with caller standard cover
+- **GIVEN** a standing creature with Mobility::Immobilized and caller standard cover
 - **WHEN** Take Cover succeeds
 - **THEN** the cost is 1 action and the trait list is empty
 - **AND** the stored benefit is greater
@@ -708,7 +724,7 @@ Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Immobilized SH
 - **GIVEN** a prone creature with a stored benefit and caller standard cover underneath
 - **WHEN** the benefit ends because the creature left the square
 - **THEN** the benefit is gone and the posture is still prone
-- **AND** Armor Class with caller standard cover and off-guard is 0
+- **AND** Armor Class with caller standard cover and OffGuard::Yes is 0
 
 #### Scenario: An attack action clears the benefit
 
@@ -721,7 +737,7 @@ Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Immobilized SH
 - **GIVEN** a prone creature with a stored benefit
 - **WHEN** the benefit ends because the creature became unconscious
 - **THEN** the benefit is gone and the posture is still prone
-- **AND** Armor Class with no cover and no off-guard flag is 0
+- **AND** Armor Class with no cover and OffGuard::Yes is minus 2
 
 #### Scenario: Forced movement clears the benefit
 
@@ -729,18 +745,41 @@ Take Cover SHALL cost 1 action and SHALL NOT have the move trait. Immobilized SH
 - **WHEN** the benefit ends because the creature was moved by force
 - **THEN** the benefit is gone and the posture is still prone
 
-#### Scenario: Stand keeps the cover benefit
+### Requirement: Stand drops only the prone part of Take Cover
 
-- **GIVEN** a prone creature with the greater-against-ranged benefit, not immobilized
+Stand SHALL drop only the prone-only part of Take Cover (R-11 extends DEV-24; docs/designer/rules-rulings.md, parallel docs pull request). StandardPlusGreaterVsRanged SHALL become Standard at plus 2, and prone off-guard SHALL end. GreaterVsRanged alone SHALL end. Greater from standard cover SHALL stay Greater at plus 4.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2307 (Player Core pg. 418, Take Cover)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=88 (Player Core pg. 445, Prone)
+
+#### Scenario: Stand turns standard plus greater against ranged into standard
+
+- **GIVEN** a prone creature with Mobility::Free and stored StandardPlusGreaterVsRanged
 - **WHEN** Stand succeeds
-- **THEN** the posture is standing, the benefit remains, and prone off-guard is gone
-- **AND** ranged Armor Class is plus 4 and melee Armor Class has no cover from that benefit
+- **THEN** the posture is standing and the benefit is Standard
+- **AND** Armor Class with OffGuard::No is plus 2 for melee and for ranged
+
+#### Scenario: Stand ends a greater against ranged benefit
+
+- **GIVEN** a prone creature with Mobility::Free, stored GreaterVsRanged, no nearby feature, and no caller cover
+- **WHEN** Stand succeeds
+- **THEN** the benefit is gone
+- **AND** Armor Class with OffGuard::No and no cover is 0
+
+#### Scenario: Stand keeps greater cover
+
+- **GIVEN** a prone creature with Mobility::Free and stored Greater from standard cover
+- **WHEN** Stand succeeds
+- **THEN** the benefit is still Greater
+- **AND** Armor Class with OffGuard::No is plus 4 for melee and for ranged
 
 ### Requirement: This change does not invent the deferred rules
 
-Greater cover plus a shield SHALL stay plus 4 (change 7). This change SHALL NOT emit a cover bonus to a save or to Stealth. Standard cover from a creature two sizes larger SHALL NOT be computed. Hidden SHALL NOT be an input; that off-guard is change 10 only (FIX-14). An Armor Class total that does not fit in i32 SHALL return the modifier overflow and SHALL NOT wrap.
+A shield SHALL leave greater cover at plus 4 (change 7). Greater cover, OffGuard::No, ranged SHALL be plus 4 as one cover entry. A creature two sizes larger SHALL NOT be cover. Hidden SHALL NOT be an input (FIX-14). Overflow SHALL NOT wrap.
 
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2311 (Player Core pg. 419, Raise a Shield)
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2316 (Player Core pg. 419, Raise a Shield)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2372 (Player Core pg. 424, Cover)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2373 (Player Core pg. 424, Cover)
 
 #### Scenario: Greater cover does not add a shield
 
@@ -751,10 +790,10 @@ Greater cover plus a shield SHALL stay plus 4 (change 7). This change SHALL NOT 
 
 #### Scenario: Cover is an Armor Class bonus only
 
-- **GIVEN** greater cover
-- **WHEN** the totals are read
-- **THEN** Armor Class is plus 4
-- **AND** Perception and Damage are 0
+- **GIVEN** no stored benefit, caller greater cover, OffGuard::No, a ranged attack, and no extra modifiers
+- **WHEN** armor_class is called with those arguments
+- **THEN** the total is plus 4
+- **AND** exactly one circumstance cover entry was applied
 
 #### Scenario: A larger neighbour is not cover
 
@@ -764,7 +803,7 @@ Greater cover plus a shield SHALL stay plus 4 (change 7). This change SHALL NOT 
 
 #### Scenario: A standing defender with no flank is not off-guard
 
-- **GIVEN** standing Enemy id 1 at (0, 0) and Pc id 2 at (0, 1), both Medium, Able, and reach 5, with no partner and no other off-guard flag
+- **GIVEN** standing Enemy id 1 at (0, 0) and Pc id 2 at (0, 1), both Medium, Able, and reach 5, with no partner and OffGuard::No
 - **WHEN** melee off-guard is queried
 - **THEN** the target is not off-guard
 

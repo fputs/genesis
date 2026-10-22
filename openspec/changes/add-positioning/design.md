@@ -2,7 +2,7 @@
 
 ## Context
 
-`modifiers` already builds the prone attack penalty, cover, and one off-guard penalty, and `total` folds them. `grid` already answers `in_reach` and `move_trait_allowed` for Small and Medium squares. `add-encounter-turns` names `Side::{Pc, Enemy}` and re-exports it. `CombatantState.conditions` is an empty slot. See proposal.md for why this family is one change. This change names no file on `v1-reference`, so none is ported. `crates/rules` stays dependency-free. Fallible functions return `Result`. No `unwrap`, `expect`, `panic!`, or unchecked indexing. No file under `docs/designer/` is edited here. The docs pull request owns `rules-deviations.md` for DEV-23 through DEV-32.
+`modifiers` already builds the prone attack penalty, cover, and one off-guard penalty, and `total` folds them. `grid` already answers `in_reach` and `move_trait_allowed` for Small and Medium squares. `add-encounter-turns` names `Side::{Pc, Enemy}` and re-exports it. `CombatantState.conditions` is an empty slot. See proposal.md for why this family is one change. This change names no file on `v1-reference`, so none is ported. `crates/rules` stays dependency-free. Fallible functions return `Result`. No `unwrap`, `expect`, `panic!`, or unchecked indexing. No file under `docs/designer/` is edited here. DEV-23 through DEV-32 are on main in `docs/designer/rules-deviations.md`.
 
 ## Goals / Non-Goals
 
@@ -15,7 +15,7 @@
 **Non-Goals:**
 
 - Editing `modifiers.rs`, `grid.rs`, `combatant.rs`, `check.rs`, or `dice.rs`. No new field on `Creature` or `CombatantState`. No `FactionId` and no second `Side` enum.
-- Crawl, a standing Leap's distance, Stride, and Step. Those moves are not performed here. Crawl and standing Leap distance are `add-crawl-and-leap`.
+- Crawl and a standing Leap's distance. Those distances are `add-crawl-and-leap`. Stride and Step already exist in grid-movement (`grid.rs`). This change does not implement them and does not claim them.
 - Reactive Strike, shields, Seek, hidden, undetected, concealed, and unconscious's −4. Hidden off-guard is change 10 (FIX-14).
 - Spending actions or reading a turn. Costs are returned data. No trigger flag.
 
@@ -23,7 +23,7 @@
 
 ### Call the modifiers that already exist
 
-`attack_penalty(prone)` calls `attack_modifiers(0, prone, 0)` and returns that list. The zeros omit the multiple attack penalty and Aid. A `ModifierError` becomes `PositioningError::Modifier`.
+`attack_penalty(Posture::Prone)` calls `attack_modifiers(0, true, 0)`. `Posture::Standing` calls `attack_modifiers(0, false, 0)`. The zeros omit the multiple attack penalty and Aid. A `ModifierError` becomes `PositioningError::Modifier`. `OffGuard::Yes` is the `true` passed to `ac_modifiers`. `OffGuard::No` is `false`.
 
 `armor_class` picks one `Option<Cover>` for the attack, calls `ac_modifiers(cover, off_guard, false)`, appends `extra`, and returns `total` of that slice. The `false` omits unconscious. `ModifierError::Overflow` is `PositioningError::Modifier`, not a wrapped `i32`.
 
@@ -69,9 +69,14 @@ pub struct TakeCoverResult {
     pub cost: ActionCost,
 }
 
+pub enum Mobility { Free, Immobilized }
+
+pub enum OffGuard { Yes, No }
+
 pub enum PositioningError {
     Immobilized,
     NotProne,
+    Unsupported,
     ProneRestrictsMovement,
     RequirementNotMet,
     DuplicateId,
@@ -105,26 +110,26 @@ No facing field. No faction field. No consent or charm field.
 pub fn drop_prone(
     posture: Posture,
     square: Square,
-    immobilized: bool,
+    mobility: Mobility,
     benefit: Option<CoverBenefit>,
 ) -> Result<PostureChange, PositioningError>
 
 pub fn stand(
     posture: Posture,
     square: Square,
-    immobilized: bool,
+    mobility: Mobility,
     benefit: Option<CoverBenefit>,
     occupant: OccupantPresence,
 ) -> Result<PostureChange, PositioningError>
 
 pub fn prone_move(
     posture: Posture,
-    immobilized: bool,
+    mobility: Mobility,
     action: MoveAction,
     counter: DiagonalCounter,
 ) -> Result<(), PositioningError>
 
-pub fn leap_while_prone(posture: Posture, immobilized: bool) -> Result<(), PositioningError>
+pub fn leap_while_prone(posture: Posture, mobility: Mobility) -> Result<(), PositioningError>
 
 pub fn take_cover(
     posture: Posture,
@@ -150,41 +155,40 @@ pub fn off_guard(
     attacker: &CombatantPos,
     attack: AttackKind,
     partners: &[CombatantPos],
-    other_off_guard: bool,
+    other: OffGuard,
 ) -> Result<bool, PositioningError>
 
-pub fn attack_penalty(prone: bool) -> Result<Vec<Modifier>, PositioningError>
+pub fn attack_penalty(posture: Posture) -> Result<Vec<Modifier>, PositioningError>
 
 pub fn armor_class(
     benefit: Option<CoverBenefit>,
     caller_cover: Option<Cover>,
-    off_guard: bool,
+    off_guard: OffGuard,
     attack: AttackKind,
     extra: &[Modifier],
 ) -> Result<ModifierTotal, PositioningError>
 ```
 
-`drop_prone`, `stand`, and `take_cover` do not take `CombatantState`. Tests build a state, do not pass it, and assert actions and the reaction are unchanged. `OccupantPresence::Present` does not change `stand`'s `Ok` result. The returned square is the input square. Nothing in the result authorizes another creature to enter it.
+`drop_prone`, `stand`, and `take_cover` do not take `CombatantState`. Tests build a state, do not pass it, and assert actions and the reaction are unchanged. `OccupantPresence::Present` does not change `stand`'s `Ok` result. The returned square is the input square. `PostureChange` has exactly `posture`, `square`, `benefit`, and `cost`. Another creature ending a move in the square is grid-movement's `OccupiedEnd`.
 
-`prone_move` and `leap_while_prone` return `()`. The counter is `Copy` and is taken by value, so an error leaves the caller's counter as it was. Neither function calls `stride` or `step`.
+`prone_move` and `leap_while_prone` return `()`. The counter is `Copy` and is taken by value, so an error leaves the caller's counter as it was. Neither function calls `stride` or `step`. Those functions stay in grid-movement. `MoveAction::Stride` and `MoveAction::Step` only name the actions the prone condition rejects.
 
-`dismiss(None)` and `dismiss(Some(_))` are both `Ok(None)`. `dismiss_cost()` is `ActionCost::Free`. `end_benefit` returns `None` for every `EndReason` and does not take posture. `drop_prone` and `stand` copy `benefit` through. They do not call `end_benefit`.
+`dismiss(None)` and `dismiss(Some(_))` are both `Ok(None)`. `dismiss_cost()` is `ActionCost::Free`. `end_benefit` returns `None` for every `EndReason` and does not take posture. `drop_prone` copies `benefit` through. `stand` applies R-11, below, and does not call `end_benefit`.
 
 ### Action checks
 
 `drop_prone`, `stand`, and `leap_while_prone` call `move_trait_allowed` first. `prone_move` does the same before the prone restriction.
 
-- Immobilized: `Immobilized`. Inputs unchanged. This wins over `NotProne` and over `ProneRestrictsMovement`.
+- `Mobility::Immobilized`: `Immobilized`. Inputs unchanged. This wins over `NotProne` and over `ProneRestrictsMovement`.
 - `drop_prone` while prone: `ProneRestrictsMovement`.
 - `stand` while standing: `NotProne`.
 - `prone_move` while prone, for `Stride`, `Step`, or `DropProne`: `ProneRestrictsMovement`.
+- `prone_move` while standing and `Mobility::Free`: `Ok(())`. The counter is unchanged. No distance.
 - `leap_while_prone` while prone: `ProneRestrictsMovement`.
-- `leap_while_prone` while standing: `NotProne`. No distance either way. Standing Leap distance is `add-crawl-and-leap`. There is no `crawl` function. `MoveAction` has no Leap variant.
-- Success of `drop_prone` or `stand`: the other posture, the same square, the same benefit. Cost is 1 action with the move trait. No trigger flag. The trait is data for change 8 (FIX-06).
+- `leap_while_prone` while standing: `Unsupported`. Leap does not require prone. No distance either way. Standing Leap distance is `add-crawl-and-leap`. There is no `crawl` function. `MoveAction` has no Leap variant.
+- Success of `drop_prone` or `stand`: the other posture, the same square. Cost is 1 action with the move trait. No trigger flag. Change 8 treats any `PostureChange` whose cost includes `ActionTrait::Move` as the reactive trigger (FIX-06). `drop_prone` keeps the benefit. `stand` adjusts it per R-11.
 
-`take_cover` does not call `move_trait_allowed`. Cost is 1 action and an empty trait list. Immobilized does not block it.
-
-`prone_move` while standing and not immobilized returns `Ok(())`. It does not move the creature and does not change the counter.
+`take_cover` does not call `move_trait_allowed`. Cost is 1 action and an empty trait list. `Mobility::Immobilized` does not block it.
 
 ### Take Cover
 
@@ -223,13 +227,20 @@ With the prone off-guard −2 included, the six Armor Class nets are:
 
 A later Take Cover merges the same way with the benefit already stored, so stored `Greater` then caller standard stays `Greater` at +4. Query time uses the same per-attack max, so stored `Standard` plus caller `Greater` is +4 without taking the action again.
 
+Stand does not end Take Cover. It drops only the prone-only part (R-11, extending DEV-24). R-11 is recorded in `docs/designer/rules-rulings.md` by a parallel docs pull request. This change does not edit that file.
+
+| Stored before Stand | Stored after Stand |
+|---|---|
+| `StandardPlusGreaterVsRanged` | `Standard` (+2 melee and ranged, and the creature is not off-guard from prone) |
+| `GreaterVsRanged` with no feature and no cover | `None` |
+| `Greater` | `Greater` (+4) |
+| `Standard` | `Standard` |
+
 The feature is `NearbyFeature`. There is no wall test. Grid has no walls (DEV-22).
 
 ### Allies are a Side
 
-DEV-26. Allies for flanking: two creatures are allies iff they share a faction; no consent/charm model.
-
-In Phase 1 a faction is a `Side`. The same `Side` means allies. A different `Side` means they are not allies. The flankers must share a `Side`, and the target's `Side` must be the other one. The deviation ledger is not edited here.
+DEV-26, from `docs/designer/rules-deviations.md`. Two creatures are allies for flanking if and only if they share a Side (`Side::{Pc, Enemy}`). No consent or charm model. The flankers must share a `Side`, and the target's `Side` must be the other one.
 
 ### Flanking checks
 
@@ -246,9 +257,9 @@ In Phase 1 a faction is a `Side`. The same `Side` means allies. A different `Sid
 
 This function takes no map and does not call the grid's off-map check. Negative squares are legal. It takes no terrain and no third creature. Those do not change the result (there is no facing).
 
-`off_guard`: if the defender is `Prone`, return `Ok(true)` for melee and ranged without reading partners. Otherwise call `flanks` and return its error unchanged. On `Ok`, melee is that boolean or `other_off_guard`. Ranged is `other_off_guard` only. `other_off_guard` is the caller's grabbed (or any other) flag. The Armor Class function is then called once, so two causes are still one −2.
+`off_guard`: if the defender is `Prone`, return `Ok(true)` for melee and ranged without reading partners. Otherwise call `flanks` and return its error unchanged. On `Ok`, melee is that boolean or `other == OffGuard::Yes`. Ranged is `OffGuard::Yes` only. `other` is the caller's grabbed (or any other) cause. The Armor Class function is then called once with `OffGuard::Yes`, so two causes are still one −2. A caller status −4 for unconscious is an extra modifier. It is not a second off-guard. The total is −6, not −8.
 
-Threatening (DEV-25) is step 6's reach test plus `Able`. The template has one melee strike and no weapon inventory, so the supplied reach stands in for a wielded melee weapon or unarmed attack (Player Core pg. 425).
+Threatening (DEV-25) is step 6's reach test plus `Readiness::Able`. `Readiness::Able` is the ledger's `able_to_act`. The template has one melee strike and no weapon inventory, so the supplied reach stands in for a wielded melee weapon or unarmed attack (Player Core pg. 425, Flanking).
 
 ### Center line
 
@@ -284,12 +295,12 @@ Designer rulings 1 through 9 are in the spec. Nothing in this change is waiting 
 | Lesser cover alone, not prone | `RequirementNotMet`. Nothing stored. Actions kept. Armor Class stays +1. Lesser plus a feature is standard. |
 | Corner | DEV-23, as above. `(-2, -1)` and `(1, 0)` flank. |
 | Prone and other cover | DEV-24, the six nets above. |
-| Threaten | DEV-25. Reach contains the target, and readiness is `Able`. |
-| Allies | DEV-26, quoted above. In Phase 1 a faction is a `Side`. |
+| Threaten | DEV-25. Reach contains the target, and `Readiness::Able` is the ledger's `able_to_act`. |
+| Allies | DEV-26, quoted above. Same `Side::{Pc, Enemy}`. |
 | Square | DEV-27. No sharing. Stand ignores an occupant. |
 | Crawl and Leap | Distances are `add-crawl-and-leap`. Leap while prone is `ProneRestrictsMovement`. |
 | Hidden | FIX-14, change 10 only. |
-| Greater cover already stored | Stays greater. Stand does not clear the prone benefit. Take Cover has no move trait. |
+| Greater cover already stored | Stays greater through another Take Cover. Stand keeps `Greater` and drops only the prone-only part (R-11). Take Cover has no move trait. |
 | Cover vs flanking | Cover, terrain, and creatures on the line are not flanking inputs. |
 
 ## Risks / Trade-offs
@@ -297,7 +308,7 @@ Designer rulings 1 through 9 are in the spec. Nothing in this change is waiting 
 - [Implementation needs `Side` from `add-encounter-turns`] → this module does not declare a stand-in enum. The implementation pull request starts once `Side` is in the crate.
 - [Reach stands in for a wielded melee weapon] → a creature with only a ranged attack is not in this crate. The template's strike is melee.
 - [Prone off-guard skips partner errors] → `flanks` still reports those errors. `off_guard` returns true first so a bad partner list cannot hide prone.
-- [Take Cover can outlive prone] → Stand keeps `GreaterVsRanged`, and prone off-guard ends because the posture changed.
+- [Take Cover can outlive prone] → Stand keeps `Greater` and turns `StandardPlusGreaterVsRanged` into `Standard`. `GreaterVsRanged` alone becomes `None`. Prone off-guard ends because the posture changed.
 
 ## Migration Plan
 
