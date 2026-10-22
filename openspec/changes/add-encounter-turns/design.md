@@ -87,7 +87,27 @@ The degree after the natural 20 or natural 1 selects damage. `strike` does not t
 
 `StrikeProfile.damage_dice` is a `DieCount` (`u8`) and `damage_faces` is `Faces` (at most 255). The sum of that many faces fits in `i32` (at most 255 times 255). The sum still uses `checked_add`. Adding `damage_bonus` uses `checked_add`. A failure is `DamageOverflow(ModifierError::Overflow)`. `damage_dealt`'s `Err` is `DamageOverflow` of that `ModifierError`, so the cause is kept. Dice already drawn stay drawn. Actions, Hit Points, temporary Hit Points, and the attack count stay as they were.
 
-On success, one `pub(crate)` helper applies the dealt amount to temporary Hit Points first and the remainder to current Hit Points, floored at 0 (R-06, the damage sentence only). It does not roll. It returns `Result<(), HpError>`. `Err` becomes `HitPoints(HpError)` with that cause, and the strike writes no Hit Points, spends no action, and does not increment the count. `apply_dice_damage` is left alone, including for a state whose temporary Hit Points are 0. Do not add a second damage formula. The Strike helper is interim. `add-dying-and-victory` reroutes Strike through its single blow path and removes `note_hit_points`. This change does not promise that `note_hit_points` survives. Do not choose a dying value, do not change wounded, do not move the initiative entry, and do not treat a blow of at least twice maximum Hit Points as its own result. Those belong to `add-dying-and-victory` and `wire-dying-into-turns`. Until `wire-dying-into-turns`, a Strike against a target whose vital is neither Alive nor Dead uses the baked Armor Class (DEV-36).
+`HpError` gains `NotAHit`. Resolving a blow whose degree is `Failure` or `CriticalFailure` returns `HpError::NotAHit` before any damage die is drawn, and it leaves Hit Points and the rest of the state unchanged. `add-dying-and-victory` references `HpError::NotAHit` and does not define its own miss error. `NotAHit` is the miss result, not an `EncounterError::HitPoints` failure: Strike still spends the action, reports that degree, and records damage 0.
+
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HpError {
+    Overflow,
+    NotAHit,
+}
+
+pub fn apply_blow(
+    state: &mut CombatantState,
+    creature: &Creature,
+    dice: &mut impl Dice,
+    faces: Faces,
+    bonus: i32,
+    modifiers: &[Modifier],
+    degree: DegreeOfSuccess,
+) -> Result<(), HpError>;
+```
+
+On success, one `pub(crate)` helper applies the dealt amount to temporary Hit Points first and the remainder to current Hit Points, floored at 0 (R-06, the damage sentence only). It does not roll. It returns `Result<(), HpError>`. An overflow `Err` becomes `HitPoints(HpError)` with that cause, and the strike writes no Hit Points, spends no action, and does not increment the count. `apply_dice_damage` is left alone, including for a state whose temporary Hit Points are 0. Do not add a second damage formula. The Strike helper is interim. `add-dying-and-victory` reroutes Strike through its single blow path and removes `note_hit_points`. This change does not promise that `note_hit_points` survives. Do not choose a dying value, do not change wounded, do not move the initiative entry, and do not treat a blow of at least twice maximum Hit Points as its own result. Those belong to `add-dying-and-victory` and `wire-dying-into-turns`. Until `wire-dying-into-turns`, a Strike against a target whose vital is neither Alive nor Dead uses the baked Armor Class (DEV-36).
 
 Damage follows `damage_dealt`: dice plus the baked bonus, then penalties, then the floor of 1 only when penalties reduce a pre-penalty total of at least 1, or a clamp at 0 otherwise, then doubling. R-07 and DEV-14 are this order. The smallest floored crit is 2. A clamped 0 stays 0 on a crit.
 

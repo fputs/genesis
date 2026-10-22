@@ -718,6 +718,34 @@ A success SHALL deal one damage roll. A critical success SHALL double that total
 - **THEN** the degree is success
 - **AND** the damage is 4
 
+### Requirement: A miss returns NotAHit
+
+Resolving a blow whose degree is Failure or CriticalFailure SHALL return `HpError::NotAHit`. No damage die SHALL be drawn. Hit Points and the rest of the state SHALL stay unchanged. `add-dying-and-victory` uses this variant.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
+
+#### Scenario: A failure returns not a hit
+
+- **GIVEN** a blow whose degree is Failure, 20 current Hit Points, 0 temporary Hit Points, wounded 0, vital Alive, damage 1d8+4, and a scripted damage die of 8
+- **WHEN** the blow is resolved
+- **THEN** the error is HpError::NotAHit
+- **AND** the scripted 8 is still unused
+- **AND** current Hit Points stay 20
+- **AND** temporary Hit Points stay 0
+- **AND** wounded stays 0
+- **AND** vital stays Alive
+
+#### Scenario: A critical failure returns not a hit
+
+- **GIVEN** a blow whose degree is CriticalFailure, 20 current Hit Points, 0 temporary Hit Points, wounded 0, vital Alive, damage 1d8+4, and a scripted damage die of 8
+- **WHEN** the blow is resolved
+- **THEN** the error is HpError::NotAHit
+- **AND** the scripted 8 is still unused
+- **AND** current Hit Points stay 20
+- **AND** temporary Hit Points stay 0
+- **AND** wounded stays 0
+- **AND** vital stays Alive
+
 ### Requirement: Strike damage follows R-07 before Hit Points
 
 Dice and modifiers SHALL be added, then penalties. The floor of 1 SHALL apply only when penalties reduce a pre-penalty total of at least 1 to 0 or below, and it SHALL be applied before doubling, so that crit deals 2. A total clamped at 0 SHALL stay 0 on a crit. Ruling R-07 and DEV-14 fix this order.
