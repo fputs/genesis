@@ -19,6 +19,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** pr-hygiene skips archive-last while a pull request is a draft and fails a ready implementation pull request whose own OpenSpec change is still active. ([#43](https://github.com/fputs/genesis/pull/43))
 - **BREAKING:** A frightened or sickened bonus is rejected at construction. ([#40](https://github.com/fputs/genesis/pull/40))
 - **BREAKING:** Frightened and sickened modifiers with no rank or a non-status type are rejected at construction, and the attack check total's internal terms use reserved sources. ([#37](https://github.com/fputs/genesis/pull/37))
 - The equal-value condition-id tie uses condition id 4. ([#37](https://github.com/fputs/genesis/pull/37))
