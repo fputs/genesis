@@ -2,9 +2,9 @@
 
 ## Context
 
-`Creature` already stores one optional shield: hardness, maximum Hit Points, broken threshold, and that shield's AC bonus. `CombatantState` already stores `shield_hit_points` and `shield_raised`. `ac_modifiers` builds cover, off-guard, and unconscious, and `total` keeps the highest circumstance bonus and applies a circumstance penalty beside it. `ac_modifiers` does not take a shield. See proposal.md for why this change exists.
+`Creature` already stores one optional shield: hardness, maximum Hit Points, broken threshold, and that shield's AC bonus, each as `i32` on `ShieldTemplate`. `CombatantState` already stores `shield_hit_points` and `shield_raised`. `ac_modifiers` builds cover, off-guard, and unconscious, and `total` keeps the highest circumstance bonus and applies a circumstance penalty beside it. `ac_modifiers` does not take a shield. Positioning's `armor_class` already appends `extra`. See proposal.md for why this change exists.
 
-`add-dying-and-victory` defines `apply_resolved_blow(state, creature, amount, degree)`. That function is the only creature-damage formula: massive damage, temporary Hit Points, then current Hit Points, then dying. `add-encounter-turns` defines `HpError::NotAHit`, baked Armor Class on Strike, and the start step that runs before actions return. This change does not edit those requirement headers. They are not in `openspec/specs/`.
+`add-dying-and-victory` defines `apply_resolved_blow(state, creature, amount, degree)`. That function is the only creature-damage formula: massive damage, temporary Hit Points, then current Hit Points, then dying. Its `HpError::InconsistentVital` is the variant this change returns through `AttackBlowError::HitPoints`. `add-encounter-turns` defines `HpError::NotAHit`, baked Armor Class on Strike, `spend_actions`, `spend_reaction`, `reaction_ready`, and the start step that runs before actions return. `Side` is `Side::{Pc, Enemy}`. `OffGuard` is positioning's `enum OffGuard`. This change reuses those names and does not declare them.
 
 This change names no file on `v1-reference`, so none is ported. It does not edit `docs/designer/`.
 
@@ -20,68 +20,121 @@ This change names no file on `v1-reference`, so none is ported. It does not edit
 
 - A new `Side` or any other team type. Victory and flanking keep `Side::{Pc, Enemy}`.
 - Putting the raised bonus into Strike's degree. Strike keeps baked Armor Class. A follow-up, `wire-shield-ac-into-strike`, would pass this total into the attack DC. This change does not.
-- Shield bash, a shield boss, shield spikes, tower-shield cover, Repair, a speed penalty, hands, and disarm.
-- Damage types, resistance, weakness, or immunity (DEV-09).
+- Shield bash, a shield boss, shield spikes, tower-shield cover, Take Cover's +4, Repair, a speed penalty, hands, and disarm.
+- An Unconscious creature who is already raising a shield. That case is `wire-dying-into-turns`.
+- Damage types, resistance, weakness, or immunity (DEV-09). Persistent damage is not an attack and is not a Shield Block trigger.
 - Editing `docs/designer/rules-deviations.md` or `docs/designer/rules-rulings.md`.
 
 ## Decisions
 
 ### Where Shield Block plugs in
 
-`apply_attack_blow(state, creature, amount, degree, block)` is the attack entry. `amount` is already `damage_dealt`'s result, after the penalty floor and critical doubling (R-07). This function does not roll and does not double.
+```rust
+pub enum ShieldBlock {
+    Requested,
+    Declined,
+}
 
-1. `Failure` or `CriticalFailure` returns `AttackBlowError::HitPoints(HpError::NotAHit)` and writes nothing. The reaction stays ready.
-2. A legal block is `block`, `Success` or `CriticalSuccess`, `Vital::Alive`, a shield that is raised, not broken, and not destroyed, `reaction_ready`, hardness at least 0, and `amount > 0`.
-3. On a legal block, `remainder = max(0, amount - hardness)` using checked arithmetic in `i64`. Call `apply_resolved_blow(state, creature, remainder, degree)`. On `Err`, write nothing else. On `Ok`, subtract `remainder` from shield Hit Points, floored at 0, and clear `reaction_ready`.
-4. Otherwise call `apply_resolved_blow` with the original `amount`. Leave shield Hit Points and the reaction as they were.
-5. Hardness below 0, when step 2 would have been legal except for the sign, returns `AttackBlowError::Hardness` and writes nothing.
+pub fn apply_attack_blow(
+    state: &mut CombatantState,
+    creature: &Creature,
+    amount: i32,
+    degree: DegreeOfSuccess,
+    block: ShieldBlock,
+) -> Result<(), AttackBlowError>
+```
 
-Hardness is subtracted once. Shield Block says the shield prevents damage up to its Hardness and then both the creature and the shield take the rest (Feats 5212, Rules 2180). The general item-hardness sentence (Rules 2160) is that same subtraction, not a second one. A steel shield and 12 damage leave the shield at 13, not 18.
+`amount` is already `damage_dealt`'s result, after the penalty floor and critical doubling (R-07). This function does not roll and does not double.
+
+1. `Failure` or `CriticalFailure` returns `AttackBlowError::HitPoints(HpError::NotAHit)` and writes nothing. The reaction stays ready. This wins over every later check, including a broken shield and a hardness of -1 on a state that skipped validation.
+2. A combatant who is not `Vital::Alive` returns `AttackBlowError::NotConscious` when the block is `Requested`.
+3. No shield returns `AttackBlowError::NoShield`.
+4. A shield that is not raised returns `AttackBlowError::NotRaised`.
+5. A shield at 0, or at or below its broken threshold, returns `AttackBlowError::Broken`. Destroyed uses `Broken` here. Raise still returns `Destroyed` and `Broken` as two errors.
+6. A reaction that is not ready returns `AttackBlowError::NoReaction`. A second requested block in the same round is this error.
+7. `ShieldBlock::Declined` calls `apply_resolved_blow` with the original `amount` and leaves the shield and the reaction unchanged.
+8. A negative `amount` returns `AttackBlowError::NegativeAmount` and writes nothing.
+9. Amount 0 returns `Ok` and writes nothing. The reaction stays ready.
+10. Otherwise `remainder` is `max(0, amount as i64 - hardness as i64)`. Amount `2147483647` and hardness 5 produce `2147483642`, which fits in `i32`. Call `apply_resolved_blow(state, creature, remainder, degree)`. On `Err`, write nothing else. On `Ok`, subtract `remainder` from shield Hit Points, floored at 0, and clear `reaction_ready`.
+
+There is no hardness-sign guard on this path. A shield with hardness below 0, an AC bonus below 1, or a broken threshold that is not below its Hit Points is `TemplateError::InvalidShield` at build and is not a Creature. The precedence cases that mention hardness -1 construct a state without `derive`, only so `NotAHit` is shown to win.
+
+Hardness is subtracted once. Shield Block says the shield prevents damage up to its Hardness and then both the creature and the shield take the rest (https://2e.aonprd.com/Feats.aspx?ID=5212, Player Core pg. 262; https://2e.aonprd.com/Rules.aspx?ID=2180, Player Core pg. 274). The item-damage sentence is that same subtraction (https://2e.aonprd.com/Rules.aspx?ID=2160, Player Core pg. 269). A steel shield and 12 damage leave the shield at 13, not 18.
 
 Alternative considered: teach `apply_resolved_blow` about shields. Rejected. That function is also the direct blow, and a direct call must not change the shield.
 
 Alternative considered: a second Hit Point formula in `shield.rs`. Rejected. Massive damage, temporary Hit Points, and dying stay inside `apply_resolved_blow`.
 
+Alternative considered: an illegal request passes the full amount. Rejected. Raise already errors on the same states. Declining is the only path that applies the full amount.
+
 ### Strike
 
-`strike` gains `shield_block: bool`. A hit calls `apply_attack_blow` with `damage_dealt`'s amount and does not also call `apply_resolved_blow`. A miss does not call `apply_attack_blow`. Existing call sites pass `false`. The degree still uses baked Armor Class, so a natural 11, attack bonus +0, and baked Armor Class 11 is a success even when a steel shield is raised.
+`strike` takes `block: ShieldBlock`. Existing call sites pass `ShieldBlock::Declined`. A requested block checks steps 2 through 6 before any die is drawn. An error maps into `EncounterError` and spends no action:
 
-`add-dying-and-victory` says a Strike leaves shield Hit Points unchanged. Its scenario is a shield that is not raised. A Strike that does not block still leaves them unchanged. A legal block is the only writer of shield Hit Point loss. This change does not modify that requirement header.
+| Blow error | EncounterError |
+|---|---|
+| `NotConscious` | `NotConscious` |
+| `NoShield` | `NoShield` |
+| `NotRaised` | `NotRaised` |
+| `Broken` | `Broken` |
+| `NoReaction` | `NoReaction` |
+| `NegativeAmount` | `NegativeAmount` |
+| `HitPoints(err)` | `HitPoints(err)` |
+
+`NotConscious` and `NoReaction` already exist. The others are new variants. A miss does not resolve a block. A hit resolves it with `damage_dealt`'s amount and does not also call `apply_resolved_blow`. When that block is `Requested` and legal, `strike` spends the defender's reaction through `spend_reaction` and does not call `apply_attack_blow` on that path. The degree still uses baked Armor Class, so a natural 11, attack bonus +0, and baked Armor Class 11 is a success even when a steel shield is raised.
+
+`add-encounter-turns` and `add-dying-and-victory` say a Strike leaves shield Hit Points unchanged. This change modifies that requirement. The header stays `Strike damage uses resolved blows`. Shield Hit Points stay unchanged unless a legal Shield Block is requested.
 
 ### Raise, lower, and the bonus
 
-`raise_shield` checks, in order: no shield (`NoShield`), not Alive (`NotConscious`), 0 Hit Points (`Destroyed`), Hit Points at or below the broken threshold (`Broken`), 0 actions (`InsufficientActions`). Otherwise it subtracts 1 action and sets `shield_raised`. The reaction is not spent. Raising an already raised shield spends another action and does not add a second bonus.
+`raise_shield` checks, in order: no shield (`NoShield`), not Alive (`NotConscious`), 0 Hit Points (`Destroyed`), Hit Points at or below the broken threshold (`Broken`). It sets `shield_raised` and does not change actions or the reaction. Raising an already raised shield is `Ok` and does not add a second bonus. It does not return `InsufficientActions`. That error belongs to `spend_actions`.
 
-`lower_raised_shield` clears `shield_raised` and changes nothing else. The encounter start step calls it on the combatant who is starting, before that step grants 3 actions and a reaction. `end_turn` does not call it. Another combatant's start lowers only that combatant.
+`Encounter::raise_shield` rejects `NotYourTurn` when the id is not the active combatant, before it changes actions or the shield. It runs the same shield checks next, and only then calls `spend_actions(id, 1)`. The flag is set after that spend succeeds. A broken shield therefore does not spend an action.
 
-`armor_class` calls `ac_modifiers(cover, off_guard, unconscious)`, appends one shield modifier when the shield is raised and intact, and returns `total`. `ac_modifiers` gains no shield argument. The modifier is reserved `ModifierSource::RaisedShield`, sort key `(11, 0)`, sequence 11, circumstance, Armor Class, no condition. Callers cannot construct it. A listed bonus that is not positive returns `ShieldError::Bonus` only when the modifier would be added. Sequence 11 sits after `UnconsciousReflex` at 10 from `add-dying-and-victory`.
+A legal block reports that the reaction must be spent, then writes the remainder. `apply_attack_blow` is the direct entry: it clears `reaction_ready` itself when that spend is required, so a state test needs no encounter. `Encounter::shield_block` is the encounter entry. It uses the same checks, calls `spend_reaction` for that spend, and does not call `apply_attack_blow` afterward. `spend_reaction` would otherwise see a reaction that was already cleared and return `NoReaction`. One private resolve feeds both entries. `spend_reaction` already allows an Alive creature to spend during another creature's turn.
 
-A buckler is hardness 3, Hit Points 6, broken threshold 3, bonus +1 (`Shields.aspx?ID=17`). A steel shield is hardness 5, Hit Points 20, broken threshold 10, bonus +2 (`Shields.aspx?ID=19`). The creature-template scenario that stores +1 with Hit Points 8 and broken threshold 4 is an authored example, not that buckler. This change does not edit it.
+`lower_raised_shield` clears `shield_raised` and changes nothing else. `start_turn` calls it on the combatant who is actually starting, after the round increment has succeeded and before that step grants 3 actions and a reaction. `end_turn` does not call it. `RoundOverflow` returns before that start, so the shield stays raised. `start_turn` skips `Vital::Dead` and does not call `lower_raised_shield` for that combatant. A Dead combatant's raised shield adds no modifier.
+
+```rust
+pub fn shield_ac_modifier(
+    state: &CombatantState,
+    creature: &Creature,
+) -> Result<Option<Modifier>, ShieldError>
+```
+
+`None` when the combatant is Dead, the shield is absent, lowered, broken, or destroyed. `Some` when it is raised and intact. The caller passes that modifier in positioning's `armor_class(..., extra)`. `ac_modifiers` gains no shield argument. The modifier is reserved `ModifierSource::RaisedShield`, sort key `(11, 0)`, sequence 11, circumstance, Armor Class, no condition. Callers cannot construct it. Sequence 11 is after `AttackCircumstance` at `(9, 0)` on main and after `UnconsciousReflex` at `(10, 0)` reserved by `add-dying-and-victory`. It is not one of those keys.
+
+`ShieldTemplate` stays four `i32` fields. A non-negative newtype would retitle creature-template's stored shield, which this change does not do. `TemplateError::InvalidShield` rejects hardness below 0, an AC bonus below 1, and a broken threshold that is not below the shield's Hit Points, on `CharacterBuild::try_new` and on fold. The authored buckler of hardness 3, Hit Points 8, broken threshold 4, and AC bonus +1 still derives. A book buckler in the shield scenarios is hardness 3, Hit Points 6, broken threshold 3, AC bonus +1 (`Shields.aspx?ID=17`). A steel shield is hardness 5, Hit Points 20, broken threshold 10, AC bonus +2 (`Shields.aspx?ID=19`).
 
 Broken is `shield Hit Points > 0` and `shield Hit Points <= broken threshold`. Destroyed is 0. The armor exception in the broken condition does not apply, so there is no status penalty of -1, -2, or -3.
 
+A prone combatant with stored `GreaterVsRanged`, a raised steel shield, and `OffGuard::Yes` totals 0 against melee and +2 against ranged. Each attack applies one circumstance bonus: melee keeps the shield's +2, ranged keeps greater cover's +4. Off-guard's -2 applies to both (https://2e.aonprd.com/Conditions.aspx?ID=58, Player Core pg. 445; https://2e.aonprd.com/Rules.aspx?ID=2282, Player Core pg. 400).
+
 ### Proposed ledger rows
 
-Do not edit `docs/designer/rules-deviations.md` in this change. Designer records these. The ids are proposals; DEV-33 through DEV-35 are unused and DEV-36 and DEV-37 are taken.
+Do not edit `docs/designer/rules-deviations.md` in this change. Designer records these. The ids are proposals.
 
 | ID | Rule | RAW citation | Our behavior | Reason | Owning change |
 |---|---|---|---|---|---|
-| DEV-38 | Shield Block availability | https://2e.aonprd.com/Feats.aspx?ID=5212 (PC 262); https://2e.aonprd.com/Rules.aspx?ID=2180 (PC 274) | Any creature whose `Creature` has a shield may Shield Block while that shield is raised. There is no feat and no class feature. | Feats and classes are out of Phase 1. | 7 |
-| DEV-39 | Wielding a shield | https://2e.aonprd.com/Actions.aspx?ID=2316 (PC 419); buckler hand rule https://2e.aonprd.com/Shields.aspx?ID=17 (PC 274) | A shield on the `Creature` is wielded. No hands, no free-hand check, and no disarm. | No held-item slots in Phase 1. DEV-12 already keeps held items from dropping. | 7 |
+| DEV-38 | Shield Block availability | https://2e.aonprd.com/Feats.aspx?ID=5212 (Player Core pg. 262); https://2e.aonprd.com/Rules.aspx?ID=2180 (Player Core pg. 274) | Any creature whose `Creature` has a shield may Shield Block while that shield is raised. There is no feat and no class feature. | Feats and classes are out of Phase 1. | 7 |
+| DEV-39 | Wielding a shield | https://2e.aonprd.com/Actions.aspx?ID=2316 (Player Core pg. 419); buckler hand rule https://2e.aonprd.com/Shields.aspx?ID=17 (Player Core pg. 274) | A shield on the `Creature` is wielded. No hands, no free-hand check, and no disarm. | No held-item slots in Phase 1. DEV-12 already keeps held items from dropping. | 7 |
 
-DEV-09 is cited, not restated: every attack amount is physical, so Shield Block takes no damage type. FIX-11 is cited: the trigger is any attack blow, not a blow that is only named Strike. The public entry is `apply_attack_blow`. Phase 1's Strike calls it on a hit.
+(DEV-38, proposed). (DEV-39, proposed).
+
+DEV-09 is cited, not restated: every attack amount is physical, so Shield Block takes no damage type. FIX-11 is cited: the trigger is any attack's physical damage, not a blow that is only named Strike. Persistent damage is not that trigger (https://2e.aonprd.com/Feats.aspx?ID=5212, Player Core pg. 262). The public entry is `apply_attack_blow`. Phase 1's Strike calls it on a hit.
 
 ### Errors and purity
 
-`ShieldError` is `NoShield`, `Broken`, `Destroyed`, `NotConscious`, `InsufficientActions`, `Bonus`, and `Modifier(ModifierError)`. `AttackBlowError` is `HitPoints(HpError)` and `Hardness`. No string errors. No `unwrap`, `expect`, or `panic!`. No `unsafe`, no new dependency, no clock, and no dice. `raise_shield` and `apply_attack_blow` take `&mut CombatantState`. `armor_class` does not.
+`ShieldError` is `NoShield`, `Broken`, `Destroyed`, `NotConscious`, and `Modifier(ModifierError)`. `InsufficientActions` stays on `EncounterError`, from `spend_actions`. `AttackBlowError` is `HitPoints(HpError)`, `NotConscious`, `NoShield`, `NotRaised`, `Broken`, `NoReaction`, and `NegativeAmount`. `InsufficientActions` is returned by `spend_actions`, not by a second writer. No string errors. No `unwrap`, `expect`, or `panic!`. No `unsafe`, no new dependency, no clock, and no dice. `raise_shield` and `apply_attack_blow` take `&mut CombatantState`. `shield_ac_modifier` does not.
 
 ## Risks / Trade-offs
 
 - [Strike's baked Armor Class ignores the raised bonus] → The bonus is still a real total, and the blocked-Strike scenario asserts success against Armor Class 11. `wire-shield-ac-into-strike` is the follow-up. This change does not take it.
-- [The dying Strike sentence says shield Hit Points stay unchanged] → The no-block Strike still does. The block is specified only here, and this change does not rewrite that header.
-- [Two writers of `reaction_ready`] → Only `apply_attack_blow` clears it for a block. The encounter still grants it at the start of the turn. Raise does not touch it.
+- [Shield Block is only physical damage from an attack] → Persistent damage is applied with `apply_resolved_blow` and does not spend the reaction. A second requested block in the same round is `NoReaction`.
+- [Two entries can spend the reaction] → `apply_attack_blow` clears `reaction_ready` for a direct test. `Encounter::shield_block` spends it only through `spend_reaction` and does not call `apply_attack_blow` after that. Raise does not touch it. The start step grants it.
 - [`add-dying-and-victory` is not implemented yet] → Implementation waits until `apply_resolved_blow` and `Vital::Dying` exist. This spec pull request does not add them.
+- [Signed shield fields can still be built by hand] → `derive` will not produce them. The blow path does not add a second hardness error. `NotAHit` still wins on a miss.
 
 ## Migration Plan
 
-Spec only in this pull request. No changelog bullet and no archive. The implementation pull request adds `shield.rs`, the reserved modifier source, the `shield_block` argument on `strike`, and the start-step call. It adds the Unreleased changelog bullet before it is done. `openspec archive add-shields --yes` is the last commit of that pull request. Rollback is reverting that pull request. There is no saved encounter to migrate.
+Spec only in this pull request. No changelog bullet and no archive. The implementation pull request adds `shield.rs`, `ModifierSource::RaisedShield`, `ShieldBlock` on `strike`, the `EncounterError` variants, the build check, and the start-step call. It adds the Unreleased changelog bullet before it is done. `openspec archive add-shields --yes` is the last commit of that pull request. Rollback is reverting that pull request. There is no saved encounter to migrate.
