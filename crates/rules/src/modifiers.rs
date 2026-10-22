@@ -1378,6 +1378,7 @@ mod tests {
             on_own_turn: true,
             prior_attack_trait_checks_this_turn: 1,
             current_weapon_agile: false,
+            readied_attack_count: None,
         })
     }
 
@@ -1386,6 +1387,7 @@ mod tests {
             on_own_turn: true,
             prior_attack_trait_checks_this_turn: 1,
             current_weapon_agile: true,
+            readied_attack_count: None,
         })
     }
 

@@ -25,6 +25,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- A readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved. ([#64](https://github.com/fputs/genesis/pull/64))
 - **BREAKING:** `Vital::EnterDying` is replaced by Alive, Unconscious, Dying of 1, 2, or 3, and Dead. ([#57](https://github.com/fputs/genesis/pull/57))
 - **BREAKING:** pr-hygiene skips archive-last while a pull request is a draft and fails a ready implementation pull request whose own OpenSpec change is still active. ([#43](https://github.com/fputs/genesis/pull/43))
 - **BREAKING:** A frightened or sickened bonus is rejected at construction. ([#40](https://github.com/fputs/genesis/pull/40))
