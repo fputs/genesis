@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::check::{CheckRoll, DegreeOfSuccess, resolve_check};
+use crate::aid::{AidCircumstance, AidPreparation, AidRank, FittingAidModifier, roll_aid};
+use crate::check::{CheckRoll, DegreeOfSuccess};
 use crate::dice::{Dice, Faces};
 use crate::modifiers::{Modifier, ModifierError, Statistic, total};
 
@@ -156,6 +157,8 @@ pub struct BuildParts {
     pub stealth_dc: Option<i32>,
     /// Optional Aid modifier. Player Core, Aid.
     pub aid_modifier: Option<i32>,
+    /// Optional Aid rank. `None` stores [`AidRank::BelowMaster`]. Player Core, Aid.
+    pub aid_rank: Option<AidRank>,
     /// None stores false. Player Core, "Getting Knocked Out".
     pub uses_dying_rules: Option<bool>,
 }
@@ -261,6 +264,8 @@ pub struct Contribution {
     pub stealth_dc: Option<i32>,
     /// Replaces the Aid modifier when `Some`. Player Core, Aid.
     pub aid_modifier: Option<i32>,
+    /// Replaces the Aid rank when `Some`. Player Core, Aid.
+    pub aid_rank: Option<AidRank>,
     /// Replaces the dying-rules flag when `Some`. Player Core, "Getting Knocked Out".
     pub uses_dying_rules: Option<bool>,
 }
@@ -284,6 +289,7 @@ pub fn base_contribution(build: &CharacterBuild) -> Contribution {
         shield: parts.shield.clone(),
         stealth_dc: parts.stealth_dc,
         aid_modifier: parts.aid_modifier,
+        aid_rank: parts.aid_rank,
         uses_dying_rules: parts.uses_dying_rules,
     }
 }
@@ -322,6 +328,7 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
     let mut shield = None;
     let mut stealth_dc = None;
     let mut aid_modifier = None;
+    let mut aid_rank = AidRank::BelowMaster;
     let mut uses_dying_rules = None;
 
     for layer in ordered {
@@ -364,6 +371,9 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
         if let Some(value) = layer.aid_modifier {
             aid_modifier = Some(value);
         }
+        if let Some(value) = layer.aid_rank {
+            aid_rank = value;
+        }
         if let Some(value) = layer.uses_dying_rules {
             uses_dying_rules = Some(value);
         }
@@ -391,6 +401,7 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
         shield,
         stealth_dc,
         aid_modifier,
+        aid_rank,
         uses_dying_rules: uses_dying_rules.unwrap_or(false),
     })
 }
@@ -406,6 +417,7 @@ fn creature_from_validated(build: &CharacterBuild) -> Creature {
         shield: parts.shield.clone(),
         stealth_dc: parts.stealth_dc,
         aid_modifier: parts.aid_modifier,
+        aid_rank: parts.aid_rank.unwrap_or(AidRank::BelowMaster),
         uses_dying_rules: parts.uses_dying_rules.unwrap_or(false),
     }
 }
@@ -438,6 +450,8 @@ pub struct Creature {
     pub stealth_dc: Option<i32>,
     /// Optional Aid modifier. Player Core, Aid.
     pub aid_modifier: Option<i32>,
+    /// Aid rank. An omitted rank is [`AidRank::BelowMaster`]. Player Core, Aid.
+    pub aid_rank: AidRank,
     /// False when the build omitted it. Player Core, "Getting Knocked Out".
     pub uses_dying_rules: bool,
 }
@@ -526,6 +540,11 @@ pub struct CombatantState {
     pub actions_remaining: u8,
     /// Reaction ready. Encounter-core readies it. Player Core, Encounter Mode.
     pub reaction_ready: bool,
+    /// Aid preparation. `prepare_to_aid` names one ally. The preparation ends at the next
+    /// `start_turn` or at `Ok`, whichever comes first (DEV-50).
+    ///
+    /// Player Core, Aid.
+    pub aid_preparation: AidPreparation,
     /// Alive, unconscious, dying, or dead. Player Core pg. 410, "Getting Knocked Out".
     pub vital: Vital,
     /// Set when a blow newly stores a dying value. The caller takes it once.
@@ -549,6 +568,7 @@ pub fn new_combatant_state(id: CombatantId, creature: &Creature) -> CombatantSta
         shield_raised: false,
         actions_remaining: 0,
         reaction_ready: false,
+        aid_preparation: AidPreparation::NotPrepared,
         vital: Vital::Alive,
         initiative_move: None,
     }
@@ -710,32 +730,26 @@ pub fn stealth_dc_from_modifier(stealth_modifier: crate::check::DcModifier) -> i
     crate::check::dc_from_modifier(stealth_modifier)
 }
 
-/// Circumstance bonus from an Aid degree. Critical success is the fixed +2.
+/// Aid check against DC 15 using the creature's Aid modifier and rank.
 ///
-/// Player Core, Aid. Master and legendary are not chosen: the baked modifier has no rank.
-pub fn aid_circumstance_bonus(degree: DegreeOfSuccess) -> i32 {
-    match degree {
-        DegreeOfSuccess::CriticalSuccess => 2,
-        DegreeOfSuccess::Success => 1,
-        DegreeOfSuccess::Failure => 0,
-        DegreeOfSuccess::CriticalFailure => -1,
-    }
-}
-
-/// Aid check against DC 15 using the creature's Aid modifier. `None` when the creature has none,
-/// or when that modifier cannot be added to a die face inside `i32`.
+/// `None` when the creature has no modifier, or when that modifier plus 20 does not fit in
+/// `i32`. Those cases draw no die. A face outside `1..=20` that does not fit is also `None`.
+/// The roll does not use `CheckModifier`.
 ///
-/// Player Core, Aid.
-pub fn aid_check(dice: &mut impl Dice, creature: &Creature) -> Option<(CheckRoll, i32)> {
-    let modifier = crate::check::CheckModifier::new(creature.aid_modifier?).ok()?;
-    let roll = resolve_check(dice, modifier, 15);
-    let bonus = aid_circumstance_bonus(roll.degree);
-    Some((roll, bonus))
+/// Player Core, Aid. Player Core, "Step 4: Degree of Success".
+pub fn aid_check(
+    dice: &mut impl Dice,
+    creature: &Creature,
+) -> Option<(CheckRoll, AidCircumstance)> {
+    let modifier = creature.aid_modifier?;
+    let modifier = FittingAidModifier::new(modifier).ok()?;
+    roll_aid(dice, modifier, creature.aid_rank).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aid::{AidCircumstance, AidRank};
     use crate::check::{
         CheckModifier, DcModifier, DegreeOfSuccess, degree_of_success, resolve_check,
     };
@@ -781,6 +795,7 @@ mod tests {
             shield: None,
             stealth_dc: None,
             aid_modifier: None,
+            aid_rank: None,
             uses_dying_rules: None,
         }
     }
@@ -920,35 +935,33 @@ mod tests {
     }
 
     /// Player Core, "Aid".
+    /// Player Core, "Step 4: Degree of Success".
     ///
-    /// Deviation:
-    /// - Rule: critical success grants +2 circumstance, +3 at master, and +4 at legendary.
-    /// - Why: the baked modifier has no proficiency rank, so master and legendary cannot be chosen.
-    /// - Substitute: critical success on this Aid check always grants +2 circumstance.
-    /// - Intent: a critical success still helps more than a success.
+    /// DEV-03 is superseded. A BelowMaster critical success is +2.
     #[test]
     fn aid_check_degrees_use_the_fixed_critical_bonus() {
         let mut parts = fighter_parts();
         parts.aid_modifier = Some(7);
+        parts.aid_rank = Some(AidRank::BelowMaster);
         let creature = derive(&build(parts));
         let before = creature.clone();
 
         let (success, success_bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
         assert_eq!(success.total, 17);
         assert_eq!(success.degree, DegreeOfSuccess::Success);
-        assert_eq!(success_bonus, 1);
+        assert_eq!(success_bonus, AidCircumstance::Plus1);
         assert_eq!(creature, before);
 
         let (critical, critical_bonus) =
             aid_check(&mut ScriptedDice::new([18]), &creature).unwrap();
         assert_eq!(critical.total, 25);
         assert_eq!(critical.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(critical_bonus, 2);
+        assert_eq!(critical_bonus, AidCircumstance::Plus2);
 
         let (failure, failure_bonus) = aid_check(&mut ScriptedDice::new([4]), &creature).unwrap();
         assert_eq!(failure.total, 11);
         assert_eq!(failure.degree, DegreeOfSuccess::Failure);
-        assert_eq!(failure_bonus, 0);
+        assert_eq!(failure_bonus, AidCircumstance::Zero);
 
         let mut crit_fail_parts = fighter_parts();
         crit_fail_parts.aid_modifier = Some(4);
@@ -957,7 +970,7 @@ mod tests {
             aid_check(&mut ScriptedDice::new([1]), &crit_fail_creature).unwrap();
         assert_eq!(crit_fail.total, 5);
         assert_eq!(crit_fail.degree, DegreeOfSuccess::CriticalFailure);
-        assert_eq!(crit_fail_bonus, -1);
+        assert_eq!(crit_fail_bonus, AidCircumstance::Minus1);
         assert_eq!(
             degree_of_success(10, 5, 15),
             DegreeOfSuccess::CriticalFailure
@@ -965,13 +978,14 @@ mod tests {
 
         let mut nat_20_parts = fighter_parts();
         nat_20_parts.aid_modifier = Some(0);
+        nat_20_parts.aid_rank = Some(AidRank::BelowMaster);
         let nat_20_creature = derive(&build(nat_20_parts));
         let (nat_20, nat_20_bonus) =
             aid_check(&mut ScriptedDice::new([20]), &nat_20_creature).unwrap();
         assert_eq!(nat_20.total, 20);
         assert_eq!(degree_of_success(10, 20, 15), DegreeOfSuccess::Success);
         assert_eq!(nat_20.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(nat_20_bonus, 2);
+        assert_eq!(nat_20_bonus, AidCircumstance::Plus2);
         assert_eq!(nat_20_creature, derive(&build(fighter_with_aid(0))));
 
         assert!(
@@ -986,6 +1000,12 @@ mod tests {
     fn fighter_with_aid(modifier: i32) -> BuildParts {
         let mut parts = fighter_parts();
         parts.aid_modifier = Some(modifier);
+        parts
+    }
+
+    fn fighter_with_aid_rank(modifier: i32, rank: AidRank) -> BuildParts {
+        let mut parts = fighter_with_aid(modifier);
+        parts.aid_rank = Some(rank);
         parts
     }
 
@@ -1377,79 +1397,147 @@ mod tests {
     }
 
     /// Player Core, Aid.
-    ///
-    /// Deviation: critical success is +2, not +3 at master or +4 at legendary, because the baked modifier has no rank. A critical success still helps more than a success.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
     fn success_grants_plus_1() {
-        let creature = derive(&build(fighter_with_aid(7)));
+        let creature = derive(&build(fighter_with_aid_rank(7, AidRank::Master)));
         let before = creature.clone();
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
         assert_eq!(roll.total, 17);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
-        assert_eq!(bonus, 1);
+        assert_eq!(bonus, AidCircumstance::Plus1);
         assert_eq!(creature, before);
     }
 
     /// Player Core, Aid.
-    ///
-    /// Deviation: critical success is always +2. The baked modifier has no rank, so master +3 and legendary +4 are not chosen. A critical success still helps more than a success.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
     fn critical_success_grants_plus_2() {
-        let creature = derive(&build(fighter_with_aid(7)));
+        let creature = derive(&build(fighter_with_aid_rank(7, AidRank::BelowMaster)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([18]), &creature).unwrap();
         assert_eq!(roll.total, 25);
         assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(bonus, 2);
+        assert_eq!(bonus, AidCircumstance::Plus2);
     }
 
     /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn critical_success_at_master_grants_plus_3() {
+        let creature = derive(&build(fighter_with_aid_rank(7, AidRank::Master)));
+        let (roll, bonus) = aid_check(&mut ScriptedDice::new([18]), &creature).unwrap();
+        assert_eq!(roll.total, 25);
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(bonus, AidCircumstance::Plus3);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn critical_success_at_legendary_grants_plus_4() {
+        let creature = derive(&build(fighter_with_aid_rank(7, AidRank::Legendary)));
+        let (roll, bonus) = aid_check(&mut ScriptedDice::new([18]), &creature).unwrap();
+        assert_eq!(roll.total, 25);
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(bonus, AidCircumstance::Plus4);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
     fn failure_grants_0() {
-        let creature = derive(&build(fighter_with_aid(7)));
+        let creature = derive(&build(fighter_with_aid_rank(7, AidRank::Legendary)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([4]), &creature).unwrap();
         assert_eq!(roll.total, 11);
         assert_eq!(roll.degree, DegreeOfSuccess::Failure);
-        assert_eq!(bonus, 0);
+        assert_eq!(bonus, AidCircumstance::Zero);
     }
 
     /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
     fn critical_failure_grants_minus_1() {
-        let creature = derive(&build(fighter_with_aid(4)));
+        let creature = derive(&build(fighter_with_aid_rank(4, AidRank::Master)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([1]), &creature).unwrap();
         assert_eq!(roll.total, 5);
         assert_eq!(roll.degree, DegreeOfSuccess::CriticalFailure);
-        assert_eq!(bonus, -1);
+        assert_eq!(bonus, AidCircumstance::Minus1);
     }
 
     /// Player Core, Aid.
-    ///
-    /// Deviation: the natural 20 critical success grants +2, not the master or legendary value. The baked modifier has no rank. A critical success still helps more than a success.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
     fn a_natural_20_uses_the_fixed_critical_bonus() {
-        let creature = derive(&build(fighter_with_aid(0)));
+        let creature = derive(&build(fighter_with_aid_rank(0, AidRank::BelowMaster)));
         let (roll, bonus) = aid_check(&mut ScriptedDice::new([20]), &creature).unwrap();
         assert_eq!(roll.total, 20);
         assert_eq!(degree_of_success(10, 20, 15), DegreeOfSuccess::Success);
         assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(bonus, 2);
+        assert_eq!(bonus, AidCircumstance::Plus2);
     }
 
     /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
-    fn no_prepared_flag_is_required() {
-        let dice = ScriptedDice::new([8]);
-        let creature = derive(&build(fighter_with_aid(6)));
-        assert_eq!(creature.aid_modifier, Some(6));
+    fn a_total_of_exactly_15_succeeds() {
+        let creature = derive(&build(fighter_with_aid_rank(5, AidRank::BelowMaster)));
+        let (roll, bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
+        assert_eq!(roll.total, 15);
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
+        assert_eq!(bonus, AidCircumstance::Plus1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn a_total_of_14_fails_and_15_succeeds() {
+        let creature = derive(&build(fighter_with_aid_rank(5, AidRank::BelowMaster)));
+        let (miss, miss_bonus) = aid_check(&mut ScriptedDice::new([9]), &creature).unwrap();
+        assert_eq!(miss.total, 14);
+        assert_eq!(miss.degree, DegreeOfSuccess::Failure);
+        assert_eq!(miss_bonus, AidCircumstance::Zero);
+        let (hit, hit_bonus) = aid_check(&mut ScriptedDice::new([10]), &creature).unwrap();
+        assert_eq!(hit.total, 15);
+        assert_eq!(hit.degree, DegreeOfSuccess::Success);
+        assert_eq!(hit_bonus, AidCircumstance::Plus1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn a_natural_1_at_plus_14_drops_to_failure() {
+        let creature = derive(&build(fighter_with_aid_rank(14, AidRank::Master)));
+        let (roll, bonus) = aid_check(&mut ScriptedDice::new([1]), &creature).unwrap();
+        assert_eq!(roll.total, 15);
+        // Natural 10 is the numeric band: total 15 against DC 15 is a success before this natural 1 worsens it.
+        assert_eq!(degree_of_success(10, 15, 15), DegreeOfSuccess::Success);
+        assert_eq!(roll.degree, DegreeOfSuccess::Failure);
+        assert_eq!(bonus, AidCircumstance::Zero);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
+    #[test]
+    fn the_aid_check_at_modifier_2147483628_rolls_nothing() {
+        let creature = derive(&build(fighter_with_aid_rank(
+            2_147_483_628,
+            AidRank::BelowMaster,
+        )));
+        let mut dice = ScriptedDice::new([20]);
+        assert!(aid_check(&mut dice, &creature).is_none());
         assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, Aid.
+    /// Player Core, "Step 4: Degree of Success".
     #[test]
-    fn an_aid_modifier_past_i32_is_not_rolled() {
-        let creature = derive(&build(fighter_with_aid(i32::MAX)));
-        let mut dice = ScriptedDice::new([10]);
-        assert!(aid_check(&mut dice, &creature).is_none());
+    fn no_prepared_flag_is_required() {
+        let dice = ScriptedDice::new([8]);
+        let parts = fighter_with_aid(6);
+        assert!(parts.aid_rank.is_none());
+        let creature = derive(&build(parts));
+        assert_eq!(creature.aid_modifier, Some(6));
+        assert_eq!(creature.aid_rank, AidRank::BelowMaster);
         assert_eq!(dice.remaining(), 1);
     }
 
