@@ -37,7 +37,7 @@ Each scenario in `specs/seek-and-hidden/spec.md` has exactly one test. The test 
 
 ## 8. Changelog and proof
 
-- [ ] 8.1 Add one bullet under `## [Unreleased]` `### Added` in `CHANGELOG.md` describing Seek, Hide, the targeting flat checks, and hidden off-guard, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Added`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
+- [x] 8.1 Add one bullet under `## [Unreleased]` `### Added` in `CHANGELOG.md` describing Seek, Hide, the targeting flat checks, and hidden off-guard, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Added`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
 - [ ] 8.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
