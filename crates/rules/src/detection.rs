@@ -7,8 +7,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::check::{
-    CheckModifier, DcModifier, DegreeOfSuccess, dc_from_modifier, degree_of_success,
-    fallback_unlisted_critical, flat_check, flat_checks_for_same_thing, resolve_check,
+    DcModifier, DegreeOfSuccess, dc_from_modifier, degree_of_success, fallback_unlisted_critical,
+    flat_check, flat_checks_for_same_thing,
 };
 use crate::combatant::{CombatantId, Vital};
 use crate::dice::Dice;
@@ -465,9 +465,11 @@ pub fn seek(
 /// Hides the subject from each observer who has standard cover, greater cover, or concealment.
 ///
 /// The Stealth modifier is the Stealth DC minus 10, plus 2 for standard cover, 4 for greater cover,
-/// or 0 when concealment is the only qualifier. One Stealth check is compared with each qualifying
-/// Perception DC, in ascending id. Hide lists a success only. An observer who already has the
-/// subject hidden or undetected is skipped. The caller spends [`DetectionCost::Hide`].
+/// or 0 when concealment is the only qualifier. The gate is `checked_add(20)`, the same gate as Seek,
+/// so any modifier whose d20 totals fit in `i32` is rolled. One Stealth check is compared with each
+/// qualifying Perception DC, in ascending id. A `checked_add` that still fails is [`DetectionError::Overflow`].
+/// Hide lists a success only. An observer who already has the subject hidden or undetected is skipped.
+/// The caller spends [`DetectionCost::Hide`].
 ///
 /// Player Core pg. 244, Hide. Player Core pg. 401, "Getting a DC from a Modifier".
 pub fn hide(
@@ -535,24 +537,26 @@ pub fn hide(
     let Some((first, rest)) = checked.split_first() else {
         return Err(DetectionError::RequirementNotMet);
     };
-    let roll = resolve_check(dice, first.modifier, first.dc);
+    let natural = dice.d20();
+    let total = i32::from(natural)
+        .checked_add(first.modifier)
+        .ok_or(DetectionError::Overflow)?;
+    let degree = degree_of_success(natural, total, first.dc);
     let mut next = detections;
-    record_hide(&mut next, subject, stealth_dc, first, roll.degree);
+    record_hide(&mut next, subject, stealth_dc, first, degree);
     for item in rest {
-        let total = match i32::from(roll.natural).checked_add(item.modifier.get()) {
-            Some(total) => total,
-            // `CheckModifier` keeps every `u8` face plus the modifier inside `i32`.
-            None => i32::from(roll.natural),
-        };
-        let numeric = degree_of_success(roll.natural, total, item.dc);
+        let item_total = i32::from(natural)
+            .checked_add(item.modifier)
+            .ok_or(DetectionError::Overflow)?;
+        let numeric = degree_of_success(natural, item_total, item.dc);
         record_hide(&mut next, subject, stealth_dc, item, numeric);
     }
     Ok(HideResult {
         cost: DetectionCost::Hide,
         roll: Some(OpenRoll {
-            natural: roll.natural,
-            total: roll.total,
-            degree: roll.degree,
+            natural,
+            total,
+            degree,
         }),
         detections: next,
     })
@@ -622,8 +626,7 @@ pub fn note_strike(
 /// Stride, Step, and Drop Prone leave every relation as it was. This function does not roll.
 ///
 /// Player Core pg. 244, Hide.
-pub fn note_action(detections: Detections, actor: CombatantId, action: MoveAction) -> Detections {
-    let _ = actor;
+pub fn note_action(detections: Detections, _actor: CombatantId, action: MoveAction) -> Detections {
     match action {
         MoveAction::Stride | MoveAction::Step | MoveAction::DropProne => detections,
     }
@@ -643,7 +646,7 @@ struct HideCheck {
 
 struct CheckedHide {
     id: CombatantId,
-    modifier: CheckModifier,
+    modifier: i32,
     dc: i32,
     concealment: Concealment,
 }
@@ -702,10 +705,7 @@ fn hide_qualifies(cover: Option<Cover>, concealment: Concealment) -> bool {
     matches!(cover, Some(Cover::Standard | Cover::Greater)) || concealment == Concealment::Concealed
 }
 
-fn stealth_modifier(
-    stealth_dc: i32,
-    cover: Option<Cover>,
-) -> Result<CheckModifier, DetectionError> {
+fn stealth_modifier(stealth_dc: i32, cover: Option<Cover>) -> Result<i32, DetectionError> {
     let base = stealth_dc.checked_sub(10).ok_or(DetectionError::Overflow)?;
     let bonus = match cover {
         Some(Cover::Standard) => 2,
@@ -713,7 +713,11 @@ fn stealth_modifier(
         Some(Cover::Lesser) | None => 0,
     };
     let modifier = base.checked_add(bonus).ok_or(DetectionError::Overflow)?;
-    CheckModifier::new(modifier).map_err(|_| DetectionError::Overflow)
+    // Headroom for a d20, matching Seek. `CheckModifier` reserves 255 and would reject a legal total.
+    match modifier.checked_add(20) {
+        Some(_) => Ok(modifier),
+        None => Err(DetectionError::Overflow),
+    }
 }
 
 fn perception_dc(perception_modifier: i32) -> Result<i32, DetectionError> {
@@ -748,8 +752,8 @@ fn record_hide(
 mod tests {
     use super::*;
     use crate::{
-        Cover, DegreeOfSuccess, DyingValue, MoveAction, OffGuard, ScriptedDice, Side, Statistic,
-        ac_modifiers, degree_of_success, total,
+        Cover, DegreeOfSuccess, DyingValue, MoveAction, OffGuard, ScriptedDice, Statistic,
+        ac_modifiers, total,
     };
 
     fn cid(value: u32) -> CombatantId {
@@ -865,7 +869,6 @@ mod tests {
     /// Player Core pg. 434, "Detecting Creatures".
     #[test]
     fn the_same_relation_twice_matches() {
-        let dice = ScriptedDice::new([8]);
         let detections = remember(
             Detections::new(),
             1,
@@ -879,7 +882,6 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.detection, Detection::Hidden);
         assert_eq!(first.concealment, Concealment::NotConcealed);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 417, Seek.
@@ -1005,7 +1007,6 @@ mod tests {
     /// Player Core pg. 434, "Detecting Creatures".
     #[test]
     fn the_observer_and_the_subject_cannot_be_the_same() {
-        let dice = ScriptedDice::new([8]);
         let detections = Detections::new();
         let error = detections
             .store(
@@ -1017,14 +1018,11 @@ mod tests {
             .expect_err("same creature");
         assert_eq!(error, DetectionError::SameCreature);
         assert_eq!(seen(&detections, 1, 1), Detection::Observed);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 434, "Detecting Creatures".
     #[test]
     fn a_dead_subject_or_observer_is_stored() {
-        let dice = ScriptedDice::new([8]);
-        let _vitals = (Vital::Dead, Vital::Dead);
         let detections = remember(
             Detections::new(),
             1,
@@ -1034,13 +1032,11 @@ mod tests {
             Some(17),
         );
         assert_eq!(seen(&detections, 1, 2), Detection::Hidden);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 434, "Detecting Creatures".
     #[test]
     fn a_pc_and_an_enemy_observe_each_other() {
-        let _sides = (Side::Pc, Side::Enemy);
         let detections = remember(
             Detections::new(),
             1,
@@ -1176,6 +1172,8 @@ mod tests {
         assert_eq!(result.dc, Some(5));
         assert_eq!(result.degree, Some(DegreeOfSuccess::Failure));
         assert!(!result.affected);
+        assert!(!result.action_spent);
+        assert!(!result.counts_for_map);
     }
 
     /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
@@ -1807,11 +1805,41 @@ mod tests {
         let roll = result.roll.expect("one roll");
         assert_eq!(roll.natural, 13);
         assert_eq!(roll.total, 18);
-        assert_eq!(degree_of_success(13, 18, 17), DegreeOfSuccess::Success);
-        assert_eq!(degree_of_success(13, 18, 27), DegreeOfSuccess::Failure);
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
         assert_eq!(seen(&result.detections, 1, 4), Detection::Undetected);
         assert_eq!(dice.remaining(), 0);
+
+        let lowest = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(5),
+        );
+        let lowest = remember(
+            lowest,
+            1,
+            3,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(25),
+        );
+        let (lowest, _) = run_seek(
+            lowest,
+            cid(1),
+            Vital::Alive,
+            5,
+            feet(30, 10, 10),
+            &[cid(3), cid(2)],
+            &[10],
+        );
+        let lowest = lowest.expect("seek");
+        let roll = lowest.roll.expect("lowest id");
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(seen(&lowest.detections, 1, 2), Detection::Observed);
+        assert_eq!(seen(&lowest.detections, 1, 3), Detection::Undetected);
     }
 
     /// Player Core pg. 417, Seek.
@@ -1906,8 +1934,19 @@ mod tests {
             &[12],
         );
         assert_eq!(result.expect_err("area"), DetectionError::AreaTooLarge);
+        let (edge, edge_dice) = run_seek(
+            detections.clone(),
+            cid(1),
+            Vital::Alive,
+            5,
+            feet(5, 5, 31),
+            &[cid(2)],
+            &[12],
+        );
+        assert_eq!(edge.expect_err("area"), DetectionError::AreaTooLarge);
         assert_eq!(seen(&detections, 1, 2), Detection::Undetected);
         assert_eq!(dice.remaining(), 1);
+        assert_eq!(edge_dice.remaining(), 1);
     }
 
     /// Player Core pg. 417, Seek.
@@ -1931,8 +1970,19 @@ mod tests {
             &[12],
         );
         assert_eq!(result.expect_err("empty"), DetectionError::EmptyArea);
+        let (edge, edge_dice) = run_seek(
+            detections.clone(),
+            cid(1),
+            Vital::Alive,
+            5,
+            feet(5, 5, 0),
+            &[cid(2)],
+            &[12],
+        );
+        assert_eq!(edge.expect_err("empty"), DetectionError::EmptyArea);
         assert_eq!(seen(&detections, 1, 2), Detection::Undetected);
         assert_eq!(dice.remaining(), 1);
+        assert_eq!(edge_dice.remaining(), 1);
     }
 
     /// Player Core pg. 417, Seek.
@@ -2202,7 +2252,7 @@ mod tests {
         assert_eq!(roll.natural, 8);
         assert_eq!(roll.total, 15);
         assert_eq!(roll.total - i32::from(roll.natural), 7);
-        assert_eq!(roll.degree, degree_of_success(8, 15, 15));
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
         assert_eq!(veil(&result.detections, 1, 2), Concealment::Concealed);
         assert_eq!(seen(&result.detections, 5, 2), Detection::Observed);
@@ -2261,6 +2311,13 @@ mod tests {
         );
         assert_eq!(seen(&detections, 1, 2), Detection::Observed);
         assert_eq!(dice.remaining(), 1);
+        let (empty, empty_dice) =
+            run_hide(Detections::new(), cid(2), Vital::Alive, Some(20), &[], &[6]);
+        assert_eq!(
+            empty.expect_err("requirement"),
+            DetectionError::RequirementNotMet
+        );
+        assert_eq!(empty_dice.remaining(), 1);
     }
 
     /// Player Core pg. 244, Hide.
@@ -2423,6 +2480,18 @@ mod tests {
         assert_eq!(result.expect_err("overflow"), DetectionError::Overflow);
         assert_eq!(seen(&detections, 1, 2), Detection::Observed);
         assert_eq!(dice.remaining(), 1);
+        let (fits, fits_dice) = run_hide(
+            detections,
+            cid(2),
+            Vital::Alive,
+            Some(2_147_483_627),
+            &[watcher(1, 5, Some(Cover::Greater))],
+            &[6],
+        );
+        let fits = fits.expect("stealth dc fits a d20");
+        assert!(fits.roll.is_some());
+        assert_eq!(seen(&fits.detections, 1, 2), Detection::Hidden);
+        assert_eq!(fits_dice.remaining(), 0);
     }
 
     /// Player Core pg. 244, Hide. Player Core pg. 401, "Getting a DC from a Modifier".
@@ -2450,7 +2519,6 @@ mod tests {
         assert_eq!(roll.total, 15);
         assert_eq!(roll.total - i32::from(roll.natural), 9);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
-        assert_eq!(roll.degree, degree_of_success(6, 15, 15));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
     }
 
@@ -2478,7 +2546,6 @@ mod tests {
         assert_eq!(roll.total, 14);
         assert_eq!(roll.total - i32::from(roll.natural), 9);
         assert_eq!(roll.degree, DegreeOfSuccess::Failure);
-        assert_eq!(roll.degree, degree_of_success(5, 14, 15));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Observed);
     }
 
@@ -2507,7 +2574,6 @@ mod tests {
         assert_eq!(roll.total, 15);
         assert_eq!(roll.total - i32::from(roll.natural), 11);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
-        assert_eq!(roll.degree, degree_of_success(4, 15, 15));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
     }
 
@@ -2535,7 +2601,6 @@ mod tests {
         assert_eq!(roll.total, 15);
         assert_eq!(roll.total - i32::from(roll.natural), 7);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
-        assert_eq!(roll.degree, degree_of_success(8, 15, 15));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
         assert_eq!(veil(&result.detections, 1, 2), Concealment::Concealed);
     }
@@ -2564,7 +2629,6 @@ mod tests {
         assert_eq!(roll.total, 14);
         assert_eq!(roll.total - i32::from(roll.natural), 7);
         assert_eq!(roll.degree, DegreeOfSuccess::Failure);
-        assert_eq!(roll.degree, degree_of_success(7, 14, 15));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Observed);
         assert_eq!(veil(&result.detections, 1, 2), Concealment::Concealed);
     }
@@ -2603,8 +2667,7 @@ mod tests {
         let roll = result.roll.expect("one roll");
         assert_eq!(roll.natural, 10);
         assert_eq!(roll.total, 19);
-        assert_eq!(degree_of_success(10, 19, 15), DegreeOfSuccess::Success);
-        assert_eq!(degree_of_success(10, 19, 20), DegreeOfSuccess::Failure);
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
         assert_eq!(seen(&result.detections, 5, 2), Detection::Observed);
         assert_eq!(dice.remaining(), 0);
@@ -2635,7 +2698,6 @@ mod tests {
         assert_eq!(roll.total, 11);
         assert_eq!(roll.total - i32::from(roll.natural), 9);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
-        assert_eq!(roll.degree, degree_of_success(2, 11, 11));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
     }
 
@@ -2714,7 +2776,6 @@ mod tests {
         let result = result.expect("hide");
         let roll = result.roll.expect("roll");
         assert_eq!(roll.total - i32::from(roll.natural), 9);
-        assert_eq!(roll.degree, degree_of_success(1, 10, 15));
         assert_eq!(roll.total, 10);
         assert_eq!(roll.degree, DegreeOfSuccess::CriticalFailure);
         assert_eq!(seen(&result.detections, 1, 2), Detection::Observed);
@@ -2744,7 +2805,6 @@ mod tests {
         assert_eq!(roll.total - i32::from(roll.natural), 9);
         assert_eq!(roll.total, 29);
         assert_eq!(roll.degree, DegreeOfSuccess::Success);
-        assert_eq!(roll.degree, degree_of_success(20, 29, 35));
         assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
     }
 
@@ -2862,7 +2922,6 @@ mod tests {
     /// Player Core pg. 244, Hide. Player Core pg. 444, Hidden.
     #[test]
     fn a_hidden_strike_is_off_guard_then_every_observer_observes() {
-        let dice = ScriptedDice::new([8]);
         let detections = remember(
             Detections::new(),
             1,
@@ -2879,6 +2938,14 @@ mod tests {
             Concealment::NotConcealed,
             Some(17),
         );
+        let detections = remember(
+            detections,
+            4,
+            2,
+            Detection::Hidden,
+            Concealment::Concealed,
+            Some(17),
+        );
         let notice = note_strike(detections, cid(2), cid(1));
         assert_eq!(notice.off_guard, OffGuard::Yes);
         assert_eq!(armor_total(notice.off_guard), -2);
@@ -2886,13 +2953,13 @@ mod tests {
         assert_eq!(veil(&notice.detections, 1, 2), Concealment::NotConcealed);
         assert_eq!(seen(&notice.detections, 3, 2), Detection::Observed);
         assert_eq!(veil(&notice.detections, 3, 2), Concealment::NotConcealed);
-        assert_eq!(dice.remaining(), 1);
+        assert_eq!(seen(&notice.detections, 4, 2), Detection::Observed);
+        assert_eq!(veil(&notice.detections, 4, 2), Concealment::Concealed);
     }
 
     /// Player Core pg. 244, Hide.
     #[test]
     fn a_strike_does_not_flip_the_other_direction() {
-        let dice = ScriptedDice::new([8]);
         let detections = remember(
             Detections::new(),
             1,
@@ -2932,13 +2999,11 @@ mod tests {
         assert_eq!(veil(&notice.detections, 3, 2), Concealment::NotConcealed);
         assert_eq!(seen(&notice.detections, 1, 3), Detection::Hidden);
         assert_eq!(seen(&notice.detections, 3, 1), Detection::Hidden);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 244, Hide.
     #[test]
     fn a_stride_does_not_refresh_hidden() {
-        let dice = ScriptedDice::new([8]);
         let detections = remember(
             Detections::new(),
             1,
@@ -2949,13 +3014,11 @@ mod tests {
         );
         let after = note_action(detections, cid(2), MoveAction::Stride);
         assert_eq!(seen(&after, 1, 2), Detection::Hidden);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 244, Hide.
     #[test]
     fn refresh_after_a_stride_ends_hidden() {
-        let dice = ScriptedDice::new([8]);
         let detections = remember(
             Detections::new(),
             1,
@@ -2967,7 +3030,6 @@ mod tests {
         let after = note_action(detections, cid(2), MoveAction::Stride);
         let refreshed = refresh(after, cid(2), cid(1), None);
         assert_eq!(seen(&refreshed, 1, 2), Detection::Observed);
-        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 245, Sneak. Player Core pg. 444, Hidden.
@@ -3001,7 +3063,6 @@ mod tests {
     /// Player Core pg. 445, "Off-Guard".
     #[test]
     fn an_observed_striker_is_not_off_guard_from_detection() {
-        let dice = ScriptedDice::new([8]);
         let detections = remember(
             Detections::new(),
             1,
@@ -3015,6 +3076,5 @@ mod tests {
         let relation = notice.detections.get(cid(1), cid(2));
         assert_eq!(off_guard_against(relation, OffGuard::Yes), OffGuard::Yes);
         assert_eq!(relation.detection, Detection::Observed);
-        assert_eq!(dice.remaining(), 1);
     }
 }
