@@ -241,24 +241,28 @@ fn attack_statistic(modifiers: &[Modifier]) -> Vec<Modifier> {
 
 /// `in_reach` returns unsupported size or overflow. Each grid error has its own arm so a
 /// new variant fails this match.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each GridError variant is named so a new one cannot collapse into Overflow"
+)]
 fn from_grid(error: GridError) -> ReactiveError {
     match error {
         GridError::UnsupportedSize => ReactiveError::UnsupportedSize,
-        GridError::Overflow
-        | GridError::ExceedsSpeed
-        | GridError::SpeedNotMultipleOfFive
-        | GridError::NegativeSpeed
-        | GridError::OccupiedEnd
-        | GridError::EnemySquare
-        | GridError::StepIntoDifficultTerrain
-        | GridError::StepRequiresTenFeet
-        | GridError::StepNotOneSquare
-        | GridError::PathNotAdjacent
-        | GridError::OffGrid
-        | GridError::Immobilized
-        | GridError::InvalidRangeIncrement
-        | GridError::NegativeDistance
-        | GridError::BeyondRange => ReactiveError::Overflow,
+        GridError::Overflow => ReactiveError::Overflow,
+        GridError::ExceedsSpeed => ReactiveError::Overflow,
+        GridError::SpeedNotMultipleOfFive => ReactiveError::Overflow,
+        GridError::NegativeSpeed => ReactiveError::Overflow,
+        GridError::OccupiedEnd => ReactiveError::Overflow,
+        GridError::EnemySquare => ReactiveError::Overflow,
+        GridError::StepIntoDifficultTerrain => ReactiveError::Overflow,
+        GridError::StepRequiresTenFeet => ReactiveError::Overflow,
+        GridError::StepNotOneSquare => ReactiveError::Overflow,
+        GridError::PathNotAdjacent => ReactiveError::Overflow,
+        GridError::OffGrid => ReactiveError::Overflow,
+        GridError::Immobilized => ReactiveError::Overflow,
+        GridError::InvalidRangeIncrement => ReactiveError::Overflow,
+        GridError::NegativeDistance => ReactiveError::Overflow,
+        GridError::BeyondRange => ReactiveError::Overflow,
     }
 }
 

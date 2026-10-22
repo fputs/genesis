@@ -1011,63 +1011,91 @@ fn map_attack_blow_error(error: AttackBlowError) -> EncounterError {
     }
 }
 
+/// Maps a reaction spend. Each variant has its own arm so a new one does not
+/// fall into `NoReaction`.
+#[expect(
+    clippy::match_same_arms,
+    reason = "each EncounterError variant is named so a new one cannot collapse into NoReaction"
+)]
 fn from_spend(error: EncounterError) -> ReactiveError {
     match error {
         EncounterError::UnknownCombatant => ReactiveError::UnknownCombatant,
         EncounterError::NotConscious => ReactiveError::NotConscious,
         EncounterError::NoReaction => ReactiveError::NoReaction,
-        EncounterError::DuplicateCombatant
-        | EncounterError::EmptyRoster
-        | EncounterError::PerceptionOutOfRange
-        | EncounterError::TurnInProgress
-        | EncounterError::TurnNotOpen
-        | EncounterError::NotYourTurn
-        | EncounterError::InsufficientActions
-        | EncounterError::InvalidActionCost
-        | EncounterError::NoShield
-        | EncounterError::NotRaised
-        | EncounterError::Broken
-        | EncounterError::Destroyed
-        | EncounterError::NegativeAmount
-        | EncounterError::TargetDead
-        | EncounterError::TargetNotConscious
-        | EncounterError::SelfTarget
-        | EncounterError::NoLivingCombatant
-        | EncounterError::AttackCountOverflow
-        | EncounterError::RoundOverflow
-        | EncounterError::AttackOverflow(_)
-        | EncounterError::DamageOverflow(_)
-        | EncounterError::HitPoints(_) => ReactiveError::NoReaction,
+        EncounterError::DuplicateCombatant => ReactiveError::NoReaction,
+        EncounterError::EmptyRoster => ReactiveError::NoReaction,
+        EncounterError::PerceptionOutOfRange => ReactiveError::NoReaction,
+        EncounterError::TurnInProgress => ReactiveError::NoReaction,
+        EncounterError::TurnNotOpen => ReactiveError::NoReaction,
+        EncounterError::NotYourTurn => ReactiveError::NoReaction,
+        EncounterError::InsufficientActions => ReactiveError::NoReaction,
+        EncounterError::InvalidActionCost => ReactiveError::NoReaction,
+        EncounterError::NoShield => ReactiveError::NoReaction,
+        EncounterError::NotRaised => ReactiveError::NoReaction,
+        EncounterError::Broken => ReactiveError::NoReaction,
+        EncounterError::Destroyed => ReactiveError::NoReaction,
+        EncounterError::NegativeAmount => ReactiveError::NoReaction,
+        EncounterError::TargetDead => ReactiveError::NoReaction,
+        EncounterError::TargetNotConscious => ReactiveError::NoReaction,
+        EncounterError::SelfTarget => ReactiveError::NoReaction,
+        EncounterError::NoLivingCombatant => ReactiveError::NoReaction,
+        EncounterError::AttackCountOverflow => ReactiveError::NoReaction,
+        EncounterError::RoundOverflow => ReactiveError::NoReaction,
+        EncounterError::AttackOverflow(_) => ReactiveError::NoReaction,
+        EncounterError::DamageOverflow(_) => ReactiveError::NoReaction,
+        EncounterError::HitPoints(_) => ReactiveError::NoReaction,
     }
 }
 
+/// Maps a damage-roll failure. Each variant has its own arm so a new one does not
+/// fall into [`ModifierError::Overflow`].
+#[expect(
+    clippy::match_same_arms,
+    reason = "each EncounterError variant is named so a new one cannot collapse into DamageOverflow"
+)]
 fn as_damage_overflow(error: EncounterError) -> ReactiveError {
     match error {
         EncounterError::DamageOverflow(error) => ReactiveError::DamageOverflow(error),
-        EncounterError::DuplicateCombatant
-        | EncounterError::EmptyRoster
-        | EncounterError::PerceptionOutOfRange
-        | EncounterError::UnknownCombatant
-        | EncounterError::TurnInProgress
-        | EncounterError::TurnNotOpen
-        | EncounterError::NotYourTurn
-        | EncounterError::InsufficientActions
-        | EncounterError::InvalidActionCost
-        | EncounterError::NoReaction
-        | EncounterError::NotConscious
-        | EncounterError::TargetNotConscious
-        | EncounterError::NoShield
-        | EncounterError::NotRaised
-        | EncounterError::Broken
-        | EncounterError::Destroyed
-        | EncounterError::NegativeAmount
-        | EncounterError::TargetDead
-        | EncounterError::SelfTarget
-        | EncounterError::NoLivingCombatant
-        | EncounterError::AttackCountOverflow
-        | EncounterError::RoundOverflow
-        | EncounterError::AttackOverflow(_)
-        | EncounterError::HitPoints(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::DuplicateCombatant => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::EmptyRoster => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::PerceptionOutOfRange => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::UnknownCombatant => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::TurnInProgress => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::TurnNotOpen => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NotYourTurn => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::InsufficientActions => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::InvalidActionCost => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NoReaction => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NotConscious => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::TargetNotConscious => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::NoShield => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NotRaised => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::Broken => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::Destroyed => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NegativeAmount => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::TargetDead => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::SelfTarget => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NoLivingCombatant => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::AttackCountOverflow => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::RoundOverflow => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::AttackOverflow(error) => {
+            let _ = error;
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::HitPoints(error) => {
+            let _ = error;
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
     }
 }
 
