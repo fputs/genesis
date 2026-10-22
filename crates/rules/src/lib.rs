@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, and creature templates.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, creature templates, and encounters.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -8,6 +8,7 @@
 mod check;
 mod combatant;
 mod dice;
+mod encounter;
 mod grid;
 mod modifiers;
 mod positioning;
@@ -26,6 +27,10 @@ pub use combatant::{
     new_combatant_state, stealth_dc_from_modifier,
 };
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
+pub use encounter::{
+    Agility, Encounter, EncounterError, Participant, Side, StrikeOutcome, StrikeProfile,
+    begin_encounter,
+};
 pub use modifiers::{
     BonusType, ConditionId, Cover, Modifier, ModifierError, ModifierTotal, PenaltyType, SourceId,
     Statistic, ac_modifiers, attack_modifiers, dc_from_total, perception_modifiers, total,
