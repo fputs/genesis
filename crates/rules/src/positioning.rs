@@ -288,14 +288,9 @@ pub fn stand(
     square: Square,
     mobility: Mobility,
     benefit: Option<CoverBenefit>,
-    occupant: OccupantPresence,
+    _occupant: OccupantPresence,
 ) -> Result<PostureChange, PositioningError> {
     require_mobile(mobility)?;
-    // Present and absent are the same result. Another creature ending a move here is
-    // grid movement's OccupiedEnd, not a Stand failure.
-    match occupant {
-        OccupantPresence::Present | OccupantPresence::Absent => {}
-    }
     match posture {
         Posture::Standing => Err(PositioningError::NotProne),
         Posture::Prone => Ok(PostureChange {
@@ -317,9 +312,8 @@ pub fn prone_move(
     posture: Posture,
     mobility: Mobility,
     action: MoveAction,
-    counter: DiagonalCounter,
+    _counter: DiagonalCounter,
 ) -> Result<(), PositioningError> {
-    let _ = counter;
     require_mobile(mobility)?;
     match (posture, action) {
         (Posture::Prone, MoveAction::Stride | MoveAction::Step | MoveAction::DropProne) => {
@@ -387,8 +381,7 @@ pub fn take_cover(
 /// Clears a stored benefit. `None` in is `Ok(None)`.
 ///
 /// Player Core, "Take Cover".
-pub fn dismiss(stored: Option<CoverBenefit>) -> Result<Option<CoverBenefit>, PositioningError> {
-    let _ = stored;
+pub fn dismiss(_stored: Option<CoverBenefit>) -> Result<Option<CoverBenefit>, PositioningError> {
     Ok(None)
 }
 
@@ -402,9 +395,7 @@ pub fn dismiss_cost() -> ActionCost {
 /// Clears the stored benefit. Does not change posture; the caller still holds that.
 ///
 /// Player Core, "Take Cover".
-pub fn end_benefit(reason: EndReason, benefit: Option<CoverBenefit>) -> Option<CoverBenefit> {
-    // Every end reason clears the benefit. Posture stays with the caller.
-    let _ = benefit;
+pub fn end_benefit(reason: EndReason, _benefit: Option<CoverBenefit>) -> Option<CoverBenefit> {
     match reason {
         EndReason::LeftSquare
         | EndReason::AttackAction
@@ -459,9 +450,10 @@ pub fn armor_class(
 
 /// Whether `attacker` and any partner flank `defender`.
 ///
-/// Checks run in order: duplicate id, self id, reach (unsupported size and overflow),
-/// centers, reach that is not a multiple of 5, then the boolean. An empty partner list
-/// is not a flank. Partners are not paired with each other.
+/// Checks run in order: duplicate id, self id, size for the defender, the attacker, and
+/// every partner, then reach and distance, centers, reach that is not a multiple of 5,
+/// then the boolean. Size is before any reach or distance, so unsupported size beats
+/// overflow. An empty partner list is not a flank. Partners are not paired with each other.
 ///
 /// Player Core, "Flanking". Player Core, "Range and Reach". Player Core, "Size, Space, and Reach".
 pub fn flanks(
@@ -471,6 +463,7 @@ pub fn flanks(
 ) -> Result<bool, PositioningError> {
     reject_duplicate_ids(attacker, partners)?;
     reject_self_ids(defender, attacker, partners)?;
+    reject_unsupported_sizes(defender, attacker, partners)?;
     let attacker_reaches = reaches_target(attacker, defender)?;
     let mut partner_reaches = Vec::with_capacity(partners.len());
     for partner in partners {
@@ -665,6 +658,29 @@ fn reject_self_ids(
     Ok(())
 }
 
+/// Size before reach: an unsupported partner is not hidden by another creature's distance.
+fn reject_unsupported_sizes(
+    defender: &CombatantPos,
+    attacker: &CombatantPos,
+    partners: &[CombatantPos],
+) -> Result<(), PositioningError> {
+    flank_size(defender.size)?;
+    flank_size(attacker.size)?;
+    for partner in partners {
+        flank_size(partner.size)?;
+    }
+    Ok(())
+}
+
+fn flank_size(size: Size) -> Result<(), PositioningError> {
+    match size {
+        Size::Small | Size::Medium => Ok(()),
+        Size::Tiny | Size::Large | Size::Huge | Size::Gargantuan => {
+            Err(PositioningError::UnsupportedSize)
+        }
+    }
+}
+
 fn reaches_target(
     flanker: &CombatantPos,
     defender: &CombatantPos,
@@ -679,26 +695,26 @@ fn reaches_target(
     .map_err(grid_failure)
 }
 
-/// `in_reach` yields unsupported size or overflow. The other grid errors are named so a
-/// new variant fails this match; they are not a size failure.
+/// `in_reach` returns unsupported size or overflow. Each grid error has its own arm so a
+/// new variant fails this match.
 fn grid_failure(error: GridError) -> PositioningError {
     match error {
         GridError::UnsupportedSize => PositioningError::UnsupportedSize,
-        GridError::Overflow
-        | GridError::ExceedsSpeed
-        | GridError::SpeedNotMultipleOfFive
-        | GridError::NegativeSpeed
-        | GridError::OccupiedEnd
-        | GridError::EnemySquare
-        | GridError::StepIntoDifficultTerrain
-        | GridError::StepRequiresTenFeet
-        | GridError::StepNotOneSquare
-        | GridError::PathNotAdjacent
-        | GridError::OffGrid
-        | GridError::Immobilized
-        | GridError::InvalidRangeIncrement
-        | GridError::NegativeDistance
-        | GridError::BeyondRange => PositioningError::Overflow,
+        GridError::Overflow => PositioningError::Overflow,
+        GridError::ExceedsSpeed => PositioningError::Overflow,
+        GridError::SpeedNotMultipleOfFive => PositioningError::Overflow,
+        GridError::NegativeSpeed => PositioningError::Overflow,
+        GridError::OccupiedEnd => PositioningError::Overflow,
+        GridError::EnemySquare => PositioningError::Overflow,
+        GridError::StepIntoDifficultTerrain => PositioningError::Overflow,
+        GridError::StepRequiresTenFeet => PositioningError::Overflow,
+        GridError::StepNotOneSquare => PositioningError::Overflow,
+        GridError::PathNotAdjacent => PositioningError::Overflow,
+        GridError::OffGrid => PositioningError::Overflow,
+        GridError::Immobilized => PositioningError::Overflow,
+        GridError::InvalidRangeIncrement => PositioningError::Overflow,
+        GridError::NegativeDistance => PositioningError::Overflow,
+        GridError::BeyondRange => PositioningError::Overflow,
     }
 }
 
@@ -1928,6 +1944,26 @@ mod tests {
             ),
             4
         );
+        let kept = take_cover(
+            Posture::Standing,
+            at(3, 4),
+            Some(CoverBenefit::StandardPlusGreaterVsRanged),
+            None,
+            NearbyFeature::Present,
+        )
+        .expect("take cover");
+        assert_eq!(
+            armor_class(
+                Some(kept.benefit),
+                None,
+                OffGuard::No,
+                AttackKind::Ranged,
+                &[]
+            )
+            .expect("armor class")
+            .get(Statistic::ArmorClass),
+            4
+        );
         assert_held(&dice);
     }
 
@@ -1946,7 +1982,18 @@ mod tests {
             ),
             Err(PositioningError::RequirementNotMet)
         );
-        assert_eq!(stored, Some(CoverBenefit::Greater));
+        assert_eq!(
+            armor_class(
+                stored,
+                Some(Cover::Lesser),
+                OffGuard::No,
+                AttackKind::Melee,
+                &[],
+            )
+            .expect("armor class")
+            .get(Statistic::ArmorClass),
+            4
+        );
         assert_held(&dice);
     }
 
@@ -2314,6 +2361,14 @@ mod tests {
             flanks(&defender, &attacker, &[partner]),
             Err(PositioningError::Overflow)
         );
+        let mut odd_attacker = placed(2, i32::MAX, 0, Side::Pc);
+        odd_attacker.reach_feet = 7;
+        let mut odd_partner = placed(3, i32::MAX - 2, 0, Side::Pc);
+        odd_partner.reach_feet = 7;
+        assert_eq!(
+            flanks(&defender, &odd_attacker, &[odd_partner]),
+            Err(PositioningError::Overflow)
+        );
         assert_held(&dice);
     }
 
@@ -2338,6 +2393,9 @@ mod tests {
         let attacker = placed(2, 0, 1, Side::Pc);
         let partner = placed(3, 0, -2, Side::Pc);
         assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        let far_attacker = placed(4, 0, -2, Side::Pc);
+        let near_partner = placed(3, 0, 1, Side::Pc);
+        assert_eq!(flanks(&defender, &far_attacker, &[near_partner]), Ok(false));
         assert_held(&dice);
     }
 
@@ -2407,6 +2465,12 @@ mod tests {
             flanks(&defender, &attacker, &[partner]),
             Err(PositioningError::SelfId)
         );
+        let other = placed(2, 0, 1, Side::Pc);
+        let same_as_defender = placed(1, 0, -1, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &other, &[same_as_defender]),
+            Err(PositioningError::SelfId)
+        );
         assert_held(&dice);
     }
 
@@ -2449,6 +2513,16 @@ mod tests {
         let partner = placed(3, i32::MAX - 2, 0, Side::Pc);
         assert_eq!(
             flanks(&defender, &attacker, &[partner]),
+            Err(PositioningError::UnsupportedSize)
+        );
+        let mut large_partner = placed(3, 0, -1, Side::Pc);
+        large_partner.size = Size::Large;
+        assert_eq!(
+            flanks(
+                &placed(1, 0, 0, Side::Enemy),
+                &placed(2, 1_000_000_000, 0, Side::Pc),
+                &[large_partner],
+            ),
             Err(PositioningError::UnsupportedSize)
         );
         assert_held(&dice);
@@ -2532,6 +2606,10 @@ mod tests {
         attacker.readiness = Readiness::Unable;
         let partner = placed(3, 0, -1, Side::Pc);
         assert_eq!(flanks(&defender, &attacker, &[partner]), Ok(false));
+        let able = placed(2, 0, 1, Side::Pc);
+        let mut unable_partner = placed(3, 0, -1, Side::Pc);
+        unable_partner.readiness = Readiness::Unable;
+        assert_eq!(flanks(&defender, &able, &[unable_partner]), Ok(false));
         assert_held(&dice);
     }
 
@@ -2738,6 +2816,10 @@ mod tests {
             off_guard(&defender, &attacker, AttackKind::Melee, &[], OffGuard::No),
             Ok(false)
         );
+        assert_eq!(
+            off_guard(&defender, &attacker, AttackKind::Melee, &[], OffGuard::Yes),
+            Ok(true)
+        );
         assert_held(&dice);
     }
 
@@ -2825,6 +2907,23 @@ mod tests {
                 AttackKind::Melee,
                 &[partner],
                 OffGuard::No
+            ),
+            Err(PositioningError::DuplicateId)
+        );
+        let separate = placed(4, 0, 1, Side::Pc);
+        let first = placed(3, 0, -1, Side::Pc);
+        let second = placed(3, 1, 0, Side::Pc);
+        assert_eq!(
+            flanks(&defender, &separate, &[first, second]),
+            Err(PositioningError::DuplicateId)
+        );
+        assert_eq!(
+            off_guard(
+                &defender,
+                &separate,
+                AttackKind::Melee,
+                &[first, second],
+                OffGuard::No,
             ),
             Err(PositioningError::DuplicateId)
         );
