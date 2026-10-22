@@ -6,8 +6,8 @@
 
 ## 2. Changelog, proof, and archive
 
-- [ ] 2.1 Add one bullet under `### Changed` in `## [Unreleased]` of root `CHANGELOG.md`, in a commit before the archive commit. The bullet says a failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither, and it links to the implementation pull request. Verify the new bullet is under `### Changed` and contains that link
-- [ ] 2.2 Run the AGENTS.md proof commands and verify each exits 0.
+- [x] 2.1 Add one bullet under `### Changed` in `## [Unreleased]` of root `CHANGELOG.md`, in a commit before the archive commit. The bullet says a failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither, and it links to the implementation pull request. Verify the new bullet is under `### Changed` and contains that link
+- [x] 2.2 Run the AGENTS.md proof commands and verify each exits 0.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
