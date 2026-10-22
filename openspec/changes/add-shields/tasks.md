@@ -41,7 +41,7 @@ Start only after `apply_resolved_blow`, `Vital::Dying`, and `Encounter::start_tu
 ## 8. Changelog and proof
 
 - [x] 8.1 Add one bullet under `## [Unreleased]` in `CHANGELOG.md` for Raise a Shield and Shield Block, and link that bullet to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `## [Unreleased]` and contains the pull request link
-- [ ] 8.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
+- [x] 8.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
