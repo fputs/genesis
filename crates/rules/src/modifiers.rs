@@ -52,8 +52,9 @@ pub enum ModifierError {
     /// Player Core, Penalties.
     Overflow,
     /// Frightened or sickened had no rank, a declared type other than status, or was a bonus.
+    /// Unconscious had a rank, a type other than status, a value other than −4, or was a bonus.
     ///
-    /// Player Core, Frightened. Player Core, Sickened.
+    /// Player Core, Frightened. Player Core, Sickened. Player Core pg. 446, Unconscious.
     /// Player Core, "Redundant Conditions With Values".
     InvalidValuedCondition,
 }
@@ -84,6 +85,12 @@ impl ConditionId {
     ///
     /// Player Core, Sickened. Player Core, "Redundant Conditions With Values".
     pub const SICKENED: Self = Self(3);
+
+    /// Unconscious. A status penalty of −4 with no rank. A rank, another type, another
+    /// value, or a bonus is rejected. This is not a valued condition.
+    ///
+    /// Player Core pg. 446, Unconscious.
+    pub const UNCONSCIOUS: Self = Self(4);
 }
 
 /// The statistic a modifier applies to. Two statistics do not share a stack.
@@ -99,6 +106,10 @@ pub enum Statistic {
     Perception,
     /// A damage roll. Player Core, "Damage Rolls".
     Damage,
+    /// A Reflex save. It does not share a stack with Armor Class or Perception.
+    ///
+    /// Player Core pg. 446, Unconscious.
+    Reflex,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +139,7 @@ enum ModifierSource {
     OffGuard,
     UnconsciousArmorClass,
     UnconsciousPerception,
+    UnconsciousReflex,
     /// Player Core, "Range Penalty".
     RangePenalty,
     /// The attack check total's circumstance penalty. Player Core, Penalties.
@@ -145,6 +157,7 @@ impl ModifierSource {
             | Self::OffGuard
             | Self::UnconsciousArmorClass
             | Self::UnconsciousPerception
+            | Self::UnconsciousReflex
             | Self::RangePenalty
             | Self::AttackCircumstance => None,
         }
@@ -274,6 +287,8 @@ impl Modifier {
     /// Rank is not the algebraic value of the penalty. Frightened or sickened with no rank, a
     /// declared type other than status, or a bonus at any rank including 0, returns
     /// [`ModifierError::InvalidValuedCondition`] and is not rewritten into a penalty.
+    /// Unconscious with a rank, a type other than status, a value other than −4, or a bonus
+    /// returns the same error. It is not rewritten from its rank.
     ///
     /// Player Core, "Redundant Conditions With Values" and "Condition Values".
     /// Player Core, Frightened. Player Core, Sickened.
@@ -286,6 +301,12 @@ impl Modifier {
         let bonus = matches!(self.kind, ModifierKind::Bonus(_));
         if valued && (rank.is_none() || !is_status_kind(self.kind) || bonus) {
             return Err(ModifierError::InvalidValuedCondition);
+        }
+        if id == ConditionId::UNCONSCIOUS {
+            let status_penalty = matches!(self.kind, ModifierKind::Penalty(PenaltyType::Status));
+            if rank.is_some() || !status_penalty || self.value != -4 {
+                return Err(ModifierError::InvalidValuedCondition);
+            }
         }
         self.condition = Some(Condition { id, rank });
         Ok(self)
@@ -683,6 +704,7 @@ struct ByStatistic {
     armor_class: Buckets,
     perception: Buckets,
     damage: Buckets,
+    reflex: Buckets,
 }
 
 fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
@@ -691,6 +713,7 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         armor_class: Buckets::new(),
         perception: Buckets::new(),
         damage: Buckets::new(),
+        reflex: Buckets::new(),
     };
     for modifier in modifiers.iter().copied() {
         push_bucket(buckets_for(&mut grouped, modifier.statistic), modifier);
@@ -701,6 +724,7 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         grouped.armor_class,
         grouped.perception,
         grouped.damage,
+        grouped.reflex,
     ] {
         applied.extend(applied_from(buckets));
     }
@@ -713,6 +737,7 @@ fn buckets_for(grouped: &mut ByStatistic, statistic: Statistic) -> &mut Buckets 
         Statistic::ArmorClass => &mut grouped.armor_class,
         Statistic::Perception => &mut grouped.perception,
         Statistic::Damage => &mut grouped.damage,
+        Statistic::Reflex => &mut grouped.reflex,
     }
 }
 
@@ -805,6 +830,7 @@ struct StatisticTotals {
     armor_class: i32,
     perception: i32,
     damage: i32,
+    reflex: i32,
 }
 
 impl StatisticTotals {
@@ -814,6 +840,7 @@ impl StatisticTotals {
             Statistic::ArmorClass => self.armor_class,
             Statistic::Perception => self.perception,
             Statistic::Damage => self.damage,
+            Statistic::Reflex => self.reflex,
         }
     }
 }
@@ -823,6 +850,7 @@ struct StatisticWide {
     armor_class: i64,
     perception: i64,
     damage: i64,
+    reflex: i64,
 }
 
 fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
@@ -836,6 +864,7 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         armor_class: 0,
         perception: 0,
         damage: 0,
+        reflex: 0,
     };
     for modifier in &applied {
         add_statistic(&mut wide, modifier.statistic, modifier.value)?;
@@ -845,6 +874,7 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         armor_class: i32::try_from(wide.armor_class).map_err(|_| ModifierError::Overflow)?,
         perception: i32::try_from(wide.perception).map_err(|_| ModifierError::Overflow)?,
         damage: i32::try_from(wide.damage).map_err(|_| ModifierError::Overflow)?,
+        reflex: i32::try_from(wide.reflex).map_err(|_| ModifierError::Overflow)?,
     };
     Ok(ModifierTotal { totals, applied })
 }
@@ -859,6 +889,7 @@ fn add_statistic(
         Statistic::ArmorClass => &mut wide.armor_class,
         Statistic::Perception => &mut wide.perception,
         Statistic::Damage => &mut wide.damage,
+        Statistic::Reflex => &mut wide.reflex,
     };
     *slot = slot
         .checked_add(i64::from(value))
@@ -922,6 +953,7 @@ fn source_ord(source: ModifierSource) -> (u8, u32) {
         ModifierSource::UnconsciousPerception => (7, 0),
         ModifierSource::RangePenalty => (8, 0),
         ModifierSource::AttackCircumstance => (9, 0),
+        ModifierSource::UnconsciousReflex => (10, 0),
     }
 }
 
@@ -931,6 +963,7 @@ fn statistic_ord(statistic: Statistic) -> u8 {
         Statistic::ArmorClass => 1,
         Statistic::Perception => 2,
         Statistic::Damage => 3,
+        Statistic::Reflex => 4,
     }
 }
 
@@ -1040,14 +1073,17 @@ pub fn ac_modifiers(
         );
     }
     if unconscious {
-        modifiers.push(Modifier::penalty_from(
-            PenaltyType::Status,
-            -4,
-            ModifierSource::UnconsciousArmorClass,
-            6,
-            None,
-            Statistic::ArmorClass,
-        )?);
+        modifiers.push(
+            Modifier::penalty_from(
+                PenaltyType::Status,
+                -4,
+                ModifierSource::UnconsciousArmorClass,
+                6,
+                None,
+                Statistic::ArmorClass,
+            )?
+            .with_condition(ConditionId::UNCONSCIOUS, None)?,
+        );
     }
     Ok(modifiers)
 }
@@ -1058,14 +1094,38 @@ pub fn ac_modifiers(
 pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if unconscious {
-        modifiers.push(Modifier::penalty_from(
-            PenaltyType::Status,
-            -4,
-            ModifierSource::UnconsciousPerception,
-            7,
-            None,
-            Statistic::Perception,
-        )?);
+        modifiers.push(
+            Modifier::penalty_from(
+                PenaltyType::Status,
+                -4,
+                ModifierSource::UnconsciousPerception,
+                7,
+                None,
+                Statistic::Perception,
+            )?
+            .with_condition(ConditionId::UNCONSCIOUS, None)?,
+        );
+    }
+    Ok(modifiers)
+}
+
+/// Modifiers on Reflex from this change. Unconscious is a status −4.
+///
+/// The slice is separate from Armor Class and Perception. Player Core pg. 446, Unconscious.
+pub fn reflex_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
+    let mut modifiers = Vec::new();
+    if unconscious {
+        modifiers.push(
+            Modifier::penalty_from(
+                PenaltyType::Status,
+                -4,
+                ModifierSource::UnconsciousReflex,
+                10,
+                None,
+                Statistic::Reflex,
+            )?
+            .with_condition(ConditionId::UNCONSCIOUS, None)?,
+        );
     }
     Ok(modifiers)
 }
@@ -2282,6 +2342,7 @@ mod tests {
         produced.extend(ac_modifiers(Some(Cover::Standard), false, false).expect("standard"));
         produced.extend(ac_modifiers(Some(Cover::Greater), false, false).expect("greater"));
         produced.extend(perception_modifiers(true).expect("perception"));
+        produced.extend(reflex_modifiers(true).expect("reflex"));
         let damage: Vec<Modifier> = Vec::new();
         assert!(damage.is_empty());
         for modifier in produced.iter().chain(damage.iter()) {
@@ -2453,12 +2514,12 @@ mod tests {
             .with_condition(ConditionId(8), Some(1))
             .expect("condition");
         let lower_id = bonus(BonusType::Circumstance, 2, 9, 5, Some(2), Statistic::Attack)
-            .with_condition(ConditionId(4), Some(1))
+            .with_condition(ConditionId(5), Some(1))
             .expect("condition");
         for modifiers in orders_of_two(higher_id, lower_id) {
             let stacked = summed(&modifiers);
             assert_eq!(stacked.applied().len(), 1);
-            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(4)));
+            assert_eq!(stacked.applied()[0].condition_id(), Some(ConditionId(5)));
             assert_eq!(stacked.get(Statistic::Attack), 2);
             assert_eq!(total_on(&stacked, Statistic::Attack), 2);
         }
@@ -2539,7 +2600,7 @@ mod tests {
         )
         .with_condition(ConditionId(1), Some(1))
         .expect("condition");
-        let id_4 = bonus(
+        let id_5 = bonus(
             BonusType::Circumstance,
             2,
             11,
@@ -2547,9 +2608,9 @@ mod tests {
             Some(1),
             Statistic::Attack,
         )
-        .with_condition(ConditionId(4), Some(1))
+        .with_condition(ConditionId(5), Some(1))
         .expect("condition");
-        let orders = orders_of_three(id_6, id_1, id_4);
+        let orders = orders_of_three(id_6, id_1, id_5);
         let first = summed(&orders[0]);
         for modifiers in orders {
             let stacked = summed(&modifiers);
@@ -3467,6 +3528,7 @@ mod tests {
                     Statistic::ArmorClass,
                     Statistic::Perception,
                     Statistic::Damage,
+                    Statistic::Reflex,
                 ] {
                     assert_eq!(stacked.get(statistic), oracle_total(order, statistic));
                 }
@@ -3480,6 +3542,7 @@ mod tests {
         let mut armor_class = 0usize;
         let mut perception = 0usize;
         let mut damage = 0usize;
+        let mut reflex = 0usize;
         for modifier in set.iter().copied() {
             if !matches(modifier) {
                 continue;
@@ -3489,6 +3552,7 @@ mod tests {
                 Statistic::ArmorClass => &mut armor_class,
                 Statistic::Perception => &mut perception,
                 Statistic::Damage => &mut damage,
+                Statistic::Reflex => &mut reflex,
             };
             *count += 1;
             if *count >= 2 {
@@ -3923,6 +3987,7 @@ mod tests {
             Statistic::ArmorClass,
             Statistic::Perception,
             Statistic::Damage,
+            Statistic::Reflex,
         ] {
             let on_statistic: Vec<_> = modifiers
                 .iter()
@@ -4022,7 +4087,229 @@ mod tests {
             ModifierSource::UnconsciousPerception => (7, 0),
             ModifierSource::RangePenalty => (8, 0),
             ModifierSource::AttackCircumstance => (9, 0),
+            ModifierSource::UnconsciousReflex => (10, 0),
         }
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn a_conscious_creature_adds_no_reflex_penalty() {
+        let dice = script();
+        let stacked = summed(&reflex_modifiers(false).expect("reflex"));
+        assert_eq!(stacked.get(Statistic::Reflex), 0);
+        assert!(stacked.applied().is_empty());
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn reflex_and_armor_class_both_keep_the_penalty() {
+        let dice = script();
+        let reflex = summed(&reflex_modifiers(true).expect("reflex"));
+        let armor_class = summed(&ac_modifiers(None, true, true).expect("armor class"));
+        assert!(reflex.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status)
+                && modifier.value() == -4
+                && modifier.sequence() == 10
+                && modifier.statistic() == Statistic::Reflex
+        }));
+        assert!(armor_class.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status)
+                && modifier.value() == -4
+                && modifier.sequence() == 6
+                && modifier.statistic() == Statistic::ArmorClass
+        }));
+        assert_eq!(reflex.get(Statistic::Reflex), -4);
+        assert_eq!(armor_class.get(Statistic::ArmorClass), -6);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn unconscious_is_minus_4_status_to_reflex() {
+        let dice = script();
+        let stacked = summed(&reflex_modifiers(true).expect("reflex"));
+        assert_eq!(stacked.get(Statistic::Reflex), -4);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status)
+                && modifier.value() == -4
+                && modifier.condition_id() == Some(ConditionId::UNCONSCIOUS)
+                && modifier.sequence() == 10
+        }));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn a_ranked_unconscious_modifier_is_rejected() {
+        let dice = script();
+        let penalty = penalty(PenaltyType::Status, -4, 1, 1, None, Statistic::Reflex);
+        assert_eq!(
+            penalty
+                .with_condition(ConditionId::UNCONSCIOUS, Some(1))
+                .expect_err("rank"),
+            ModifierError::InvalidValuedCondition
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn a_non_status_unconscious_modifier_is_rejected() {
+        let dice = script();
+        let penalty = penalty(PenaltyType::Circumstance, -4, 1, 1, None, Statistic::Reflex);
+        assert_eq!(
+            penalty
+                .with_condition(ConditionId::UNCONSCIOUS, None)
+                .expect_err("type"),
+            ModifierError::InvalidValuedCondition
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn an_unconscious_value_other_than_minus_4_is_rejected() {
+        let dice = script();
+        let penalty = penalty(PenaltyType::Status, -3, 1, 1, None, Statistic::Reflex);
+        assert_eq!(
+            penalty
+                .with_condition(ConditionId::UNCONSCIOUS, None)
+                .expect_err("value"),
+            ModifierError::InvalidValuedCondition
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn an_unconscious_bonus_is_rejected() {
+        let dice = script();
+        let bonus = bonus(BonusType::Status, 4, 1, 1, None, Statistic::Reflex);
+        assert_eq!(
+            bonus
+                .with_condition(ConditionId::UNCONSCIOUS, None)
+                .expect_err("bonus"),
+            ModifierError::InvalidValuedCondition
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    fn frightened_on(rank: u32, statistic: Statistic) -> Modifier {
+        penalty(
+            PenaltyType::Status,
+            -i32::try_from(rank).expect("rank"),
+            3,
+            1,
+            None,
+            statistic,
+        )
+        .with_condition(ConditionId::FRIGHTENED, Some(rank))
+        .expect("frightened")
+    }
+
+    fn sickened_on(rank: u32, statistic: Statistic) -> Modifier {
+        penalty(
+            PenaltyType::Status,
+            -i32::try_from(rank).expect("rank"),
+            4,
+            2,
+            None,
+            statistic,
+        )
+        .with_condition(ConditionId::SICKENED, Some(rank))
+        .expect("sickened")
+    }
+
+    /// Player Core pg. 446, Unconscious. Ruling R-09.
+    #[test]
+    fn frightened_2_and_unconscious_total_minus_6_on_armor_class() {
+        let dice = script();
+        let mut modifiers = ac_modifiers(None, true, true).expect("armor class");
+        modifiers.push(frightened_on(2, Statistic::ArmorClass));
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::ArmorClass), -6);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -4
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -2
+        }));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious. Ruling R-09.
+    #[test]
+    fn frightened_5_and_unconscious_total_minus_7_on_armor_class() {
+        let dice = script();
+        let mut modifiers = ac_modifiers(None, true, true).expect("armor class");
+        modifiers.push(frightened_on(5, Statistic::ArmorClass));
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::ArmorClass), -7);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -5
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Circumstance) && modifier.value() == -2
+        }));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious. Ruling R-09.
+    #[test]
+    fn frightened_3_sickened_1_and_unconscious_total_minus_4_on_reflex() {
+        let dice = script();
+        let unconscious = reflex_modifiers(true).expect("reflex");
+        let modifiers = [
+            frightened_on(3, Statistic::Reflex),
+            sickened_on(1, Statistic::Reflex),
+            unconscious[0],
+        ];
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Reflex), -4);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -4
+        }));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious. Ruling R-09.
+    #[test]
+    fn unconscious_and_a_status_bonus_total_minus_3_on_reflex() {
+        let dice = script();
+        let mut modifiers = reflex_modifiers(true).expect("reflex");
+        modifiers.push(bonus(BonusType::Status, 1, 8, 3, None, Statistic::Reflex));
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Reflex), -3);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -4
+        }));
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.bonus_type() == Some(BonusType::Status) && modifier.value() == 1
+        }));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious. Ruling R-09.
+    #[test]
+    fn frightened_4_tied_with_unconscious_totals_minus_4_on_reflex() {
+        let dice = script();
+        let mut modifiers = reflex_modifiers(true).expect("reflex");
+        modifiers.push(frightened_on(4, Statistic::Reflex));
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Reflex), -4);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status) && modifier.value() == -4
+        }));
+        assert_eq!(
+            stacked
+                .applied()
+                .iter()
+                .filter(|modifier| modifier.penalty_type() == Some(PenaltyType::Status))
+                .count(),
+            1
+        );
+        assert_eq!(dice.remaining(), 1);
     }
 
     struct Lcg(u64);
