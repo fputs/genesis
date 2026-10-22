@@ -37,4 +37,4 @@ Start only after `Vital::Unconscious` and `Vital::Dying` are public. Do not add 
 
 ## Workflow follow-up
 
-- [ ] Archive this change with `openspec archive add-aid --yes` as the last commit of the implementation pull request, after the changelog bullet. Do not archive the spec-only pull request. Confirm `Vital::Unconscious` and `Vital::Dying` are public before starting section 1. Verify the change moves under `openspec/changes/archive/`.
+- [x] Archive this change with `openspec archive add-aid --yes` as the last commit of the implementation pull request, after the changelog bullet. Do not archive the spec-only pull request. Confirm `Vital::Unconscious` and `Vital::Dying` are public before starting section 1. Verify the change moves under `openspec/changes/archive/`.
