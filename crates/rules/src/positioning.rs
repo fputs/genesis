@@ -100,13 +100,24 @@ pub enum EndReason {
     ForcedMovement,
 }
 
-/// A trait named on an action cost. The move trait is the reactive trigger for change 8 (FIX-06).
+/// A trait named on an action cost.
 ///
-/// Player Core, "Drop Prone". Player Core, "Stand".
+/// `Move` is the move trait. `Manipulate` is the manipulate trait. `Ranged` means this
+/// action is a ranged attack. It is not a Player Core action trait. Reactive Strike reads
+/// these three (FIX-06, FIX-08).
+///
+/// Player Core, "Drop Prone". Player Core, "Stand". Player Core, "Interact".
+/// Player Core, "Reactive Strike".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActionTrait {
     /// The move trait. Player Core, "Drop Prone".
     Move,
+    /// The manipulate trait. Player Core, "Interact".
+    Manipulate,
+    /// This action is a ranged attack. Not a Player Core action trait.
+    ///
+    /// Player Core, "Reactive Strike".
+    Ranged,
 }
 
 /// What an action costs. Positioning reports the cost and does not spend it.
@@ -121,8 +132,12 @@ pub enum ActionCost {
         /// Traits on that cost. Empty means no move trait. Player Core, "Take Cover".
         traits: &'static [ActionTrait],
     },
-    /// A free action. Player Core, "Take Cover".
-    Free,
+    /// A free action. The traits still describe it. Player Core, "Take Cover".
+    /// Player Core, "Release".
+    Free {
+        /// Traits on that free action. Empty is not manipulate. Player Core, "Take Cover".
+        traits: &'static [ActionTrait],
+    },
 }
 
 /// Actions the prone condition names. Stride and Step stay implemented in grid movement.
@@ -385,11 +400,11 @@ pub fn dismiss(_stored: Option<CoverBenefit>) -> Result<Option<CoverBenefit>, Po
     Ok(None)
 }
 
-/// Dismiss is a free action.
+/// Dismiss is a free action with no traits.
 ///
 /// Player Core, "Take Cover".
 pub fn dismiss_cost() -> ActionCost {
-    ActionCost::Free
+    ActionCost::Free { traits: &[] }
 }
 
 /// Clears the stored benefit. Does not change posture; the caller still holds that.
@@ -2037,7 +2052,7 @@ mod tests {
     #[test]
     fn dismiss_is_free() {
         let dice = held_die();
-        assert_eq!(dismiss_cost(), ActionCost::Free);
+        assert_eq!(dismiss_cost(), ActionCost::Free { traits: &[] });
         assert_eq!(dismiss(Some(CoverBenefit::Greater)).expect("dismiss"), None);
         assert_held(&dice);
     }
