@@ -1,5 +1,5 @@
 use crate::dice::Dice;
-use crate::modifiers::{Statistic, attack_check_parts, total};
+use crate::modifiers::{Modifier, ModifierError, Statistic, attack_check_parts, total};
 
 /// Four degrees of success on a d20 check.
 ///
@@ -303,14 +303,15 @@ pub fn multiple_attack_penalty(input: MapInput) -> i32 {
     }
 }
 
-/// Adds the natural roll, attack bonus, the multiple attack penalty, a circumstance penalty, and the range penalty.
+/// Adds the natural roll, attack bonus, internal terms, and caller modifiers.
 ///
-/// The penalty arguments are folded as modifiers. A 0 argument is omitted, because a modifier
-/// cannot be zero. The multiple attack penalty reuses its reserved source and is applied once.
-/// It is not dropped by keeping only the worse of that penalty and the circumstance penalty.
-/// The range penalty is the other untyped internal penalty. A positive untyped term is a raw
-/// addend. A reserved source does not skip same-type stacking. Each addend is an
-/// [`AttackTotalTerm`], so the sum fits in `i32`.
+/// The internal terms and `caller` are folded together. A 0 internal argument is omitted,
+/// because a modifier cannot be zero. The multiple attack penalty reuses its reserved source
+/// and is applied once. It is not dropped by keeping only the worse of that penalty and the
+/// circumstance penalty. The range penalty is the other untyped internal penalty. A positive
+/// untyped internal term stays a raw addend. A reserved source does not skip same-type stacking.
+/// An empty `caller` keeps the totals an attack check already had. A fold that does not fit in
+/// `i32` is [`ModifierError::Overflow`], not the natural roll.
 ///
 /// Player Core, Penalties. Player Core, "Multiple Attack Penalty". Player Core, "Range Penalty".
 pub fn attack_check_total(
@@ -319,19 +320,14 @@ pub fn attack_check_total(
     map: AttackTotalTerm,
     circumstance_penalty: AttackTotalTerm,
     range_penalty: AttackTotalTerm,
-) -> i32 {
+    caller: &[Modifier],
+) -> Result<i32, ModifierError> {
     let parts = attack_check_parts(map.get(), circumstance_penalty.get(), range_penalty.get());
-    let folded = match total(&parts.modifiers) {
-        Ok(total) => i64::from(total.get(Statistic::Attack)),
-        // The terms are bounded, so this sum fits. A miss still returns the natural roll.
-        Err(_) => return i32::from(natural),
-    };
+    let mut modifiers = parts.modifiers;
+    modifiers.extend_from_slice(caller);
+    let folded = i64::from(total(&modifiers)?.get(Statistic::Attack));
     let sum = i64::from(natural) + i64::from(attack_bonus.get()) + folded + parts.raw_extra;
-    match i32::try_from(sum) {
-        Ok(total) => total,
-        // Each term is bounded so four of them plus any `u8` still fit in `i32`.
-        Err(_) => i32::from(natural),
-    }
+    i32::try_from(sum).map_err(|_| ModifierError::Overflow)
 }
 
 #[cfg(test)]
@@ -620,7 +616,15 @@ mod tests {
         dc: i32,
     ) -> (i32, i32, DegreeOfSuccess) {
         let natural = dice.d20();
-        let total = attack_check_total(natural, term(attack_bonus), term(map), term(0), term(0));
+        let total = attack_check_total(
+            natural,
+            term(attack_bonus),
+            term(map),
+            term(0),
+            term(0),
+            &[],
+        )
+        .expect("empty caller list fits");
         (map, total, degree_of_success(natural, total, dc))
     }
 
@@ -634,7 +638,8 @@ mod tests {
         });
         assert_eq!(map, -5);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, term(9), term(map), term(-2), term(0));
+        let total = attack_check_total(natural, term(9), term(map), term(-2), term(0), &[])
+            .expect("empty caller list fits");
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -652,7 +657,8 @@ mod tests {
         });
         assert_eq!(map, -5);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, term(9), term(map), term(0), term(-2));
+        let total = attack_check_total(natural, term(9), term(map), term(0), term(-2), &[])
+            .expect("empty caller list fits");
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -687,7 +693,8 @@ mod tests {
         let mut dice = ScriptedDice::new([natural]);
         let rolled = dice.d20();
         let map = penalty(prior, agile, on_own_turn);
-        let total = attack_check_total(rolled, term(bonus), term(map), term(0), term(0));
+        let total = attack_check_total(rolled, term(bonus), term(map), term(0), term(0), &[])
+            .expect("empty caller list fits");
         (map, total, degree_of_success(rolled, total, dc))
     }
 
@@ -1073,7 +1080,8 @@ mod tests {
     fn the_penalty_stacks_with_a_circumstance_penalty() {
         let map = penalty(1, false, true);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, term(9), term(map), term(-2), term(0));
+        let total = attack_check_total(natural, term(9), term(map), term(-2), term(0), &[])
+            .expect("empty caller list fits");
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -1086,7 +1094,8 @@ mod tests {
     fn the_penalty_stacks_with_another_untyped_penalty() {
         let map = penalty(1, false, true);
         let natural = ScriptedDice::new([12]).d20();
-        let total = attack_check_total(natural, term(9), term(map), term(0), term(-2));
+        let total = attack_check_total(natural, term(9), term(map), term(0), term(-2), &[])
+            .expect("empty caller list fits");
         assert_eq!(total, 14);
         assert_eq!(
             degree_of_success(natural, total, 16),
@@ -1178,10 +1187,13 @@ mod tests {
         );
         let high = AttackTotalTerm::new((i32::MAX - i32::from(u8::MAX)) / 4).expect("high term");
         assert_eq!(
-            attack_check_total(u8::MAX, high, high, high, high),
+            attack_check_total(u8::MAX, high, high, high, high, &[]).expect("high terms fit"),
             i32::MAX
         );
         let low = AttackTotalTerm::new(i32::MIN / 4).expect("low term");
-        assert_eq!(attack_check_total(0, low, low, low, low), i32::MIN);
+        assert_eq!(
+            attack_check_total(0, low, low, low, low, &[]).expect("low terms fit"),
+            i32::MIN
+        );
     }
 }
