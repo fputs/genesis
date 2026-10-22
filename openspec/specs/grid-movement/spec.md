@@ -98,7 +98,7 @@ Each creature SHALL have one diagonal counter in turn state, not on Creature and
 Step, Crawl, and Leap SHALL share the one diagonal counter for that creature's turn. A diagonal Step SHALL advance that counter. This capability SHALL NOT implement Crawl or Leap. Later movement actions use that same counter.
 
 **Rule**: Player Core pg. 421 counts all movement in the turn. Crawl and Leap are movement. https://2e.aonprd.com/Rules.aspx?ID=2357 https://2e.aonprd.com/Actions.aspx?ID=2293 https://2e.aonprd.com/Actions.aspx?ID=2298
-**Why**: Crawl and Leap belong to positioning.
+**Why**: Crawl and Leap belong to add-crawl-and-leap.
 **Substitute**: Step advances the shared turn counter. Crawl and Leap are not functions of this change.
 **Intent**: Later movement actions take the counter Step already updates.
 
