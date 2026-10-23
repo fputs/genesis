@@ -19,4 +19,4 @@ Each new or changed scenario has one test. The test name is the scenario title i
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 3.3 As the final commit of the implementation pull request, and not in the changelog commit, run `openspec archive amend-aid-dead-and-dying --yes`. The commit subject is exactly `openspec archive amend-aid-dead-and-dying --yes`. That commit does not edit `CHANGELOG.md`. Do not archive the spec-only pull request. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 3.3 As the final commit of the implementation pull request, and not in the changelog commit, run `openspec archive amend-aid-dead-and-dying --yes`. The commit subject is exactly `openspec archive amend-aid-dead-and-dying --yes`. That commit does not edit `CHANGELOG.md`. Do not archive the spec-only pull request. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
