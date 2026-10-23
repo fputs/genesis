@@ -51,6 +51,7 @@ jobs:
       - name: Run the base script
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$BASE_SHA" ]; then
             echo "spec-approved: pull request unavailable"

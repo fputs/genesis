@@ -257,6 +257,67 @@ const cases = [
     }),
   },
   {
+    name: "A dated archive prefix does not match the id",
+    base: protectedTree({
+      [LIB]: "v1\n",
+      "openspec/changes/archive/2026-10-23-xadd-foo/proposal.md": PROPOSAL,
+      "openspec/changes/archive/2026-10-23-xadd-foo/specs/aid/spec.md": SPEC,
+    }),
+    steps: [{ id: "head", files: { [LIB]: "v2\n" } }],
+    body: "OpenSpec-Change: add-foo\n",
+    reviews: [review({ id: 1, body: "spec-approved: {{head}}" })],
+    status: 1,
+    includes: ["spec-approved: unknown change add-foo"],
+    excludes: ["spec-approved: ambiguous change path"],
+  },
+  {
+    name: "A refactor line does not cover pr-hygiene.mjs",
+    base: protectedTree({
+      [LIB]: "v1\n",
+      "scripts/pr-hygiene.mjs": "old\n",
+    }),
+    steps: [{ id: "head", files: { [LIB]: "v2\n", "scripts/pr-hygiene.mjs": "new\n" } }],
+    body: "OpenSpec-Refactor: dice-and-checks\n",
+    reviews: [],
+    status: 1,
+    includes: ["spec-approved: missing OpenSpec-Change"],
+  },
+  {
+    name: "A refactor line does not cover Cargo.lock",
+    base: protectedTree({
+      [LIB]: "v1\n",
+      "Cargo.lock": "old\n",
+    }),
+    steps: [{ id: "head", files: { [LIB]: "v2\n", "Cargo.lock": "new\n" } }],
+    body: "OpenSpec-Refactor: dice-and-checks\n",
+    reviews: [],
+    status: 1,
+    includes: ["spec-approved: missing OpenSpec-Change"],
+  },
+  {
+    name: "The authors file stays on the approval path",
+    base: protectedTree({ ...changeTree("add-foo") }),
+    steps: [{ id: "head", files: { [AUTHORS_PATH]: "239839957\n2\n" } }],
+    body: "OpenSpec-Change: add-foo\n",
+    reviews: [],
+    status: 1,
+    includes: ["spec-approved: approval missing"],
+    excludes: ["spec-approved: missing OpenSpec-Change"],
+  },
+  {
+    name: "The spec-approved test stays on the approval path",
+    base: protectedTree({
+      "scripts/spec-approved.test.mjs": "old\n",
+      ...changeTree("add-foo"),
+    }),
+    steps: [{ id: "head", files: { "scripts/spec-approved.test.mjs": "new\n" } }],
+    body: "OpenSpec-Change: add-foo\n",
+    reviews: [],
+    status: 1,
+    includes: ["spec-approved: approval missing"],
+    excludes: ["spec-approved: missing OpenSpec-Change"],
+  },
+  {
     name: "Two copies of the change fail closed",
     base: protectedTree({
       [LIB]: "v1\n",
@@ -786,6 +847,19 @@ for (const row of cases) {
     await runJob(row);
   });
 }
+
+test("The base script step receives the GitHub token", () => {
+  const job = jobBlock(readFileSync(workflowPath, "utf8"), "spec-approved");
+  const marker = "name: Run the base script";
+  const start = job.indexOf(marker);
+  assert.ok(start >= 0, job);
+  const after = job.slice(start);
+  const next = after.slice(marker.length).search(/\n {6}- /);
+  const step = next === -1 ? after : after.slice(0, marker.length + next);
+  assert.match(step, /GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+  assert.ok(step.includes('node "$script"'), step);
+  assert.equal(step.includes("secrets."), false, step);
+});
 
 test("The job tests the base script first", () => {
   const workflow = readFileSync(workflowPath, "utf8");
