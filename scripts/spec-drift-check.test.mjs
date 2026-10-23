@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, mkdir, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, chmod, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { changeReferences } from "./spec-drift-check.mjs";
 
 const scriptPath = fileURLToPath(new URL("./spec-drift-check.mjs", import.meta.url));
 const workflowPath = fileURLToPath(
@@ -113,6 +114,270 @@ function whitespaceReferenceCases() {
     }),
   );
   return rows;
+}
+
+const LIB = "crates/rules/src/lib.rs";
+const DOCS = "docs/architect/decisions.md";
+const REFACTOR = "OpenSpec-Refactor: dice-and-checks";
+
+function crateChange(body, extra = {}) {
+  return {
+    event: "pull_request",
+    body,
+    base: { [LIB]: "old\n" },
+    head: { [LIB]: "new\n" },
+    ...extra,
+  };
+}
+
+function docsChange(body, extra = {}) {
+  return {
+    event: "pull_request",
+    body,
+    base: { [DOCS]: "old\n" },
+    head: { [DOCS]: "new\n" },
+    ...extra,
+  };
+}
+
+function exactLine(text) {
+  return (output) => {
+    assert.ok(output.split("\n").includes(text), output);
+  };
+}
+
+function refactorCases() {
+  return [
+    passing("The diff starts at the merge-base", {
+      event: "pull_request",
+      body: "",
+      base: { [LIB]: "at-merge\n" },
+      advanceBase: { [LIB]: "on-base\n" },
+      captureDiff: true,
+    }),
+    failing("No merge-base fails closed", ["spec-drift: no merge-base"], {
+      event: "pull_request",
+      body: "",
+      unrelatedBase: true,
+      base: { [LIB]: "old\n" },
+    }),
+    passing("A qualifying refactor does not log a missing change line", {
+      ...crateChange(REFACTOR),
+      assertCodePath: true,
+    }),
+    passing("A trimmed refactor line passes", crateChange("  OpenSpec-Refactor: dice-and-checks  \r")),
+    passing("An item absent from the decision log passes", {
+      ...crateChange("OpenSpec-Refactor: not-a-real-item"),
+      excludes: ["spec-drift: unknown change not-a-real-item", "spec-drift:"],
+    }),
+    passing(
+      "A fenced refactor line counts",
+      crateChange("```\nOpenSpec-Refactor: grid-movement\n```\n"),
+    ),
+    failing("A lowercase refactor prefix is ignored", [MISSING], {
+      ...crateChange("openspec-refactor: dice-and-checks"),
+      excludes: [
+        "spec-drift: invalid refactor item",
+        "spec-drift: invalid change id",
+        "spec-drift: unknown change",
+      ],
+    }),
+    passing("A push ignores a malformed refactor line", {
+      body: "OpenSpec-Refactor:",
+      base: { [LIB]: "old\n" },
+      head: { [LIB]: "new\n" },
+      excludes: ["spec-drift: invalid refactor item", "spec-drift:"],
+    }),
+    failing("An empty refactor line is invalid", [], {
+      ...docsChange("OpenSpec-Refactor:"),
+      assertOutput: exactLine("spec-drift: invalid refactor item"),
+      excludes: [MISSING],
+    }),
+    failing(
+      "Extra words are an invalid refactor item",
+      ["spec-drift: invalid refactor item dice-and-checks extra"],
+      { ...docsChange("OpenSpec-Refactor: dice-and-checks extra"), excludes: [MISSING] },
+    ),
+    failing(
+      "A tab after the refactor colon is escaped",
+      ["spec-drift: invalid refactor item\\u0009dice"],
+      { ...docsChange("OpenSpec-Refactor:\tdice"), excludes: [MISSING] },
+    ),
+    failing(
+      "An uppercase refactor item is invalid",
+      ["spec-drift: invalid refactor item NOT-AN-ITEM"],
+      { ...docsChange("OpenSpec-Refactor: NOT-AN-ITEM"), excludes: [MISSING] },
+    ),
+    failing(
+      "A slash in a refactor item is invalid",
+      ["spec-drift: invalid refactor item dice/checks"],
+      { ...docsChange("OpenSpec-Refactor: dice/checks"), excludes: [MISSING] },
+    ),
+    failing(
+      "A double hyphen refactor item is invalid",
+      ["spec-drift: invalid refactor item dice--checks"],
+      { ...docsChange("OpenSpec-Refactor: dice--checks"), excludes: [MISSING] },
+    ),
+    failing(
+      "A repeated refactor line fails",
+      ["spec-drift: multiple OpenSpec-Refactor lines"],
+      {
+        ...crateChange(`${REFACTOR}\n${REFACTOR}`),
+        excludes: ["spec-drift: refactor is not crates-only", MISSING],
+      },
+    ),
+    failing(
+      "Both lines fail on a docs-only pull request",
+      ["spec-drift: refactor line conflicts with OpenSpec-Change"],
+      {
+        ...docsChange(`${REFACTOR}\nOpenSpec-Change: add-foo`),
+        base: {
+          [DOCS]: "old\n",
+          "openspec/changes/add-foo/tasks.md": OPEN,
+        },
+        excludes: [MISSING],
+      },
+    ),
+    passing(
+      "A crate file with a changelog passes",
+      crateChange(REFACTOR, {
+        base: { [LIB]: "old\n", "CHANGELOG.md": "# Log\n" },
+        head: { [LIB]: "new\n", "CHANGELOG.md": "# Log\n\n" },
+      }),
+    ),
+    passing("Adding a test file passes", {
+      event: "pull_request",
+      body: REFACTOR,
+      head: { "crates/rules/src/encounter/tests/new_tests.rs": "fn new() {}\n" },
+    }),
+    failing(
+      "A crate file plus README is not a refactor",
+      ["spec-drift: refactor is not crates-only"],
+      crateChange(REFACTOR, {
+        base: { [LIB]: "old\n", "README.md": "old\n" },
+        head: { [LIB]: "new\n", "README.md": "new\n" },
+      }),
+    ),
+    failing(
+      "A lowercase changelog name is not the bullet file",
+      ["spec-drift: refactor is not crates-only"],
+      crateChange(REFACTOR, {
+        base: { [LIB]: "old\n", "changelog.md": "old\n" },
+        head: { [LIB]: "new\n", "changelog.md": "new\n" },
+      }),
+    ),
+    failing(
+      "A crate file plus openspec logs both path lines",
+      ["spec-drift: refactor is not crates-only", "spec-drift: refactor changes openspec"],
+      {
+        ...crateChange(REFACTOR, {
+          base: { [LIB]: "old\n", "openspec/specs/spec-drift-check/spec.md": "old\n" },
+          head: { [LIB]: "new\n", "openspec/specs/spec-drift-check/spec.md": "new\n" },
+        }),
+        assertOutput(output) {
+          const crates = output.indexOf("spec-drift: refactor is not crates-only");
+          const openspec = output.indexOf("spec-drift: refactor changes openspec");
+          assert.ok(crates >= 0 && openspec > crates, output);
+        },
+      },
+    ),
+    failing("Renaming into crates counts both sides", ["spec-drift: refactor is not crates-only"], {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { "docs/note.md": "note\n" },
+      rename: [{ from: "docs/note.md", to: "crates/rules/note.md" }],
+    }),
+    passing("A docs-only valid refactor line passes", {
+      ...docsChange(REFACTOR),
+      excludes: ["spec-drift: refactor is not crates-only", "spec-drift:"],
+    }),
+    failing(
+      "A tests directory path is a test file",
+      ["spec-drift: refactor changes existing tests"],
+      {
+        event: "pull_request",
+        body: REFACTOR,
+        base: { "crates/rules/src/encounter/tests/delay_ready_tests.rs": "fn old() {}\n" },
+        head: { "crates/rules/src/encounter/tests/delay_ready_tests.rs": "fn new() {}\n" },
+      },
+    ),
+    passing("A sibling tests.rs file is not a test file", {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { "crates/rules/src/tests.rs": "fn old() {}\n" },
+      head: { "crates/rules/src/tests.rs": "fn new() {}\n" },
+    }),
+    passing("An inline test module is not classified", {
+      ...crateChange(REFACTOR, {
+        head: { [LIB]: "fn demo() {}\n#[cfg(test)]\nmod tests {}\n" },
+      }),
+      assertNoRustParse: true,
+    }),
+    failing("Modifying a test file fails", ["spec-drift: refactor changes existing tests"], {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { "crates/rules/tests/foo.rs": "fn old() {}\n" },
+      head: { "crates/rules/tests/foo.rs": "fn new() {}\n" },
+    }),
+    failing("Deleting a test file fails", ["spec-drift: refactor changes existing tests"], {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { "crates/rules/tests/foo.rs": "fn old() {}\n" },
+      remove: ["crates/rules/tests/foo.rs"],
+    }),
+    passing("Adding a test file is allowed", {
+      event: "pull_request",
+      body: REFACTOR,
+      head: { "crates/rules/tests/foo.rs": "fn new() {}\n" },
+    }),
+    failing("A typechange of a test file fails", ["spec-drift: refactor changes existing tests"], {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { "crates/rules/tests/foo.rs": "fn old() {}\n" },
+      symlink: { "crates/rules/tests/foo.rs": "foo.rs" },
+    }),
+    failing("Renaming a test file fails", ["spec-drift: refactor changes existing tests"], {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { "crates/rules/tests/foo.rs": "fn old() {}\n" },
+      rename: [{ from: "crates/rules/tests/foo.rs", to: "crates/rules/tests/bar.rs" }],
+    }),
+    passing("Renaming a non-test file into tests passes", {
+      event: "pull_request",
+      body: REFACTOR,
+      base: { [LIB]: "fn old() {}\n" },
+      rename: [{ from: LIB, to: "crates/rules/src/encounter/tests/lib.rs" }],
+    }),
+    failing("Mixed body failures keep that order", [], {
+      ...crateChange(
+        "OpenSpec-Change: Add-Foo\nOpenSpec-Refactor: NOT-AN-ITEM\nOpenSpec-Refactor: dice-and-checks",
+      ),
+      assertOutput(output) {
+        const lines = [
+          "spec-drift: invalid change id Add-Foo",
+          "spec-drift: invalid refactor item NOT-AN-ITEM",
+          "spec-drift: multiple OpenSpec-Refactor lines",
+          "spec-drift: refactor line conflicts with OpenSpec-Change",
+        ];
+        let at = -1;
+        for (const line of lines) {
+          const next = output.indexOf(line);
+          assert.ok(next > at, output);
+          at = next;
+        }
+      },
+    }),
+    failing("Token failures omit path lines", ["spec-drift: refactor line conflicts with OpenSpec-Change"], {
+      ...crateChange(
+        "OpenSpec-Change: Add-Foo\nOpenSpec-Refactor: NOT-AN-ITEM\nOpenSpec-Refactor: dice-and-checks",
+      ),
+      excludes: ["spec-drift: refactor is not crates-only", "spec-drift: refactor changes openspec"],
+    }),
+    passing("Spec-drift ignores a missing bullet", {
+      ...crateChange(REFACTOR),
+      excludes: ["implementation PR missing CHANGELOG bullet", "spec-drift:"],
+    }),
+  ];
 }
 
 function passing(name, fields = {}) {
@@ -849,6 +1114,7 @@ const cases = [
     head: { "openspec/changes/add-spec-drift-check/proposal.md": "new\n" },
   }),
   ...whitespaceReferenceCases(),
+  ...refactorCases(),
 ];
 
 for (const row of cases) {
@@ -1037,11 +1303,12 @@ async function runCase(row) {
     await writeTree(dir, baseFiles);
     git(dir, ["add", "-A"]);
     git(dir, ["commit", "-m", "base"]);
-    const baseSha = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+    let baseSha = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
 
     const renames = row.rename ?? [];
     const removals = row.remove ?? [];
-    const hasHead = row.head !== undefined || removals.length > 0 || renames.length > 0;
+    const hasHead =
+      row.head !== undefined || removals.length > 0 || renames.length > 0 || row.symlink;
     if (hasHead) {
       for (const rel of removals) {
         await rm(join(dir, rel), { recursive: true, force: true });
@@ -1053,8 +1320,35 @@ async function runCase(row) {
       if (row.head) {
         await writeTree(dir, row.head);
       }
+      if (row.symlink) {
+        for (const [rel, target] of Object.entries(row.symlink)) {
+          const full = join(dir, rel);
+          await rm(full, { force: true });
+          await symlink(target, full);
+        }
+      }
       git(dir, ["add", "-A"]);
       git(dir, ["commit", "-m", row.commitMessage ?? "head"]);
+    }
+
+    if (row.advanceBase) {
+      const mergePoint = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+      git(dir, ["checkout", "-B", "pr-base", mergePoint]);
+      await writeTree(dir, row.advanceBase);
+      git(dir, ["add", "-A"]);
+      git(dir, ["commit", "-m", "base tip"]);
+      baseSha = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+      git(dir, ["checkout", "--detach", mergePoint]);
+    }
+    if (row.unrelatedBase) {
+      const mergePoint = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+      git(dir, ["checkout", "--orphan", "unrelated"]);
+      git(dir, ["rm", "-rf", "."]);
+      await writeTree(dir, { "unrelated.txt": "unrelated\n" });
+      git(dir, ["add", "-A"]);
+      git(dir, ["commit", "-m", "unrelated"]);
+      baseSha = git(dir, ["rev-parse", "HEAD"]).stdout.trim();
+      git(dir, ["checkout", "--detach", mergePoint]);
     }
 
     if (row.commitMessage) {
@@ -1071,12 +1365,13 @@ async function runCase(row) {
     await writeFile(stub, `#!/bin/sh\necho "${STUB_LINE}"\nexit ${code}\n`);
     await chmod(stub, 0o755);
     const localeLog = join(dir, "git-locale.txt");
-    if (row.recordGitLocale) {
+    const gitArgsLog = join(dir, "git-args.txt");
+    if (row.recordGitLocale || row.captureDiff) {
       const gitStub = join(bin, "git");
-      await writeFile(
-        gitStub,
-        "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf '%s\\n' \"$LC_ALL\" > \"$GIT_LOCALE_LOG\"\nfi\nexec \"$REAL_GIT\" \"$@\"\n",
-      );
+      const body = row.captureDiff
+        ? "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$GIT_ARGS_LOG\"\nexec \"$REAL_GIT\" \"$@\"\n"
+        : "#!/bin/sh\nif [ \"$1\" = \"diff\" ]; then\n  printf '%s\\n' \"$LC_ALL\" > \"$GIT_LOCALE_LOG\"\nfi\nexec \"$REAL_GIT\" \"$@\"\n";
+      await writeFile(gitStub, body);
       await chmod(gitStub, 0o755);
     }
 
@@ -1091,6 +1386,10 @@ async function runCase(row) {
     if (row.recordGitLocale) {
       env.LC_ALL = "fr_FR.UTF-8";
       env.GIT_LOCALE_LOG = localeLog;
+      env.REAL_GIT = realGit;
+    }
+    if (row.captureDiff) {
+      env.GIT_ARGS_LOG = gitArgsLog;
       env.REAL_GIT = realGit;
     }
     if (row.body !== undefined) {
@@ -1114,6 +1413,22 @@ async function runCase(row) {
     }
     if (row.recordGitLocale) {
       assert.equal(readFileSync(localeLog, "utf8").trim(), "C");
+    }
+    if (row.captureDiff) {
+      const log = readFileSync(gitArgsLog, "utf8");
+      const diffLine = log.split("\n").find((line) => line.startsWith("diff "));
+      assert.ok(diffLine, log);
+      assert.match(diffLine, /--find-renames/);
+      assert.equal(diffLine.includes("--find-copies"), false, diffLine);
+      const fromSha = diffLine.split(" ").at(-2);
+      assert.notEqual(fromSha, baseSha, log);
+    }
+    if (row.assertCodePath) {
+      const mod = await import("./spec-drift-check.mjs");
+      assert.equal(mod.isCodePath("crates/rules/src/lib.rs"), true);
+    }
+    if (row.assertNoRustParse) {
+      assert.equal(readFileSync(scriptPath, "utf8").includes("cfg(test)"), false);
     }
     if (row.assertOutput) {
       row.assertOutput(output);
@@ -1227,3 +1542,25 @@ async function writeTree(root, files) {
     await writeFile(full, contents);
   }
 }
+
+test("A refactor line contributes no change id", () => {
+  const parsed = changeReferences("OpenSpec-Refactor: dice-and-checks");
+  assert.deepEqual(parsed.ids, []);
+  assert.deepEqual(parsed.invalidTokens, []);
+});
+
+test("A refactor line is not an own-change line", () => {
+  const parsed = changeReferences("OpenSpec-Refactor: dice-and-checks\n");
+  assert.deepEqual(parsed.ids, []);
+  assert.deepEqual(parsed.invalidTokens, []);
+});
+
+test("The bullet stays with the other specs", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const hygiene = readFileSync(join(root, "openspec/specs/pr-hygiene/spec.md"), "utf8");
+  const changelog = readFileSync(join(root, "openspec/specs/changelog/spec.md"), "utf8");
+  const script = readFileSync(scriptPath, "utf8");
+  assert.match(hygiene, /implementation PR missing CHANGELOG bullet/);
+  assert.match(changelog, /## \[Unreleased\]/);
+  assert.equal(script.includes("implementation PR missing CHANGELOG bullet"), false);
+});
