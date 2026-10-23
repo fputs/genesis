@@ -2,11 +2,11 @@
 
 ## 1. Notice file
 
-- [ ] 1.1 Add `LICENSES/ORC-NOTICE` with the ORC Notice, Attribution, Reserved Material, and Licensed Material parts in `specs/orc-notice/spec.md`, including the three attribution lines and `Project Genesis © 2026 Evan Burkey.` Add the player-campaign note in that file. Verify each scenario that names `LICENSES/ORC-NOTICE` by reading the file.
+- [x] 1.1 Add `LICENSES/ORC-NOTICE` with the ORC Notice, Attribution, Reserved Material, and Licensed Material parts in `specs/orc-notice/spec.md`, including the three attribution lines and `Project Genesis © 2026 Evan Burkey.` Add the player-campaign note in that file. Verify each scenario that names `LICENSES/ORC-NOTICE` by reading the file.
 
 ## 2. README
 
-- [ ] 2.1 Add a short `README.md` section that links to `LICENSES/ORC-NOTICE` and repeats the player-campaign note. Verify the README scenario by reading that section.
+- [x] 2.1 Add a short `README.md` section that links to `LICENSES/ORC-NOTICE` and repeats the player-campaign note. Verify the README scenario by reading that section.
 
 ## 3. Changelog
 
