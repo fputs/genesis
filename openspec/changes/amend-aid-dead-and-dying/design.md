@@ -40,17 +40,19 @@ The book spends the reaction when the ally is about to attempt the check. This c
 
 Alternative considered: spend the reaction in a second function when the ally's attack resolves. Rejected. `aid` already returns the circumstance for the check the caller is resolving. A second function would be a new procedure.
 
-### 4. The old scenario title stays
+### 4. Replace the requirement so the old scenario title is gone
 
-`openspec validate --strict` and archive both refuse a MODIFIED requirement that drops a scenario name. "A dead ally can be aided" stays as a title. Its steps are the rejection, and "Aid against a dead ally is rejected" states that same rejection. The success total 17 is not a result of either scenario.
+OpenSpec 1.14.3 renames requirements, not scenarios. `## RENAMED Requirements` is only a `FROM:` / `TO:` pair of `### Requirement:` headers. A MODIFIED block that omits "A dead ally can be aided" fails validation, and archive throws the same loss. The same requirement name in both ADDED and REMOVED is also an error, so a direct remove-and-add does not validate.
+
+Archive applies RENAMED, then REMOVED, then ADDED. This delta renames "The reaction rolls DC 15 once" to "The reaction rolls DC 15 once retired", removes that temporary name, and adds "The reaction rolls DC 15 once" back without "A dead ally can be aided". The added block keeps the five roll scenarios, "Aid against a dead ally is rejected" for an aider already prepared for a Dead ally, "An ally who dies after preparation is rejected" for an ally who dies after a successful prepare, and "A trigger that never fires spends nothing" through the aider's next `start_turn`. The temporary name is not a behavior and is not in the spec after archive. Archive appends the re-added requirement after the other aid requirements.
 
 ## Risks / Trade-offs
 
-- [The title "A dead ally can be aided" now says the opposite of its steps] → The name cannot be deleted under OpenSpec 1.14.3. The steps and the new scenario both say `AllyDead`. The implementation updates `a_dead_ally_can_be_aided` to that error and adds `aid_against_a_dead_ally_is_rejected`.
-- [A prepared-for-Dead state cannot be reached by `prepare_to_aid`] → The aid scenarios start from that state. The test prepares while the ally is Unconscious, which this change allows, then `set_vital_for_test` to Dead, then calls `aid`. `set_prepared` remains for states prepare still cannot reach.
+- [A direct remove-and-add of the same requirement name fails validation] → The temporary rename exists so REMOVED and ADDED name different headers. Archive deletes the temporary name. The implementation does not keep `a_dead_ally_can_be_aided`.
+- [A prepared-for-Dead state cannot be reached by `prepare_to_aid`] → "Aid against a dead ally is rejected" starts from `set_prepared`. "An ally who dies after preparation is rejected" prepares while the ally is Unconscious, then `set_vital_for_test` to Dead, then calls `aid`. Preparation still names that ally (DEV-50).
 - [`reject_delayed` is not in the aid spec's error list] → This change does not add it. The implementation leaves that call where it is.
-- [Strict validation fails a requirement description past 500 characters] → The three modified descriptions are at or under 500. Citations stay on `**Source**` lines, which are not part of that count.
+- [Strict validation fails a requirement description past 500 characters] → The added reaction description is 500 characters. The two modified descriptions stay under 500. Citations stay on `**Source**` lines, which are not part of that count.
 
 ## Migration Plan
 
-No persisted data and no caller outside this crate. Rollback removes `AllyDead` and restores the success result for a Dead ally. The two scenario titles ship together, so a rollback restores both steps.
+No persisted data and no caller outside this crate. Rollback removes `AllyDead` and restores the success result for a Dead ally, including the scenario "A dead ally can be aided".

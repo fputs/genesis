@@ -7,7 +7,7 @@
 prepare_to_aid SHALL check the named ally before spending the action. That check follows TurnNotOpen, NotYourTurn, NotConscious, and InsufficientActions, and it precedes NoAidModifier. The order SHALL be UnknownCombatant, then SelfTarget, then NotAnAlly, then AllyDead when that ally is Dead. An Unconscious or Dying ally SHALL be accepted, because they may wake before the aider's next turn starts. Each refusal SHALL leave the actions unchanged and SHALL leave preparation NotPrepared.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 447, Unconscious)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 446, Unconscious)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
 
 #### Scenario: Preparing for an enemy is NotAnAlly
@@ -40,74 +40,6 @@ prepare_to_aid SHALL check the named ally before spending the action. That check
 - **GIVEN** Alive Pc CombatantId(1) with their turn open, 3 actions, aid modifier +7, and NotPrepared, Dead Pc CombatantId(2), and a scripted natural 10
 - **WHEN** CombatantId(1) prepares for CombatantId(2)
 - **THEN** the error is AllyDead, 3 actions remain, preparation is NotPrepared, and the scripted 10 is still unused
-
-### Requirement: The reaction rolls DC 15 once
-
-On any open turn, including another turn, aid SHALL roll one d20 plus the aid modifier at DC 15. The circumstance SHALL be aid_circumstance_bonus for the degree and AidRank. It SHALL spend the reaction only through spend_reaction, after the roll, and only when that ally attempts the check. If the trigger never fires, it SHALL spend nothing and draw no die. It SHALL NOT spend an action, end the turn, or change Hit Points. A Dead ally SHALL be AllyDead. Unconscious and Dying SHALL NOT be an error.
-
-**Rule**: The trigger is an ally about to use an action that requires a skill check or attack roll. https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416)
-**Why not**: Phase 1 has no skill check on this action.
-**Substitute**: The caller names one attack roll. A skill check is not a trigger. (DEV-51, proposed)
-**Intent**: Aid still applies to the attack the caller is resolving.
-
-**Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2286 (Player Core pg. 401, Step 4: Degree of Success)
-**Source**: DEV-02 and DEV-04. https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416)
-**Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 447, Unconscious)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
-
-#### Scenario: A success returns plus 1
-
-- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::Master, 0 actions, attack count 0, a ready reaction, and prepared for Alive Pc CombatantId(2), and CombatantId(2)'s turn open with 3 actions, and a scripted natural 10
-- **WHEN** CombatantId(1) aids CombatantId(2)
-- **THEN** the total is 17, the degree is success, and the circumstance is Plus1
-- **AND** CombatantId(1) still has 0 actions, attack count 0, the reaction is not ready, and preparation is NotPrepared
-- **AND** CombatantId(2) still has 3 actions and the same Hit Points
-
-#### Scenario: A master critical success returns plus 3
-
-- **GIVEN** a Prepared Alive aider with aid modifier +7, AidRank::Master, and a ready reaction, naming an Alive same-Side ally whose turn is open
-- **WHEN** the aider aids that ally with a scripted natural 18
-- **THEN** the total is 25, the degree is critical success, and the circumstance is Plus3
-
-#### Scenario: A legendary critical success returns plus 4
-
-- **GIVEN** a Prepared Alive aider with aid modifier +7, AidRank::Legendary, and a ready reaction, naming an Alive same-Side ally whose turn is open
-- **WHEN** the aider aids that ally with a scripted natural 18
-- **THEN** the total is 25, the degree is critical success, and the circumstance is Plus4
-
-#### Scenario: A failure returns zero
-
-- **GIVEN** a Prepared Alive aider with aid modifier +7, AidRank::BelowMaster, and a ready reaction, naming an Alive same-Side ally whose turn is open
-- **WHEN** the aider aids that ally with a scripted natural 4
-- **THEN** the total is 11, the degree is failure, the circumstance is Zero, the reaction is not ready, and preparation is NotPrepared
-
-#### Scenario: A critical failure returns minus 1
-
-- **GIVEN** a Prepared Alive aider with aid modifier +4, AidRank::Master, and a ready reaction, naming an Alive same-Side ally whose turn is open
-- **WHEN** the aider aids that ally with a scripted natural 1
-- **THEN** the total is 5, the degree is critical failure, the circumstance is Minus1, the reaction is not ready, and preparation is NotPrepared
-
-#### Scenario: A dead ally can be aided
-
-- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::BelowMaster, attack count 0, a ready reaction, and prepared for Dead Pc CombatantId(2), and Alive Pc CombatantId(3)'s turn open, and a scripted natural 10
-- **WHEN** CombatantId(1) aids CombatantId(2)
-- **THEN** the error is AllyDead
-- **AND** the reaction stays ready, preparation still names CombatantId(2), the attack count stays 0, and the scripted 10 is still unused
-
-#### Scenario: Aid against a dead ally is rejected
-
-- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::BelowMaster, attack count 0, a ready reaction, and prepared for Dead Pc CombatantId(2), and Alive Pc CombatantId(3)'s turn open, and a scripted natural 10
-- **WHEN** CombatantId(1) aids CombatantId(2)
-- **THEN** the error is AllyDead
-- **AND** the reaction stays ready, preparation still names CombatantId(2), the attack count stays 0, and the scripted 10 is still unused
-
-#### Scenario: A trigger that never fires spends nothing
-
-- **GIVEN** Alive Pc CombatantId(1) and Alive Pc CombatantId(2), both Perception +0, with scripted initiative naturals 10 then 8, CombatantId(1) prepared for CombatantId(2) with a ready reaction, and a scripted natural 10 still unused
-- **WHEN** CombatantId(1)'s turn ends and CombatantId(2)'s turn starts and ends with no aid call
-- **THEN** CombatantId(1)'s reaction is ready, preparation still names CombatantId(2), and the scripted 10 is still unused
 
 ### Requirement: Aid errors follow one order
 
@@ -172,3 +104,83 @@ aid SHALL draw no die on an error. It SHALL check UnknownCombatant for the aider
 - **GIVEN** Alive CombatantId(1) prepared for an Alive same-Side ally, with aid modifier 2147483628, AidRank::BelowMaster, and a ready reaction, a turn open, and a scripted natural 20
 - **WHEN** CombatantId(1) aids that ally
 - **THEN** the error is AidOverflow of ArithmeticOverflow, the reaction stays ready, and the scripted 20 is still unused
+
+## RENAMED Requirements
+
+- FROM: `### Requirement: The reaction rolls DC 15 once`
+- TO: `### Requirement: The reaction rolls DC 15 once retired`
+
+## REMOVED Requirements
+
+### Requirement: The reaction rolls DC 15 once retired
+
+## ADDED Requirements
+
+### Requirement: The reaction rolls DC 15 once
+
+On any open turn, including another turn, aid SHALL roll one d20 plus the aid modifier at DC 15. The circumstance SHALL be aid_circumstance_bonus for the degree and AidRank. It SHALL spend the reaction only through spend_reaction, after the roll, and only when that ally attempts the check. If the trigger never fires, it SHALL spend nothing and draw no die. It SHALL NOT spend an action, end the turn, or change Hit Points. A Dead ally SHALL be AllyDead. Unconscious and Dying SHALL NOT be an error.
+
+**Rule**: The trigger is an ally about to use an action that requires a skill check or attack roll. https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416)
+**Why not**: Phase 1 has no skill check on this action.
+**Substitute**: The caller names one attack roll. A skill check is not a trigger. (DEV-51, proposed)
+**Intent**: Aid still applies to the attack the caller is resolving.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416, Aid)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2432 (Player Core pg. 436, Reactions in Encounters)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2286 (Player Core pg. 401, Step 4: Degree of Success)
+**Source**: DEV-02 and DEV-04. https://2e.aonprd.com/Actions.aspx?ID=2292 (Player Core pg. 416)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 446, Unconscious)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
+
+#### Scenario: A success returns plus 1
+
+- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::Master, 0 actions, attack count 0, a ready reaction, and prepared for Alive Pc CombatantId(2), and CombatantId(2)'s turn open with 3 actions, and a scripted natural 10
+- **WHEN** CombatantId(1) aids CombatantId(2)
+- **THEN** the total is 17, the degree is success, and the circumstance is Plus1
+- **AND** CombatantId(1) still has 0 actions, attack count 0, the reaction is not ready, and preparation is NotPrepared
+- **AND** CombatantId(2) still has 3 actions and the same Hit Points
+
+#### Scenario: A master critical success returns plus 3
+
+- **GIVEN** a Prepared Alive aider with aid modifier +7, AidRank::Master, and a ready reaction, naming an Alive same-Side ally whose turn is open
+- **WHEN** the aider aids that ally with a scripted natural 18
+- **THEN** the total is 25, the degree is critical success, and the circumstance is Plus3
+
+#### Scenario: A legendary critical success returns plus 4
+
+- **GIVEN** a Prepared Alive aider with aid modifier +7, AidRank::Legendary, and a ready reaction, naming an Alive same-Side ally whose turn is open
+- **WHEN** the aider aids that ally with a scripted natural 18
+- **THEN** the total is 25, the degree is critical success, and the circumstance is Plus4
+
+#### Scenario: A failure returns zero
+
+- **GIVEN** a Prepared Alive aider with aid modifier +7, AidRank::BelowMaster, and a ready reaction, naming an Alive same-Side ally whose turn is open
+- **WHEN** the aider aids that ally with a scripted natural 4
+- **THEN** the total is 11, the degree is failure, the circumstance is Zero, the reaction is not ready, and preparation is NotPrepared
+
+#### Scenario: A critical failure returns minus 1
+
+- **GIVEN** a Prepared Alive aider with aid modifier +4, AidRank::Master, and a ready reaction, naming an Alive same-Side ally whose turn is open
+- **WHEN** the aider aids that ally with a scripted natural 1
+- **THEN** the total is 5, the degree is critical failure, the circumstance is Minus1, the reaction is not ready, and preparation is NotPrepared
+
+#### Scenario: Aid against a dead ally is rejected
+
+- **GIVEN** Alive Pc CombatantId(1) with aid modifier +7, AidRank::BelowMaster, attack count 0, a ready reaction, and prepared for Dead Pc CombatantId(2), and Alive Pc CombatantId(3)'s turn open, and a scripted natural 10
+- **WHEN** CombatantId(1) aids CombatantId(2)
+- **THEN** the error is AllyDead
+- **AND** the reaction stays ready, preparation still names CombatantId(2), the attack count stays 0, and the scripted 10 is still unused
+
+#### Scenario: An ally who dies after preparation is rejected
+
+- **GIVEN** Alive Pc CombatantId(1) prepares for Unconscious Pc CombatantId(2), which succeeds and spends 1 action, CombatantId(2)'s vital is then set to Dead, Alive Pc CombatantId(3)'s turn is open, and a scripted natural 10 is unused
+- **WHEN** CombatantId(1) aids CombatantId(2)
+- **THEN** the error is AllyDead, the reaction stays ready, and preparation still names CombatantId(2) (DEV-50)
+- **AND** the scripted 10 is still unused
+
+#### Scenario: A trigger that never fires spends nothing
+
+- **GIVEN** Alive Pc CombatantId(1) and Alive Pc CombatantId(2), both Perception +0, with scripted initiative naturals 10 then 8, CombatantId(1) prepared for CombatantId(2) with a ready reaction, and a scripted natural 10 still unused
+- **WHEN** CombatantId(1)'s turn ends, CombatantId(2)'s turn starts and ends with no aid call, and CombatantId(1)'s next turn starts
+- **THEN** the scripted 10 is still unused, CombatantId(1)'s reaction is ready, and preparation is NotPrepared
+
