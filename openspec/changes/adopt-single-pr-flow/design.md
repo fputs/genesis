@@ -67,7 +67,7 @@ The base sha is `pull_request.base.sha` from the payload. The steps run `git wor
 
 `scripts/pr-hygiene.mjs` guards `main()` with `runningAsScript()`, the same realpath test `scripts/spec-drift-check.mjs` uses, so importing `unfencedBody` does not run the check.
 
-Bootstrap applies only when that base sha lacks both the script and `.github/workflows/spec-approved.yml`. The job then logs `bootstrap: no base script` and does not run a head copy. Deleting the script, its test, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, or the authors file still needs approval. An open pull request whose base sha predates the merge keeps the bootstrap pass until an event refreshes that base.
+Bootstrap applies only when that base sha lacks both the script and `.github/workflows/spec-approved.yml`. Exactly one of those files fails with `spec-approved: partial base`. The job then logs `bootstrap: no base script` and does not run a head copy. Deleting the script, its test, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, or the authors file still needs approval. An open pull request whose base sha predates the merge keeps the bootstrap pass until an event refreshes that base.
 
 Alternative considered: run the head's script. Rejected. The head could replace the allow-list and the program together.
 
@@ -75,9 +75,9 @@ Alternative considered: run the head's script. Rejected. The head could replace 
 
 `spec-approved.mjs` imports `changeReferences` and `isCodePath`. This change exports `isCodePath`. Changed paths are `git diff` from `git merge-base` of the base sha and the head sha to the head, including both sides of a rename. That is the same base pr-hygiene uses. The job does not diff `pull_request.base.sha` directly.
 
-No merge-base fails with `spec-approved: no merge-base`. No code path, or a pull request that meets the qualifying refactor paths, passes with no review. A conflicting, malformed, or repeated refactor line does not.
+No merge-base fails with `spec-approved: no merge-base`. No code path or approval path, or a pull request that meets the qualifying refactor paths, passes with no review. A conflicting, malformed, or repeated refactor line does not.
 
-Every returned id is hashed against one approved sha. That sha covers all of them. An invalid token fails with `spec-approved: invalid change id`. An unknown id fails with `spec-approved: unknown change <id>`. Zero ids on a non-exempt code path fail with `spec-approved: missing OpenSpec-Change`. A hash difference fails with `spec-approved: spec hash mismatch`.
+Every returned id is hashed against one approved sha. That sha covers all of them. An invalid token fails with `spec-approved: invalid change id`. An unknown id fails with `spec-approved: unknown change <id>`. Zero ids on a non-exempt code path or approval path log `spec-approved: missing OpenSpec-Change` before any approval check. A hash difference fails with `spec-approved: spec hash mismatch`.
 
 ### 6. The refactor exemption follows pull request 79
 

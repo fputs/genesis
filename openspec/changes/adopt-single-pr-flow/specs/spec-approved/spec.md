@@ -105,7 +105,7 @@ The base sha SHALL be `pull_request.base.sha` from the payload. The job SHALL ru
 
 ### Requirement: Bootstrap when the base has no script
 
-Bootstrap SHALL apply only when that base sha lacks both `scripts/spec-approved.mjs` and `.github/workflows/spec-approved.yml`. The job SHALL then pass and log `bootstrap: no base script`, and SHALL NOT run a head copy. If either blob exists, bootstrap SHALL NOT apply. The job SHALL NOT special-case a change id. An open pull request keeps that pass until an event refreshes `pull_request.base.sha` to a commit that has both blobs.
+Bootstrap SHALL apply only when the base sha lacks both `scripts/spec-approved.mjs` and `.github/workflows/spec-approved.yml`. It SHALL pass, log `bootstrap: no base script`, and SHALL NOT run a head copy. If either blob exists, bootstrap SHALL NOT apply. A base with exactly one of those blobs SHALL fail and log `spec-approved: partial base`. It SHALL NOT special-case a change id. An open pull request keeps that pass until an event refreshes `pull_request.base.sha` to a commit with both blobs.
 
 #### Scenario: This pull request bootstraps
 
@@ -116,9 +116,17 @@ Bootstrap SHALL apply only when that base sha lacks both `scripts/spec-approved.
 - **AND** the log includes `bootstrap: no base script`
 - **AND** the head script does not run
 
+#### Scenario: Exactly one base blob fails closed
+
+- **GIVEN** the base sha has `scripts/spec-approved.mjs` and no `.github/workflows/spec-approved.yml`
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: partial base`
+- **AND** the log does not include `bootstrap: no base script`
+
 ### Requirement: Change id and exemptions
 
-The job SHALL take change ids from `changeReferences`. It SHALL import `isCodePath` from the base spec-drift script and SHALL NOT reimplement it. Changed paths SHALL be the merge-base diff of the base sha and the head. Both rename sides count. No merge-base SHALL fail with `spec-approved: no merge-base`. No code path, or qualifying refactor paths, SHALL pass with no review. Any other refactor line SHALL NOT skip this job. Zero ids SHALL fail with `spec-approved: missing OpenSpec-Change`.
+The job SHALL take change ids from `changeReferences`. It SHALL import base `isCodePath` and SHALL NOT reimplement it. Changed paths SHALL be the merge-base diff of base and head. Both rename sides count. No merge-base SHALL fail with `spec-approved: no merge-base`. No code path or approval path, or qualifying refactor paths, SHALL pass with no review. Any other refactor line SHALL NOT skip this job. Zero ids SHALL fail and log `spec-approved: missing OpenSpec-Change` before any approval check.
 
 #### Scenario: A docs-only pull request passes without a review
 
@@ -155,6 +163,15 @@ The job SHALL take change ids from `changeReferences`. It SHALL import `isCodePa
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: missing OpenSpec-Change`
 
+#### Scenario: A protected path with no change line fails
+
+- **GIVEN** a pull request whose only diff is `scripts/pr-hygiene.mjs`
+- **AND** the body has no `OpenSpec-Change` line
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: missing OpenSpec-Change`
+- **AND** the log does not include `spec-approved: approval missing`
+
 #### Scenario: No merge-base fails closed
 
 - **GIVEN** a pull request whose base sha and head sha have no merge-base
@@ -164,12 +181,13 @@ The job SHALL take change ids from `changeReferences`. It SHALL import `isCodePa
 
 ### Requirement: Approval paths
 
-These paths SHALL require approval the way a code path does: `scripts/spec-approved.mjs`, `scripts/spec-approved.test.mjs`, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, and `openspec/spec-approved-authors.txt`. A diff that only deletes one or more of them, with no allowed review, SHALL fail with `spec-approved: approval missing`. Any other `scripts/` path SHALL NOT by itself require approval.
+These paths SHALL require an `OpenSpec-Change` line and approval the way a code path does: `scripts/spec-approved.mjs`, `scripts/spec-approved.test.mjs`, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, and `openspec/spec-approved-authors.txt`. A diff that only deletes one or more of them, with no allowed review, SHALL fail with `spec-approved: approval missing`. Any other `scripts/` path SHALL NOT by itself require approval.
 
 #### Scenario: Deleting the approval files fails closed
 
 - **GIVEN** the base sha has both `scripts/spec-approved.mjs` and `.github/workflows/spec-approved.yml`
 - **AND** the diff only deletes those five paths
+- **AND** the body line is `OpenSpec-Change: add-foo`, which exists and has `proposal.md`
 - **AND** there is no allowed review
 - **WHEN** the job runs
 - **THEN** the job fails
@@ -229,7 +247,7 @@ The digest SHALL be lowercase hex SHA-256. Each hashed file SHALL be encoded as 
 
 ### Requirement: Approval line
 
-After one trailing CR is removed and the line is trimmed, a line that starts with case-sensitive `spec-approved:` SHALL be an approval attempt. It SHALL be valid only when that trimmed line is exactly `spec-approved: ` plus 40 lowercase hex digits. Any other attempt SHALL be malformed. No attempt SHALL mean missing. Two attempts in one review SHALL be malformed. Fenced lines SHALL be removed first by pr-hygiene's `unfencedBody`. Only a `pull_request_review` body SHALL count.
+After one trailing CR and a trim, a line starting with case-sensitive `spec-approved:` SHALL be an approval attempt. It SHALL be valid only as exactly `spec-approved: ` plus 40 lowercase hex digits. Any other attempt SHALL be malformed. No attempt SHALL mean missing. Two attempts in one review SHALL be malformed. Fenced lines SHALL be removed first by pr-hygiene's `unfencedBody`. Only a `pull_request_review` body SHALL count. The pull request body and inline review comments SHALL NOT count.
 
 #### Scenario: Uppercase hex is invalid
 
@@ -367,7 +385,7 @@ The job SHALL GET `pulls/{n}/reviews` with `per_page=100` and SHALL follow every
 
 ### Requirement: Dismissed and pending reviews
 
-Reviews whose state is `DISMISSED` or `PENDING` SHALL NOT supply the approved sha. A dismissed approval, with no other allowed review line, SHALL fail with `spec-approved: approval missing`.
+Reviews whose state is `DISMISSED` or `PENDING` SHALL be removed before the latest review is picked, so an older undismissed approval can be the latest. They SHALL NOT supply the approved sha. A dismissed approval, with no other allowed review line, SHALL fail with `spec-approved: approval missing`. A `COMMENTED` review with an empty body SHALL be ignored when the latest is picked.
 
 #### Scenario: A dismissed approval is missing
 
@@ -377,6 +395,24 @@ Reviews whose state is `DISMISSED` or `PENDING` SHALL NOT supply the approved sh
 - **WHEN** the job runs
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: approval missing`
+
+#### Scenario: An older undismissed approval stays latest
+
+- **GIVEN** user id `239839957` submitted a valid line whose digest matches the head
+- **AND** a later review from that user, state `DISMISSED`, names a different sha
+- **AND** the pull request changes a code path and has `OpenSpec-Change: add-foo`
+- **WHEN** the job runs
+- **THEN** the job passes
+- **AND** the dismissed review is not the latest
+
+#### Scenario: An empty commented review leaves the approval
+
+- **GIVEN** user id `239839957` submitted a valid line whose digest matches the head
+- **AND** that user later submits a `COMMENTED` review with an empty body
+- **AND** the pull request changes a code path and has `OpenSpec-Change: add-foo`
+- **WHEN** the job runs
+- **THEN** the job passes
+- **AND** the empty review is not the latest
 
 ### Requirement: Importing the fence helper
 
