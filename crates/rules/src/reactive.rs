@@ -109,12 +109,12 @@ pub enum ReactiveError {
     ///
     /// Player Core, Delay.
     Delayed,
-    /// The attack bonus, the caller modifiers, and 20 do not fit in `i32`.
+    /// The attack bonus, the caller modifiers, and 20 do not fit in `i32`. This check is before the d20.
     ///
     /// Player Core, Penalties.
     AttackOverflow(ModifierError),
-    /// The damage total did not fit. The flat-check die, when one was drawn, the attack die,
-    /// and the damage die were consumed. The reaction stays ready.
+    /// The damage total did not fit. The flat-check die, if any, and both the attack die and the
+    /// damage die were consumed. The reaction stays ready.
     ///
     /// Player Core, "Damage Rolls". Player Core pg. 442, Concealed.
     DamageOverflow(ModifierError),

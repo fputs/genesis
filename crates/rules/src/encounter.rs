@@ -4424,6 +4424,67 @@ mod tests {
         );
     }
 
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 244, Hide. Player Core pg. 442, Concealed.
+    #[test]
+    fn a_lost_reactive_strike_still_reveals_the_striker() {
+        let detections = relate(
+            relate(
+                relate(
+                    Detections::new(),
+                    2,
+                    1,
+                    Detection::Hidden,
+                    Concealment::NotConcealed,
+                    Some(17),
+                ),
+                3,
+                1,
+                Detection::Hidden,
+                Concealment::NotConcealed,
+                Some(17),
+            ),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 5),
+                pc(2, 0, 20, 18),
+                pc(3, 0, 20, 18),
+            ],
+            &[15, 10, 5, 4, 10],
+        );
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect("lost");
+        let lost = lost(outcome.strike);
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(detections.get(id(2), id(1)).detection, Detection::Hidden);
+        let notice = note_strike(detections, id(1), id(2));
+        assert_eq!(
+            notice.detections.get(id(2), id(1)).detection,
+            Detection::Observed
+        );
+        assert_eq!(
+            notice.detections.get(id(3), id(1)).detection,
+            Detection::Observed
+        );
+        assert_eq!(
+            notice.detections.get(id(1), id(2)).concealment,
+            Concealment::Concealed
+        );
+    }
+
     /// Player Core pg. 447, Undetected. Player Core pg. 418, Strike.
     #[test]
     fn an_undetected_target_cannot_be_struck() {
@@ -4589,6 +4650,86 @@ mod tests {
         );
         assert_eq!(actions(&encounter, 1), 3);
         assert_eq!(dice.remaining(), 1);
+    }
+
+    fn raised_defender(rolls: &[u8]) -> (Encounter, ScriptedDice) {
+        let target = participant(2, Side::Pc, creature(20, 18, 0, false, Some(plate())));
+        let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), target], rolls);
+        assert_eq!(encounter.start_turn().expect("defender"), id(2));
+        encounter.raise_shield(id(2)).expect("raise");
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("striker"), id(1));
+        (encounter, dice)
+    }
+
+    /// Player Core, "Shield Block". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_lost_strike_against_a_raised_shield_leaves_it_untouched() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = raised_defender(&[8, 14, 4, 10, 3]);
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Requested,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(dice.remaining(), 2);
+        let state = encounter.state(id(2)).expect("state");
+        assert!(state.reaction_ready);
+        assert!(state.shield_raised);
+        assert_eq!(state.shield_hit_points, Some(20));
+    }
+
+    /// Player Core, "Shield Block". Player Core pg. 447, Undetected.
+    #[test]
+    fn cannot_target_against_a_raised_shield_spends_nothing() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = raised_defender(&[8, 14, 11]);
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Requested,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("undetected"),
+            EncounterError::CannotTarget
+        );
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(dice.remaining(), 1);
+        let state = encounter.state(id(2)).expect("state");
+        assert!(state.reaction_ready);
+        assert!(state.shield_raised);
+        assert_eq!(state.shield_hit_points, Some(20));
     }
 
     /// Player Core, Penalties. Player Core pg. 442, Concealed.
@@ -9226,6 +9367,36 @@ mod tests {
             ReactiveError::DamageOverflow(ModifierError::Overflow)
         );
         assert_eq!(dice.remaining(), 1);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(hit_points(&encounter, 2), 20);
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Damage Rolls". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_concealed_damage_total_that_does_not_fit_consumes_three_dice() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 5, 10, 1, 4]);
+        let error = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 1, 8, 2_147_483_647),
+        )
+        .expect_err("damage overflow");
+        assert_eq!(
+            error,
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        );
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(dice.d20(), 4);
         assert!(reaction(&encounter, 1));
         assert_eq!(hit_points(&encounter, 2), 20);
     }

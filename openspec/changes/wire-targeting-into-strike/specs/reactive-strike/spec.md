@@ -4,7 +4,7 @@
 
 ### Requirement: Errors have one order
 
-Order: reactor UnknownCombatant, actor UnknownCombatant, NotConscious, SelfTarget, Unavailable, NotATrigger, UnsupportedSize, Overflow, InvalidReach, OutOfReach, TargetNotConscious, NoReaction, AttackOverflow, CannotTarget. Pre-die failures SHALL draw nothing and leave the reaction unchanged. DamageOverflow SHALL count the flat-check die too, not just both dice. The reaction stays ready and Hit Points stay. AttackOverflow SHALL be bonus + modifiers + 20 over i32.
+Order: reactor UnknownCombatant, actor UnknownCombatant, NotConscious, SelfTarget, Unavailable, NotATrigger, UnsupportedSize, Overflow, InvalidReach, OutOfReach, TargetNotConscious, NoReaction, AttackOverflow, CannotTarget. Pre-die failures SHALL draw nothing and leave the reaction unchanged. DamageOverflow SHALL consume the flat-check die, if any, and both attack and damage dice. The reaction stays ready. Hit Points stay. AttackOverflow SHALL be bonus + modifiers + 20 over i32 before the d20.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2256 (Player Core pg. 138, Reactive Strike)
 

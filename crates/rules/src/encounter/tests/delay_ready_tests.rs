@@ -6,7 +6,7 @@ use crate::aid::{AidPreparation, AidRank};
 use crate::check::DegreeOfSuccess;
 use crate::combatant::{BuildParts, CharacterBuild, DieCount, MeleeStrike, ReachFeet, derive};
 use crate::combatant::{DyingValue, ShieldTemplate, Vital};
-use crate::detection::{Concealment, Detection, Detections, Relation};
+use crate::detection::{Concealment, Detection, Detections, Relation, note_strike};
 use crate::dice::Faces;
 use crate::dice::ScriptedDice;
 use crate::encounter::{
@@ -1971,6 +1971,92 @@ fn a_natural_11_at_dc_11_then_the_readied_attack() {
     );
     assert!(!reaction(&encounter, 1));
     assert_eq!(encounter.stored_ready(id(1)).expect("ready"), None);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 444, Hidden.
+#[test]
+fn a_natural_10_at_dc_11_loses_the_readied_strike() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Hidden,
+        Concealment::NotConcealed,
+        Some(17),
+    );
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10, 15]);
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let lost = lost_ready(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(lost.natural, 10);
+    assert_eq!(lost.dc, 11);
+    assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+    assert!(!reaction(&encounter, 1));
+    assert_eq!(encounter.stored_ready(id(1)).expect("ready"), None);
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 244, Hide. Player Core pg. 442, Concealed.
+#[test]
+fn a_lost_readied_strike_still_reveals_the_striker() {
+    let detections = relate(
+        relate(
+            relate(
+                Detections::new(),
+                2,
+                1,
+                Detection::Hidden,
+                Concealment::NotConcealed,
+                Some(17),
+            ),
+            3,
+            1,
+            Detection::Hidden,
+            Concealment::NotConcealed,
+            Some(17),
+        ),
+        1,
+        2,
+        Detection::Observed,
+        Concealment::Concealed,
+        None,
+    );
+    let (mut encounter, mut dice) = begin(
+        vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+        &[15, 10, 5, 4, 10],
+    );
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let lost = lost_ready(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(lost.natural, 4);
+    assert_eq!(lost.dc, 5);
+    assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+    assert_eq!(dice.remaining(), 1);
+    assert_eq!(detections.get(id(2), id(1)).detection, Detection::Hidden);
+    let notice = note_strike(detections, id(1), id(2));
+    assert_eq!(
+        notice.detections.get(id(2), id(1)).detection,
+        Detection::Observed
+    );
+    assert_eq!(
+        notice.detections.get(id(3), id(1)).detection,
+        Detection::Observed
+    );
+    assert_eq!(
+        notice.detections.get(id(1), id(2)).concealment,
+        Concealment::Concealed
+    );
 }
 
 /// Player Core pg. 417, Ready. Player Core pg. 442, Concealed. Player Core pg. 402, "Multiple Attack Penalty".
