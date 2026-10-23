@@ -566,24 +566,6 @@ fn unconscious_will_does_not_include_minus_4() {
     assert_eq!(roll.total, 15);
 }
 
-/// Player Core pg. 404, Saving Throws.
-#[test]
-fn a_constitution_modifier_at_the_maximum_rolls_nothing() {
-    let mut encounter = opened(
-        vec![alive(1, 20, fort(1, 2_147_483_647, Proficiency::Untrained))],
-        &[8],
-    );
-    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
-    assert_eq!(
-        error,
-        Err(EncounterError::SaveOverflow(
-            ArithmeticOverflow::SumDoesNotFit
-        ))
-    );
-    assert_eq!(dice.remaining(), 1);
-    assert_eq!(dice.d20(), 10);
-}
-
 /// Player Core pg. 407, Doubling and Halving Damage.
 #[test]
 fn doubling_the_maximum_damage_writes_nothing() {

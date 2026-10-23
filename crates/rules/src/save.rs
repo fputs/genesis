@@ -402,16 +402,23 @@ mod tests {
         assert_eq!(Level::new(0), Err(LevelError::OutOfRange));
     }
 
-    /// Player Core pg. 404, Saving Throws. GM Core, creature-building tables.
+    /// Player Core pg. 91. GM Core pg. 112. Monster Core pg. 328.
     #[test]
-    fn a_level_of_25_cannot_be_built() {
-        assert_eq!(Level::new(25), Err(LevelError::OutOfRange));
+    fn a_level_of_26_cannot_be_built() {
+        assert_eq!(Level::new(26), Err(LevelError::OutOfRange));
+    }
+
+    /// Player Core pg. 91. GM Core pg. 112. Monster Core pg. 328.
+    #[test]
+    fn a_level_of_25_can_be_built() {
+        let level = Level::new(25).expect("level");
+        assert_eq!(level.get(), 25);
     }
 
     /// Player Core pg. 404, Saving Throws.
     #[test]
-    fn legendary_at_level_24_is_plus_32_before_ability() {
-        let level = Level::new(24).expect("level");
-        assert_eq!(proficiency_bonus(level, Proficiency::Legendary), 32);
+    fn legendary_at_level_25_is_plus_33_before_ability() {
+        let level = Level::new(25).expect("level");
+        assert_eq!(proficiency_bonus(level, Proficiency::Legendary), 33);
     }
 }
