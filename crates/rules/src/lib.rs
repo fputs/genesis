@@ -44,8 +44,8 @@ pub use dying::{
     grant_temporary_hit_points, start_of_turn, take_initiative_move,
 };
 pub use encounter::{
-    Agility, Encounter, EncounterError, Participant, Side, StrikeOutcome, StrikeProfile, TurnSlot,
-    begin_encounter,
+    Agility, Encounter, EncounterError, LostStrike, Participant, Side, StrikeDelivery,
+    StrikeOutcome, StrikeProfile, TurnSlot, begin_encounter,
 };
 pub use modifiers::{
     BonusType, ConditionId, Cover, Modifier, ModifierError, ModifierTotal, PenaltyType, SourceId,

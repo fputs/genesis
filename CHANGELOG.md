@@ -28,6 +28,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** Strike, Reactive Strike, and a readied Strike roll the targeting flat check before the attack roll. A lost Strike returns `StrikeDelivery::Lost` and does not roll the attack d20. ([#83](https://github.com/fputs/genesis/pull/83))
 - pr-hygiene accepts a new Unreleased bullet only when it sits under Added, Changed, Deprecated, Removed, Fixed, or Security and links that pull request, and it skips the bullet when every other changed path is a crate test. ([#76](https://github.com/fputs/genesis/pull/76))
 - **BREAKING:** Preparing Aid accepts an unconscious or dying ally and rejects a dead ally. The reaction against a dead ally is rejected and does not spend the reaction. The reaction is spent only when the ally attempts the check. ([#75](https://github.com/fputs/genesis/pull/75))
 - A failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither. ([#69](https://github.com/fputs/genesis/pull/69))
