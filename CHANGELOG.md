@@ -10,7 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
-- Behavior tests for Hide on both sides of the degree boundary at the +20 modifier limit, Raise a Shield off-turn, and an unconscious creature keeping its shield and melee strike. ([#71](https://github.com/fputs/genesis/pull/71))
+- Behavior tests for Hide on both sides of the degree boundary at the +20 modifier limit, Raise a Shield off-turn, and an unconscious creature keeping its shield and melee strike. ([#72](https://github.com/fputs/genesis/pull/72))
 - Delay, return, and Ready. A stored action and a Reactive Strike on the same trigger resolve in initiative order. ([#70](https://github.com/fputs/genesis/pull/70))
 - Aid preparation on your turn and the Aid reaction against DC 15. ([#68](https://github.com/fputs/genesis/pull/68))
 - Reactive Strike: the in-reach trigger, one reaction, and disruption. ([#66](https://github.com/fputs/genesis/pull/66))
