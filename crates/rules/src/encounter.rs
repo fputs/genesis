@@ -159,6 +159,13 @@ pub enum EncounterError {
     NotAnAlly,
     /// Preparation names a different ally. Player Core, Aid.
     NotThePreparedAlly,
+    /// The named ally is dead.
+    ///
+    /// [`EncounterError::NotConscious`] stays the aider's error, including Unconscious and Dying.
+    /// [`EncounterError::TargetDead`] stays the Strike target's error.
+    ///
+    /// Player Core, Aid. Player Core, Unconscious. Player Core, "Getting Knocked Out".
+    AllyDead,
     /// The Aid modifier plus 20 does not fit in `i32`. Player Core, Aid.
     AidOverflow(ArithmeticOverflow),
     /// The roster has no creature. Player Core, Encounter Mode.
@@ -544,11 +551,14 @@ impl Encounter {
     ///
     /// Refusals follow [`Self::spend_actions`] first: no open turn, not your turn, not Alive,
     /// then fewer than 1 action. The named ally is next: unknown, then self, then a different
-    /// side. A missing Aid modifier is next. Nothing is spent or stored on those errors. Only
-    /// then does this call [`Self::spend_actions`] and record the ally. A second call spends
-    /// another action and replaces the named ally.
+    /// side, then [`EncounterError::AllyDead`] when that ally is [`Vital::Dead`]. An Unconscious
+    /// or Dying ally is accepted, because they may wake before the aider's next turn. A missing
+    /// Aid modifier is next. Nothing is spent or stored on those errors. Only then does this
+    /// call [`Self::spend_actions`] and record the ally. A second call spends another action and
+    /// replaces the named ally.
     ///
-    /// Player Core, Aid. Player Core, "Step 2: Act".
+    /// Player Core, Aid. Player Core, Unconscious. Player Core, "Getting Knocked Out".
+    /// Player Core, "Step 2: Act".
     pub fn prepare_to_aid(
         &mut self,
         aider: CombatantId,
@@ -574,14 +584,17 @@ impl Encounter {
         if aider == ally {
             return Err(EncounterError::SelfTarget);
         }
-        let ally_side = self
+        let ally_member = self
             .members
             .get(ally_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .side;
+            .ok_or(EncounterError::UnknownCombatant)?;
+        let ally_side = ally_member.participant.side;
+        let ally_vital = ally_member.participant.state.vital;
         if aider_side != ally_side {
             return Err(EncounterError::NotAnAlly);
+        }
+        if ally_vital == Vital::Dead {
+            return Err(EncounterError::AllyDead);
         }
         if !has_aid_modifier {
             return Err(EncounterError::NoAidModifier);
@@ -602,11 +615,13 @@ impl Encounter {
     /// attack roll. This narrows that trigger to an attack roll (DEV-51). Willing is the same
     /// [`Side`], which is DEV-17 and DEV-26. An `Ok` result clears preparation. The preparation
     /// names one ally and ends at the next `start_turn` or at `Ok`, whichever comes first
-    /// (DEV-50). An error does not clear it and draws no die. The ally's vital is not read.
-    /// Actions, Hit Points, and the attack count stay as they were.
+    /// (DEV-50). An error does not clear it and draws no die. A Dead ally is
+    /// [`EncounterError::AllyDead`]. Unconscious and Dying are not an error. The reaction is
+    /// spent only through [`Self::spend_reaction`], after the roll, and only when this call
+    /// produces that roll. Actions, Hit Points, and the attack count stay as they were.
     ///
     /// Player Core, Aid. Player Core, "Step 2: Act". Player Core, Unconscious.
-    /// Player Core, "Reactions in Encounters".
+    /// Player Core, "Getting Knocked Out". Player Core, "Reactions in Encounters".
     pub fn aid(
         &mut self,
         aider: CombatantId,
@@ -638,12 +653,16 @@ impl Encounter {
         if aider == ally {
             return Err(EncounterError::SelfTarget);
         }
-        let ally_side = self
-            .members
-            .get(ally_index)
-            .ok_or(EncounterError::UnknownCombatant)?
-            .participant
-            .side;
+        let (ally_side, ally_vital) = {
+            let ally_member = self
+                .members
+                .get(ally_index)
+                .ok_or(EncounterError::UnknownCombatant)?;
+            (
+                ally_member.participant.side,
+                ally_member.participant.state.vital,
+            )
+        };
         if aider_side != ally_side {
             return Err(EncounterError::NotAnAlly);
         }
@@ -653,6 +672,9 @@ impl Encounter {
             }
             AidPreparation::NotPrepared => return Err(EncounterError::NotPrepared),
             AidPreparation::Prepared { .. } => {}
+        }
+        if ally_vital == Vital::Dead {
+            return Err(EncounterError::AllyDead);
         }
         let modifier = match modifier {
             Some(modifier) => modifier,
@@ -2416,6 +2438,7 @@ fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::NotThePreparedAlly => {
             ReadyError::Encounter(ReadyEncounter::NotThePreparedAlly)
         }
+        EncounterError::AllyDead => ReadyError::Encounter(ReadyEncounter::AllyDead),
         EncounterError::AidOverflow(error) => {
             ReadyError::Encounter(ReadyEncounter::AidOverflow(error))
         }
@@ -2483,6 +2506,7 @@ fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::NoAidModifier => ReactiveError::NoReaction,
         EncounterError::NotAnAlly => ReactiveError::NoReaction,
         EncounterError::NotThePreparedAlly => ReactiveError::NoReaction,
+        EncounterError::AllyDead => ReactiveError::NoReaction,
         EncounterError::AidOverflow(_) => ReactiveError::NoReaction,
         EncounterError::NoCreature => ReactiveError::NoReaction,
         EncounterError::NotDelayed => ReactiveError::NoReaction,
@@ -2548,6 +2572,7 @@ fn as_damage_overflow(error: EncounterError) -> ReactiveError {
         EncounterError::NotThePreparedAlly => {
             ReactiveError::DamageOverflow(ModifierError::Overflow)
         }
+        EncounterError::AllyDead => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::AidOverflow(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::NoCreature => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::NotDelayed => ReactiveError::DamageOverflow(ModifierError::Overflow),
@@ -4977,6 +5002,57 @@ mod tests {
     }
 
     /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn preparing_for_an_unconscious_or_dying_ally_is_legal() {
+        let (mut encounter, dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+                pc(3, 0, 20, 11),
+            ],
+            &[10, 8, 6, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.set_vital_for_test(id(2), Vital::Unconscious);
+        encounter.set_vital_for_test(id(3), Vital::Dying(dying_value()));
+        encounter.prepare_to_aid(id(1), id(2)).expect("unconscious");
+        assert_eq!(actions(&encounter, 1), 2);
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        encounter.prepare_to_aid(id(1), id(3)).expect("dying");
+        assert_eq!(actions(&encounter, 1), 1);
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(3) }
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn preparing_for_a_dead_ally_is_rejected() {
+        let (mut encounter, dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                dead(pc(2, 0, 20, 11)),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let error = encounter.prepare_to_aid(id(1), id(2)).expect_err("dead");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
     /// Player Core, "Step 1: Start Your Turn".
     #[test]
     fn a_participant_starts_not_prepared() {
@@ -5260,9 +5336,11 @@ mod tests {
     }
 
     /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
     /// Player Core, "Reactions in Encounters".
     #[test]
-    fn a_dead_ally_can_be_aided() {
+    fn aid_against_a_dead_ally_is_rejected() {
         let (mut encounter, mut dice) = begin(
             vec![
                 aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
@@ -5272,17 +5350,76 @@ mod tests {
             &[10, 8, 6, 10],
         );
         assert_eq!(encounter.start_turn().expect("start"), id(1));
-        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        set_prepared(&mut encounter, 1, 2);
         encounter.end_turn().expect("end");
         assert_eq!(encounter.start_turn().expect("third"), id(3));
-        assert_eq!(vital(&encounter, 2), Vital::Dead);
-        let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
-        assert_eq!(outcome.total, 17);
-        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.circumstance, AidCircumstance::Plus1);
-        assert!(!reaction(&encounter, 1));
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert!(reaction(&encounter, 1));
+        let error = encounter.aid(id(1), id(2), &mut dice).expect_err("dead");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn an_ally_who_dies_after_preparation_is_rejected() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+                pc(3, 0, 20, 11),
+            ],
+            &[10, 8, 6, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.set_vital_for_test(id(2), Vital::Unconscious);
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        assert_eq!(actions(&encounter, 1), 2);
+        encounter.set_vital_for_test(id(2), Vital::Dead);
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("third"), id(3));
+        let error = encounter.aid(id(1), id(2), &mut dice).expect_err("died");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn a_trigger_that_never_fires_spends_nothing() {
+        let (mut encounter, dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                aided(2, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        assert!(reaction(&encounter, 1));
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("ally"), id(2));
+        encounter.end_turn().expect("end ally");
+        assert_eq!(encounter.start_turn().expect("next"), id(1));
+        assert_eq!(dice.remaining(), 1);
+        assert!(reaction(&encounter, 1));
         assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
-        assert_eq!(dice.remaining(), 0);
     }
 
     /// Player Core, Aid.
