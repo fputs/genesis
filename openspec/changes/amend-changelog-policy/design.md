@@ -14,9 +14,9 @@ Genesis DevOps agent implements the script and the changelog text. This pull req
 
 - A Deprecated heading in Keep a Changelog order, present only when a deprecation is recorded.
 - A bullet added after this change links the pull request that merges the change it records. A re-cut pull request updates that number before merge. The Changed bullet "Genesis v2 restart. v1 is preserved on branch `v1-reference`." is grandfathered and needs no link.
-- DevOps cuts a release by adding the version heading and moving Unreleased bullets into it.
+- Only DevOps MAY add a version heading; no other role MAY. DevOps cuts a release by adding the version heading and moving Unreleased bullets into it.
 - A mixed pull request with no behavior path needs no bullet. One with a behavior path adds a bullet in each fitting section, in Keep a Changelog order, with no priority ranking.
-- A pull request that changes only tests under `crates/`, or that has no caller-visible effect, needs no bullet and may add one under Added.
+- Author guidance, not CI-enforced: a pull request that changes only tests under `crates/`, or that has no caller-visible effect, needs no bullet and may add one under Added. The job skips the bullet only when every changed path is under `crates/` and contains `/tests/`, and it does not check that optional bullet's heading. The tests-only skip applies only to the changelog bullet; the own-change-active rule still applies.
 - The job rejects a required bullet that lacks one of the six headings or lacks this pull request's URL. N is `pull_request.number` from the event payload.
 
 **Non-Goals:**
@@ -49,7 +49,7 @@ Alternative considered: accept any `(#N)` without the URL. Rejected. The file's 
 
 ### 3. DevOps owns the version cut
 
-`docs/producer/process.md` gains one statement in the Changelog bullet: DevOps adds `## [x.y.z] - YYYY-MM-DD` and moves the bullets then under `## [Unreleased]` into that section. The sentences that the implementation pull request writes the Unreleased entry, and that there is no separate post-merge changelog pull request, stay. The move copies existing bullets. It does not write new bullet text.
+`docs/producer/process.md` gains one statement in the Changelog bullet: DevOps adds `## [x.y.z] - YYYY-MM-DD` and moves the bullets then under `## [Unreleased]` into that section. Only DevOps MAY add a version heading; no other role MAY. The sentences that the implementation pull request writes the Unreleased entry, and that there is no separate post-merge changelog pull request, stay. The move copies existing bullets. It does not write new bullet text.
 
 Alternative considered: a GitHub release workflow that rewrites the changelog. Rejected. The backlog assigns the cut to DevOps, and this change does not add a release workflow.
 
@@ -63,7 +63,7 @@ Alternative considered: one precedence winner and a single bullet. Rejected. An 
 
 A new bullet counts for this check only when its unfenced category heading is one of the six names and the bullet text contains the URL for this pull request's number. At least one such bullet is required when a bullet is required. The existing rules stay: the text is absent from the base file, the Unreleased count rose, fenced lines are ignored, and an edit that does not raise the count does not count.
 
-Heading matching is case-sensitive. A `####` heading does not change the category. The category resets when `## [Unreleased]` opens. The number is `pull_request.number` from the event payload. When a bullet is required and the payload has no number, the job fails closed with `implementation PR missing CHANGELOG bullet`. An exempt pull request, including a tests-only pull request, still passes with no number and no bullet. How the parser tracks the heading, and when a bullet is required for test paths, is in `tasks.md`.
+Heading matching is case-sensitive. A `####` heading does not change the category. The category resets when `## [Unreleased]` opens. The number is `pull_request.number` from the event payload. When a bullet is required and the payload has no number, the job fails closed with `implementation PR missing CHANGELOG bullet`. An exempt pull request still passes with no number and no bullet. A tests-only pull request skips the bullet through a separate `isTestsOnly` check inside `missingBullet`. `needsBullet` and `nonExemptImplementation` stay unchanged, so the own-change-active rule still applies. The tests-only skip applies only to the changelog bullet. How the parser tracks the heading is in `tasks.md`.
 
 The scenario "An Added bullet linking pull request 7 passes" names that pass case: pull request 7, a new line under `### Added`, and a link to `https://github.com/fputs/genesis/pull/7`. "A bullet with no link fails" is the old linkless case. Every fixture whose job passes because a bullet was added uses a valid heading and that number's URL. That includes archive and draft rows whose scenario text only says "adds an Unreleased bullet".
 
@@ -73,7 +73,7 @@ Alternative considered: call the GitHub API for the pull request number. Rejecte
 
 - [Passing fixtures use linkless bullets and often no payload] → Give each passing added bullet a valid heading and `https://github.com/fputs/genesis/pull/` plus the harness number. Write `pull_request.number` on the event payload, and omit it only for "A missing pull request number fails closed".
 - [The implementation pull request both repairs the #10 line and adds its own bullet] → The repair does not raise the bullet count. The new bullet does, and it links that pull request's own number. The changelog scenario "The spec-drift spec bullet links pull request 10" is that repair.
-- [A tests-only change with no caller-visible effect may not sit under `/tests/`] → The job treats a pull request as tests-only when every changed path is under `crates/` and contains `/tests/`. The authoring rule covers the rest.
+- [A change with no caller-visible effect may not sit under `/tests/`] → That case is author guidance in the changelog spec and is not CI-enforced. The job skips the bullet only when every changed path is under `crates/` and contains `/tests/`.
 - [Strict validation fails a requirement description past 500 characters] → Each description in this change stays at or under 500. Detail lives in the scenarios.
 
 ## Migration Plan

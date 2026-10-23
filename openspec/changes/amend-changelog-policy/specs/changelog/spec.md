@@ -162,7 +162,7 @@ A bullet added after this change MUST link the pull request that merges the chan
 
 ### Requirement: DevOps cuts releases
 
-DevOps cuts a release by adding one heading `## [x.y.z] - YYYY-MM-DD` and moving the bullets then under `## [Unreleased]` into that version section without adding bullet text, and `docs/producer/process.md` MUST name DevOps as the owner of that cut.
+DevOps cuts a release by adding one heading `## [x.y.z] - YYYY-MM-DD` and moving the bullets then under `## [Unreleased]` into that version section without adding bullet text, and `docs/producer/process.md` MUST name DevOps as the owner of that cut. Only DevOps MAY add a version heading; no other role MAY.
 
 #### Scenario: An implementation pull request leaves version headings alone
 
@@ -250,11 +250,24 @@ A pull request with no behavior path needs no bullet. A behavior path is any cha
 
 ### Requirement: Tests-only pull request
 
-A pull request that changes only tests under `crates/`, or that has no caller-visible effect, needs no bullet. It MAY add one bullet, and that bullet MUST be under `### Added`.
+Author guidance, not CI-enforced: a pull request that changes only tests under `crates/`, or that has no caller-visible effect, needs no bullet. It MAY add one bullet, and that bullet MUST be under `### Added`.
 
 #### Scenario: A tests-only pull request needs no bullet
 
 - **GIVEN** a pull request whose only diff is `crates/rules/src/encounter/tests/delay_ready_tests.rs`
 - **WHEN** a reviewer decides whether a new bullet is required
 - **THEN** no new bullet is required
-- **AND** a bullet it adds is under `### Added`
+
+#### Scenario: No caller-visible effect needs no bullet
+
+- **GIVEN** a pull request that has no caller-visible effect
+- **WHEN** a reviewer decides whether a new bullet is required
+- **THEN** no new bullet is required
+- **AND** that decision is author guidance, not a CI check
+
+#### Scenario: A tests-only bullet is filed under Added
+
+- **GIVEN** a pull request whose only diff is `crates/rules/src/encounter/tests/delay_ready_tests.rs`
+- **AND** that pull request adds one bullet
+- **WHEN** a reviewer reads the bullet
+- **THEN** the bullet is under `### Added`
