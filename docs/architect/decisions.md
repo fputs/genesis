@@ -58,3 +58,7 @@ Evan reviews and merges spec PRs (proposal, design, tasks, spec deltas). After t
 7. Designer and QA settle edge cases and tie rulings on the spec before coding is dispatched. A spec PR links `docs/designer/rules-rulings.md` and does not copy the log.
 
 No force-push. Only merged PR branches are deleted.
+
+## 2026-10-22 — PR #70 un-archived during a fix round (recorded)
+
+PR #70 (`add-delay-and-ready`) was un-archived in `2f2f8aa` and re-archived in `fe6bc6d` during a fix round. That is against AGENTS.md section 1. The archived folder is dated 2026-10-23, and its archive task 7.3 is unticked. Evan accepted it as recorded. The cause was an Architect instruction.

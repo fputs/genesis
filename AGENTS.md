@@ -4,7 +4,7 @@ Read this before every change. It binds every agent that writes code in this rep
 
 ## 1. How work happens
 - Work only from an approved OpenSpec change in `openspec/changes/<id>/`. Implement exactly its tasks and scenarios. No extra features, refactors, or "while I'm here" fixes.
-- One change = one procedure family = one PR. The PR body includes `OpenSpec-Change: <id>`. Archive once, as the last commit right before merge (`openspec archive <id> --yes`). Do not un-archive and re-archive for a fix.
+- One change = one procedure family = one PR. The PR body includes `OpenSpec-Change: <id>`. Archive once, as the last commit right before merge (`openspec archive <id> --yes`). Do not un-archive and re-archive for a fix. Fixes before the archive go in normally. If the archive commit already exists and fixes are needed, never un-archive: add the fix commits that edit code and tests, then apply any spec text changes directly to the archived folder and to `openspec/specs` in the same push. The PR still needs green CI. A final no-op commit is not required.
 - The router wakes Architect once per head SHA, after CI finishes. Architect and QA review that head in parallel and post one combined numbered fix list. A red CI check is the send-back. Reviewers do not re-check CI-gated items: format, the changelog bullet, archive order, spec drift.
 - Apply the whole fix list in one push. After two send-back rounds, escalate to Chief of Staff.
 - Fix a small spec clarification in the implementation PR and cite Designer. Send a behavior or scope change to Chief of Staff for Evan.
