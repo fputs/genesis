@@ -25,7 +25,7 @@ Each new scenario has exactly one test. The test name is the scenario title in s
 ## 6. Changelog and proof
 
 - [x] 6.1 Add one **BREAKING** bullet under `## [Unreleased]` `### Changed` in `CHANGELOG.md`. It names the flat check before the attack roll, the lost Strike, and `StrikeDelivery`. Link it to the implementation pull request. Put that edit in a commit before the archive commit. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Changed`, contains the pull request link, and that the archive commit does not modify `CHANGELOG.md`
-- [ ] 6.2 Run the AGENTS.md proof commands and verify each exits 0
+- [x] 6.2 Run the AGENTS.md proof commands and verify each exits 0
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
