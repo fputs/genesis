@@ -1731,14 +1731,12 @@ mod tests {
 
     /// Covers dying-and-victory scenarios "A non-critical blow to 0 sets dying 1"
     /// and "Recovery to 0 stays unconscious at 0 Hit Points".
-    /// Requirement "Dying applies the unconscious penalty" does not drop held items (DEV-12).
-    /// The shield stays wielded (DEV-39) and raised until that creature's next turn starts.
+    /// The raised shield stays on the combatant's state until that creature's next turn starts.
     /// Player Core pg. 410, "Getting Knocked Out". Player Core pg. 446, Unconscious.
     /// Player Core pg. 419, "Raise a Shield".
     #[test]
     fn falling_unconscious_keeps_the_held_strike_and_the_shield() {
         let creature = creature(9, 11, 0, true, Some(steel()));
-        let before = creature.clone();
         let mut state = state_for(&creature);
         raise_shield(&mut state, &creature).expect("raise");
         apply_resolved_blow(&mut state, &creature, 9, DegreeOfSuccess::Success).expect("knockout");
@@ -1749,7 +1747,6 @@ mod tests {
         );
         assert!(state.shield_raised);
         assert_eq!(state.shield_hit_points, Some(20));
-        assert_eq!(creature, before);
         assert_eq!(
             shield_ac_modifier(&state, &creature)
                 .expect("raised shield")
@@ -1767,8 +1764,6 @@ mod tests {
         assert_eq!(state.wounded, 1);
         assert!(state.shield_raised);
         assert_eq!(state.shield_hit_points, Some(20));
-        assert_eq!(creature.strike, before.strike);
-        assert_eq!(creature.shield, before.shield);
         assert_eq!(
             shield_ac_modifier(&state, &creature)
                 .expect("shield still raised")

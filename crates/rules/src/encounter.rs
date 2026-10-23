@@ -4639,24 +4639,15 @@ mod tests {
     }
 
     /// Covers shields scenario "Another combatant cannot raise on this turn".
-    /// The inactive creature's action count is the public starting value.
-    /// Player Core, "Raise a Shield". Player Core, "Step 2: Act".
+    /// CombatantId(2) has no shield, so the shield check would be NoShield if the
+    /// turn guard did not return first. Player Core, "Raise a Shield".
+    /// Player Core, "Step 2: Act".
     #[test]
     fn raise_shield_off_turn_returns_notyourturn_and_spends_nothing() {
-        let shield = ShieldTemplate {
-            hardness: 5,
-            hit_points: 20,
-            broken_threshold: 10,
-            shield_ac_bonus: 2,
-        };
         let (mut encounter, dice) = begin(
             vec![
                 pc(1, 0, 20, 11),
-                participant(
-                    2,
-                    Side::Pc,
-                    creature(20, 11, 0, false, Some(shield.clone())),
-                ),
+                participant(2, Side::Pc, creature(20, 11, 0, false, None)),
             ],
             &[10, 8],
         );
@@ -4664,10 +4655,7 @@ mod tests {
         let before = encounter.state(id(2)).expect("state").clone();
         assert_eq!(before.actions_remaining, 0);
         assert!(!before.shield_raised);
-        assert_eq!(
-            encounter.creature(id(2)).expect("creature").shield,
-            Some(shield)
-        );
+        assert_eq!(encounter.creature(id(2)).expect("creature").shield, None);
         let error = encounter.raise_shield(id(2)).expect_err("off turn");
         assert_eq!(error, EncounterError::NotYourTurn);
         assert_eq!(encounter.state(id(2)).expect("state"), &before);

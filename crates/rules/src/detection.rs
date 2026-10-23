@@ -3195,4 +3195,35 @@ mod tests {
         assert_eq!(seen(&result.detections, 1, 2), Detection::Observed);
         assert_eq!(dice.remaining(), 0);
     }
+
+    /// Covers seek-and-hidden requirement "Hide rejects before it rolls" on the
+    /// rejected side of the `checked_add(20)` gate. Concealment only, so the
+    /// modifier is the Stealth DC minus 10: DC 2147483638 is `i32::MAX - 19`.
+    /// Player Core pg. 244, Hide.
+    #[test]
+    fn hide_rejects_the_modifier_past_the_plus_20_gate() {
+        let modifier = i32::MAX - 19;
+        let stealth_dc: i32 = 2_147_483_638;
+        assert_eq!(stealth_dc.checked_sub(10), Some(modifier));
+        let detections = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (result, dice) = run_hide(
+            detections.clone(),
+            cid(2),
+            Vital::Alive,
+            Some(stealth_dc),
+            &[watcher(1, 5, None)],
+            &[10],
+        );
+        assert_eq!(result.expect_err("overflow"), DetectionError::Overflow);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(seen(&detections, 1, 2), Detection::Observed);
+        assert_eq!(veil(&detections, 1, 2), Concealment::Concealed);
+    }
 }
