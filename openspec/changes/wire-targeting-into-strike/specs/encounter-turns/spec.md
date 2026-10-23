@@ -84,7 +84,7 @@ On an open Alive turn, a Strike SHALL spend 1 action. It SHALL roll one d20 once
 
 ### Requirement: Strike resolves targeting before the attack roll
 
-After the no-die gates, and before the attack d20, an on-turn Strike SHALL call resolve_targeting with area_effect false. It SHALL NOT reimplement that check. A missing relation is observed and not concealed and draws no flat-check die, so the attack d20 stays the first die. A concealed or hidden target draws the flat check first. The attack d20 is drawn only when the target is affected. The relation SHALL stay unchanged.
+Strike SHALL call resolve_targeting, area_effect false, after this no-die order, before the attack d20: TurnNotOpen, NotYourTurn, UnknownCombatant, NotConscious, InsufficientActions, UnknownCombatant, SelfTarget, TargetDead, AttackCountOverflow, Requested TargetNotConscious, Delayed, NoShield, NotRaised, Broken, NoReaction, term AttackOverflow. It SHALL NOT reimplement it. No relation: no flat die. Attack d20 only if affected. Summed AttackOverflow follows it. The relation SHALL stay unchanged.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=62 (Player Core pg. 442, Concealed)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=79 (Player Core pg. 444, Hidden)
@@ -134,7 +134,7 @@ After the no-die gates, and before the attack d20, an on-turn Strike SHALL call 
 
 ### Requirement: A lost Strike spends the action and counts for MAP
 
-When the target is not affected, Strike SHALL return Ok(LostStrike) and SHALL NOT draw the attack d20 or a damage die. It SHALL spend 1 action and increment the attack count. Hit Points, temporary Hit Points, wounded, vital, and shield Hit Points SHALL stay unchanged, and the target's reaction SHALL stay ready. The next Strike on that turn SHALL use the new count.
+When the target is not affected, Strike SHALL return Ok(LostStrike) and SHALL NOT draw the attack d20 or a damage die. It SHALL spend 1 action and increment the attack count. Hit Points, temporary Hit Points, wounded, vital, and shield Hit Points SHALL stay unchanged, and the target's reaction SHALL stay ready. The next Strike on that turn SHALL use the new count. After Ok(LostStrike) the caller SHALL still call note_strike (DEV-43).
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2416 (Player Core pg. 434, Hidden)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
@@ -194,9 +194,18 @@ When the target is not affected, Strike SHALL return Ok(LostStrike) and SHALL NO
 - **AND** the attack count is 1
 - **AND** the relation is still hidden and concealed
 
+#### Scenario: A lost Strike still reveals the hidden striker
+
+- **GIVEN** an open turn, CombatantId(1) hidden and not concealed from CombatantId(2) and from CombatantId(3), each with Stealth DC 17, CombatantId(2) observed and concealed from CombatantId(1), attack bonus +8, Armor Class 18, and scripted naturals 4 then 10
+- **WHEN** CombatantId(1) Strikes CombatantId(2) and, after Ok(LostStrike), the caller calls note_strike
+- **THEN** the flat natural is 4, the DC is 5, and the degree is failure
+- **AND** the scripted 10 is still unused
+- **AND** every observer reads CombatantId(1) as observed, including CombatantId(2) and CombatantId(3)
+- **AND** CombatantId(2) is still observed and concealed from CombatantId(1)
+
 ### Requirement: An undetected Strike is CannotTarget
 
-When resolve_targeting returns CannotTarget, Strike SHALL return EncounterError::CannotTarget, draw no die, and leave actions and the attack count unchanged. TargetDead, SelfTarget, InsufficientActions, AttackCountOverflow, and a requested Shield Block readiness error SHALL win and SHALL NOT call resolve_targeting.
+When resolve_targeting returns CannotTarget, Strike SHALL return EncounterError::CannotTarget, draw no die, and leave actions and the attack count unchanged. Each gate in that no-die order SHALL win and SHALL NOT call resolve_targeting.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=96 (Player Core pg. 447, Undetected)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)

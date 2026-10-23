@@ -11,7 +11,7 @@
 
 ### Requirement: A readied Strike resolves targeting before the attack roll
 
-After the checks in Fire rejects before it rolls, a readied Strike SHALL call resolve_targeting with area_effect false and SHALL NOT reimplement it. The flat check is drawn before the attack d20, and only when the target is concealed or hidden. The attack d20 is drawn only when the target is affected. An observed target that is not concealed draws no flat-check die. The relation SHALL stay unchanged.
+After the checks in Fire rejects before it rolls, except CannotTarget, a readied Strike SHALL call resolve_targeting with area_effect false and SHALL NOT reimplement it. The flat check is drawn before the attack d20, and only when the target is concealed or hidden. The attack d20 is drawn only when the target is affected. An observed target that is not concealed draws no flat-check die. The relation SHALL stay unchanged. The Strike SHALL use baked Armor Class.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2299 (Player Core pg. 417, Ready)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=62 (Player Core pg. 442, Concealed)
@@ -43,18 +43,9 @@ After the checks in Fire rejects before it rolls, a readied Strike SHALL call re
 - **AND** the penalty is -5, the total is 18, and the degree is success
 - **AND** the attack count stays 1
 
-#### Scenario: Each reaction draws its own flat check
-
-- **GIVEN** the order is Side::Enemy CombatantId(1) at (0, 0) then Side::Pc CombatantId(2) at (1, 0) then Alive CombatantId(3) at (0, 1), all Medium, reach 5, CombatantId(3) has 20 Hit Points, Armor Class 18, and 3 actions, and is observed and concealed from both, CombatantId(1) has attack bonus +8, and CombatantId(2) has a stored non-agile Strike, snapshot 0, attack bonus +8, on CombatantId(3) beginning a Stride
-- **WHEN** CombatantId(3) begins a Stride and resolve_reactions is called once with one caller entry, CombatantId(1) only: ReactiveStrike::Available, attack bonus +8, no modifiers, both sizes Medium, and square (0, 0), then CombatantId(1)'s flat natural is 4, and CombatantId(2)'s flat natural is 5, attack natural 10, and damage 1
-- **THEN** CombatantId(1)'s result is LostStrike and that reaction is spent
-- **AND** CombatantId(2)'s penalty is 0, the total is 18, and the degree is success
-- **AND** CombatantId(3) is at 19 Hit Points and still has 3 actions
-- **AND** CombatantId(2)'s reaction is spent after CombatantId(1)'s reaction
-
 ### Requirement: A lost readied Strike spends the reaction only
 
-When the target is not affected, a readied Strike SHALL return LostStrike, spend the reaction, and clear the ready. It SHALL NOT increment the attack count, spend an action, or draw the attack d20 or a damage die. Hit Points SHALL stay unchanged. The creature's attack count SHALL stay the count stored at Ready.
+When the target is not affected, a readied Strike SHALL return LostStrike, spend the reaction, and clear the ready. It SHALL NOT increment the attack count, spend an action, or draw the attack d20 or a damage die. Hit Points SHALL stay unchanged. The creature's attack count SHALL stay the count stored at Ready. After Ok(LostStrike) the caller SHALL still call note_strike (DEV-43).
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2299 (Player Core pg. 417, Ready)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2416 (Player Core pg. 434, Hidden)
@@ -76,7 +67,7 @@ When the target is not affected, a readied Strike SHALL return LostStrike, spend
 
 ### Requirement: An undetected readied Strike is CannotTarget
 
-An undetected target SHALL return ReadyError::CannotTarget after TargetDead and NoReaction. The reaction SHALL stay ready, the ready SHALL stay stored, and no die SHALL be drawn.
+An undetected target SHALL return ReadyError::CannotTarget after TargetDead, an attack total past the bounds, and NoReaction. The reaction SHALL stay ready, the ready SHALL stay stored, and no die SHALL be drawn.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=96 (Player Core pg. 447, Undetected)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2299 (Player Core pg. 417, Ready)
@@ -89,7 +80,7 @@ An undetected target SHALL return ReadyError::CannotTarget after TargetDead and 
 - **AND** the reaction stays ready and the ready stays stored
 - **AND** the scripted 11 is still unused
 
-#### Scenario: A dead undetected target is TargetDead
+#### Scenario: A dead undetected readied target is TargetDead
 
 - **GIVEN** Alive CombatantId(1) at (0, 0), Medium, reach 5, reaction ready, with a stored non-agile Strike on Dead CombatantId(2) at (0, 1), Medium, who is undetected with Stealth DC 17, and a scripted natural 11
 - **WHEN** the Strike fires
@@ -97,3 +88,51 @@ An undetected target SHALL return ReadyError::CannotTarget after TargetDead and 
 - **AND** the error is not CannotTarget
 - **AND** the reaction stays ready and the ready stays stored
 - **AND** the scripted 11 is still unused
+
+## MODIFIED Requirements
+
+### Requirement: Fire rejects before it rolls
+
+Fire SHALL reject, in order, an unknown readier, an unknown subject, no stored ready, the wrong action, a readier who is not Alive, a delayed readier, a trigger mismatch, a begun Strike out of reach, a Dead target, then no reaction, then CannotTarget. An illegal path, PositioningError from Dismiss, and an attack total past the bounds SHALL fail before the reaction is spent or the d20 is drawn. PositioningError SHALL be returned. No earlier check writes, and no die is rolled.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2299 (Player Core pg. 417, Ready)
+
+#### Scenario: No stored ready is rejected before a dead target
+
+- **GIVEN** Alive CombatantId(1) at (0, 0), Medium, has no stored ready, and Dead CombatantId(2) at (0, 1), Medium, and a scripted natural 10
+- **WHEN** CombatantId(2) begins a Strike and resolve_reactions runs
+- **THEN** the result is empty and the error is not TargetDead
+- **AND** the natural 10 is unused
+
+#### Scenario: The wrong action is rejected before a delayed readier
+
+- **GIVEN** Delayed CombatantId(1) at (0, 0), Medium, whose stored ready is a non-agile Strike on CombatantId(2) at (0, 1), Medium, reaction ready, and a scripted natural 10
+- **WHEN** that stored Strike is checked as a Stride
+- **THEN** the error is WrongAction
+- **AND** the ready stays stored
+- **AND** the natural 10 is unused
+
+#### Scenario: A delayed readier is rejected before the trigger is matched
+
+- **GIVEN** Delayed CombatantId(1) at (0, 0), Medium, reach 5, with a stored non-agile Strike on CombatantId(2) beginning a Strike, Alive CombatantId(2) at (0, 1), Medium, reaction ready, and a scripted natural 10
+- **WHEN** CombatantId(2) begins a Strike and resolve_reactions runs
+- **THEN** the error is Delayed
+- **AND** the ready stays stored
+- **AND** the natural 10 is unused
+
+#### Scenario: A dying readier is rejected before a dead target
+
+- **GIVEN** Dying(1) CombatantId(1) at (0, 0), Medium, 0 Hit Points, with a stored non-agile Strike, reaction ready, and Dead CombatantId(2) at (0, 1), Medium, and a scripted natural 10
+- **WHEN** CombatantId(2) begins a Strike and resolve_reactions runs
+- **THEN** the error is NotConscious
+- **AND** the reaction flag is unchanged
+- **AND** the ready stays stored
+- **AND** the natural 10 is unused
+
+#### Scenario: A dead target is rejected before a missing reaction
+
+- **GIVEN** Alive CombatantId(1) at (0, 0), Medium, reach 5, with a stored non-agile Strike and no reaction, and Dead CombatantId(2) at (0, 1), Medium, and a scripted natural 10
+- **WHEN** CombatantId(2) begins a Strike and resolve_reactions runs
+- **THEN** the error is TargetDead
+- **AND** the ready stays stored
+- **AND** the natural 10 is unused
