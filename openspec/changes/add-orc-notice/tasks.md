@@ -10,7 +10,7 @@
 
 ## 3. Changelog
 
-- [ ] 3.1 Add one bullet under `## [Unreleased]` and `### Added` that links this pull request. `LICENSES/ORC-NOTICE` is not an exempt docs path. Verify the changelog scenario by reading the new bullet.
+- [x] 3.1 Add one bullet under `## [Unreleased]` and `### Added` that links this pull request. `LICENSES/ORC-NOTICE` is not an exempt docs path. Verify the changelog scenario by reading the new bullet.
 
 ## 4. Proof and archive
 
