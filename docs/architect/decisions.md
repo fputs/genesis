@@ -30,12 +30,9 @@ Deferred: attributes, proficiency, saves, skills, spells, classes, and broader c
 
 2026-10-20: Changelog interim rules (Chief of Staff ruling). (a) Revised 2026-10-21: the Unreleased bullet on an implementation PR is enforced by the `pr-hygiene` job. Reviewers do not re-check it. (b) PRs touching only .cursor/**, README.md, Cargo.lock, or rust-toolchain.toml are treated as docs-only and need no bullet.
 
-## Backlog: end-of-Phase-1 changelog spec amendment
+## 2026-10-23 — Changelog backlog moved to the spec
 
-1. Add a Deprecated section.
-2. The spec-drift-check bullet in CHANGELOG.md lacks a PR link because add-changelog task 2.1 mandated its wording, which contradicts the spec's link rule.
-3. Release cutting (Unreleased to a version) is owned by DevOps.
-4. Define categories for mixed spec+docs PRs and the toolchain/README/.cursor cases formally.
+The end-of-Phase-1 changelog backlog moved to the changelog spec in `amend-changelog-policy`. The moved items are the Deprecated section, the pull-request link rule for the unlinked spec-drift bullet, DevOps-owned release cuts, and the category for a mixed pull request, including cursor, README, and toolchain files. This section does not restate those rules.
 
 ## 2026-10-21 — Composition: CharacterBuild -> pure derive -> Creature; runtime CombatantState separate.
 
