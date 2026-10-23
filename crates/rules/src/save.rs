@@ -248,8 +248,8 @@ pub fn basic_save_amount(amount: i32, degree: DegreeOfSuccess) -> Result<i32, Sa
 #[cfg(test)]
 mod tests {
     use super::{
-        Level, LevelError, Proficiency, Save, SavingThrows, basic_save_amount, save_dc,
-        save_modifier,
+        Level, LevelError, Proficiency, Save, SavingThrows, basic_save_amount, proficiency_bonus,
+        save_dc, save_modifier,
     };
     use crate::check::{DegreeOfSuccess, resolve_check};
     use crate::dice::ScriptedDice;
@@ -398,9 +398,16 @@ mod tests {
         assert_eq!(Level::new(0), Err(LevelError::OutOfRange));
     }
 
+    /// Player Core pg. 404, Saving Throws. GM Core, creature-building tables.
+    #[test]
+    fn a_level_of_25_cannot_be_built() {
+        assert_eq!(Level::new(25), Err(LevelError::OutOfRange));
+    }
+
     /// Player Core pg. 404, Saving Throws.
     #[test]
-    fn a_level_past_the_legendary_bonus_cannot_be_built() {
-        assert_eq!(Level::new(2_147_483_640), Err(LevelError::OutOfRange));
+    fn legendary_at_level_24_is_plus_32_before_ability() {
+        let level = Level::new(24).expect("level");
+        assert_eq!(proficiency_bonus(level, Proficiency::Legendary), 32);
     }
 }
