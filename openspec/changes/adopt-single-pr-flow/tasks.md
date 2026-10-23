@@ -4,19 +4,19 @@ DevOps does sections 1 and 2 on this branch after user id `239839957` submits a 
 
 ## 1. Spec-drift refactor exemption
 
-- [ ] 1.1 In `scripts/spec-drift-check.test.mjs`, add a fixture test for each refactor scenario in `specs/spec-drift-check/spec.md`, before changing the check. Verify `node --test scripts/spec-drift-check.test.mjs` lists those test names.
+- [x] 1.1 In `scripts/spec-drift-check.test.mjs`, add a fixture test for each refactor scenario in `specs/spec-drift-check/spec.md`, before changing the check. Verify `node --test scripts/spec-drift-check.test.mjs` lists those test names.
 
-- [ ] 1.2 Implement those rules in `scripts/spec-drift-check.mjs` and export `isCodePath`. Diff from `git merge-base` of the base sha and the head. Use the kebab item, the `/tests/` path rule, and the failure lines in that spec. Do not edit the spec-drift workflows or the synced changelog specs. Keep `changeReferences` as the `OpenSpec-Change` parser. A status `T` fixture replaces the test file with a symlink. Verify `node --test scripts/spec-drift-check.test.mjs` exits 0.
+- [x] 1.2 Implement those rules in `scripts/spec-drift-check.mjs` and export `isCodePath`. Diff from `git merge-base` of the base sha and the head. Use the kebab item, the `/tests/` path rule, and the failure lines in that spec. Do not edit the spec-drift workflows or the synced changelog specs. Keep `changeReferences` as the `OpenSpec-Change` parser. A status `T` fixture replaces the test file with a symlink. Verify `node --test scripts/spec-drift-check.test.mjs` exits 0.
 
 ## 2. spec-approved job
 
-- [ ] 2.1 Add `scripts/spec-approved.test.mjs` with one injected-review fixture per scenario in `specs/spec-approved/spec.md`, and no network call, before adding the production script. Verify the file names each of those scenarios.
+- [x] 2.1 Add `scripts/spec-approved.test.mjs` with one injected-review fixture per scenario in `specs/spec-approved/spec.md`, and no network call, before adding the production script. Verify the file names each of those scenarios.
 
-- [ ] 2.2 Guard `main()` in `scripts/pr-hygiene.mjs` with `runningAsScript()`, as `scripts/spec-drift-check.mjs` does, and export `unfencedBody`. Add a test that importing the module does not run the check. Add `scripts/spec-approved.mjs` with no npm dependency. It imports `changeReferences`, `isCodePath`, and `unfencedBody`, hashes as the spec requires, checks `git merge-base --is-ancestor`, and fails closed on the log lines in that spec. Verify `node --test` for both test files exits 0.
+- [x] 2.2 Guard `main()` in `scripts/pr-hygiene.mjs` with `runningAsScript()`, as `scripts/spec-drift-check.mjs` does, and export `unfencedBody`. Add a test that importing the module does not run the check. Add `scripts/spec-approved.mjs` with no npm dependency. It imports `changeReferences`, `isCodePath`, and `unfencedBody`, hashes as the spec requires, checks `git merge-base --is-ancestor`, and fails closed on the log lines in that spec. Verify `node --test` for both test files exits 0.
 
-- [ ] 2.3 Add `.github/workflows/spec-approved.yml` whose job id is `spec-approved`, with no `name:` key and no matrix. Add `openspec/spec-approved-authors.txt` whose only id is `239839957`. Check out the head, fetch `refs/pull/<n>/head`, and run `git worktree add $RUNNER_TEMP/base` for `pull_request.base.sha`. Run tests and the script from that worktree. The head checkout is the repo root. Concurrency group is `spec-approved-${{ github.event.pull_request.number }}`.
+- [x] 2.3 Add `.github/workflows/spec-approved.yml` whose job id is `spec-approved`, with no `name:` key and no matrix. Add `openspec/spec-approved-authors.txt` whose only id is `239839957`. Check out the head, fetch `refs/pull/<n>/head`, and run `git worktree add $RUNNER_TEMP/base` for `pull_request.base.sha`. Run tests and the script from that worktree. The head checkout is the repo root. Concurrency group is `spec-approved-${{ github.event.pull_request.number }}`.
 
-- [ ] 2.4 Triggers include pull_request_review `dismissed`, and ignore `DISMISSED` and `PENDING` when choosing the latest review. Permissions are `contents: read` and `pull-requests: read`, with no secrets. Bootstrap only when the base lacks both the script and the workflow file. Add `.github/CODEOWNERS` giving `/openspec/`, `/AGENTS.md`, `/.github/`, and `/scripts/` to `@fputs`. Verify those settings.
+- [x] 2.4 Triggers include pull_request_review `dismissed`, and ignore `DISMISSED` and `PENDING` when choosing the latest review. Permissions are `contents: read` and `pull-requests: read`, with no secrets. Bootstrap only when the base lacks both the script and the workflow file. Add `.github/CODEOWNERS` giving `/openspec/`, `/AGENTS.md`, `/.github/`, and `/scripts/` to `@fputs`. Verify those settings.
 
 - [x] 2.5 In a commit before archive, add an Unreleased bullet for this change under `### Added`, linking this pull request's number. Verify the new bullet contains `https://github.com/fputs/genesis/pull/` plus that number.
 
@@ -30,7 +30,7 @@ DevOps does sections 1 and 2 on this branch after user id `239839957` submits a 
 
 ## 4. Proof and archive
 
-- [ ] 4.1 Run the AGENTS.md proof commands and verify each exits 0. Paste the output into the pull request.
+- [x] 4.1 Run the AGENTS.md proof commands and verify each exits 0. Paste the output into the pull request.
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
