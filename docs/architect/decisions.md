@@ -30,7 +30,7 @@ Deferred: attributes, proficiency, saves, skills, spells, classes, and broader c
 
 2026-10-20: Changelog interim rules (Chief of Staff ruling). (a) Revised 2026-10-21: the Unreleased bullet on an implementation PR is enforced by the `pr-hygiene` job. Reviewers do not re-check it. (b) PRs touching only .cursor/**, README.md, Cargo.lock, or rust-toolchain.toml are treated as docs-only and need no bullet.
 
-## 2026-10-23 — Changelog backlog moved to the spec
+## 2026-10-22 — Changelog backlog moved to the spec
 
 The end-of-Phase-1 changelog backlog moved to the changelog spec in `amend-changelog-policy`. The moved items are the Deprecated section, the pull-request link rule for the unlinked spec-drift bullet, DevOps-owned release cuts, and the category for a mixed pull request, including cursor, README, and toolchain files. This section does not restate those rules.
 

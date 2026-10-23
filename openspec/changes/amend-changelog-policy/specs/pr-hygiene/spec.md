@@ -4,7 +4,7 @@
 
 ### Requirement: Unreleased changelog bullet
 
-An implementation pull request that is not exempt, and a pull request with any path under `scripts/`, SHALL add at least one new bullet under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`. That bullet SHALL link the pull request's own number. Otherwise the job SHALL fail and the log SHALL include `implementation PR missing CHANGELOG bullet`. A missing head `CHANGELOG.md` or `## [Unreleased]` heading SHALL fail the same way.
+The bullet SHALL use Added, Changed, Deprecated, Removed, Fixed, or Security. N is `pull_request.number` from the event payload. The bullet SHALL contain `https://github.com/fputs/genesis/pull/N` and not a following digit. Only that URL is checked, not surrounding markdown. No number when a bullet is required SHALL fail the job with `implementation PR missing CHANGELOG bullet`. Matching SHALL be case-sensitive, `####` SHALL NOT reset the category, and it SHALL reset when `## [Unreleased]` opens.
 
 #### Scenario: An added Unreleased bullet passes
 
@@ -30,6 +30,16 @@ An implementation pull request that is not exempt, and a pull request with any p
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
 - **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: An Added bullet linking pull request 7 passes
+
+- **GIVEN** a pull_request whose diff changes `.github/workflows/pr-hygiene.yml`
+- **AND** the pull request number is 7
+- **AND** the base `CHANGELOG.md` has no bullet text `Record the gate`
+- **AND** the new line under `### Added` in `## [Unreleased]` links `https://github.com/fputs/genesis/pull/7`
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
 
 #### Scenario: Any Unreleased list item passes
 
@@ -66,6 +76,68 @@ An implementation pull request that is not exempt, and a pull request with any p
 
 - **GIVEN** a pull_request numbered 80 whose diff changes `crates/rules/src/lib.rs`
 - **AND** the only new bullet is under `### Added` and contains `https://github.com/fputs/genesis/pull/10`
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: Pull request 8 linking pull 80 fails
+
+- **GIVEN** a pull_request numbered 8 whose diff changes `crates/rules/src/lib.rs`
+- **AND** the only new bullet is under `### Added` and contains `https://github.com/fputs/genesis/pull/80`
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A bullet with no category fails
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** the only new list item sits directly under `## [Unreleased]` before any `###` heading
+- **AND** that bullet links the pull request's own number
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A lowercase category heading fails
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** the only new bullet sits under `### added` inside `## [Unreleased]`
+- **AND** that bullet links the pull request's own number
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A level-four heading does not set the category
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** `## [Unreleased]` opens with no `###` heading
+- **AND** the only heading before the new bullet is `#### Added`
+- **AND** that bullet links the pull request's own number
+- **AND** the head section has more bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: A level-four heading does not reset the category
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** `### Added` is open inside `## [Unreleased]`
+- **AND** a `#### Removed` heading follows that `### Added` and precedes the new bullet
+- **AND** that bullet links the pull request's own number
+- **AND** the bullet text is absent from the base changelog
+- **AND** the head section has more unfenced bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: The category resets when Unreleased opens
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** `### Added` appears before `## [Unreleased]`
+- **AND** the only new bullet sits inside `## [Unreleased]` with no `###` heading after that open
+- **AND** that bullet links the pull request's own number
 - **AND** the head section has more bullets than the base section
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job fails
@@ -187,5 +259,26 @@ Fenced lines SHALL be ignored when finding `## [Unreleased]` and when collecting
 - **AND** a fenced `## [0.1.0]` sits inside the unfenced `## [Unreleased]` section
 - **AND** after that fence the section has a new bullet under `### Added` that links the pull request's own number and whose text is absent from the base changelog
 - **AND** the head section has more unfenced bullets than the base section
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+## ADDED Requirements
+
+### Requirement: Tests-only pull request
+
+A pull request that changes only tests under `crates/`, or that has no caller-visible effect, needs no bullet. The job SHALL pass when every changed path is under `crates/` and contains `/tests/` and no bullet is added. A bullet it adds MUST be under `### Added`.
+
+#### Scenario: A tests-only pull request passes without a bullet
+
+- **GIVEN** a pull_request whose only diff is `crates/rules/src/encounter/tests/delay_ready_tests.rs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: A tests-only Added bullet passes
+
+- **GIVEN** a pull_request whose only diff is `crates/rules/src/encounter/tests/delay_ready_tests.rs`
+- **AND** the head adds one bullet under `### Added` that links that pull request's own number
+- **AND** the bullet text is absent from the base changelog
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job passes

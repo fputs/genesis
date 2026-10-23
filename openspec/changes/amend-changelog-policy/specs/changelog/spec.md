@@ -4,7 +4,7 @@
 
 ### Requirement: Implementation pull requests add an Unreleased bullet
 
-An implementation pull request changes how the software or its checks behave. Before it is done, it MUST add a bullet under `## [Unreleased]` in each fitting section: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`. Each bullet MUST link the merging pull request's own number. Text already in the base changelog, an edited or moved bullet, or a fenced list item MUST NOT count. The `pr-hygiene` job MUST fail when no such bullet was added.
+An implementation pull request changes how the software or its checks behave. Except a tests-only pull request, it MUST add a bullet under `## [Unreleased]` in each fitting section: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`. Each bullet MUST link the merging pull request's own number. Text already in the base changelog, an edited or moved bullet, or a fenced list item MUST NOT count. The `pr-hygiene` job MUST fail when no such bullet was added.
 
 #### Scenario: A behavior change has a linked bullet
 
@@ -133,7 +133,7 @@ When `CHANGELOG.md` records behavior that still works and is marked for later re
 
 ### Requirement: A bullet links the merging pull request
 
-Each changelog bullet MUST link the pull request that merged the change that bullet records. The link MUST be `([#N](https://github.com/fputs/genesis/pull/N))`, where N is that pull request's number. A re-cut pull request MUST set N to its own number before merge. A link that still names a predecessor MUST NOT satisfy the re-cut pull request.
+A bullet added after this change MUST link the pull request that merges the change it records, as `([#N](https://github.com/fputs/genesis/pull/N))`, where N is that pull request's number. A re-cut pull request MUST set N to its own number before merge. A link that still names a predecessor MUST NOT satisfy the re-cut pull request. The Changed bullet "Genesis v2 restart. v1 is preserved on branch `v1-reference`." is grandfathered and needs no link.
 
 #### Scenario: The spec-drift spec bullet links pull request 10
 
@@ -152,9 +152,17 @@ Each changelog bullet MUST link the pull request that merged the change that bul
 - **THEN** the bullet links pull request 80
 - **AND** the bullet does not link pull request 10
 
+#### Scenario: The v2 restart bullet is grandfathered
+
+- **GIVEN** the Unreleased bullet under `### Changed` whose text is "Genesis v2 restart. v1 is preserved on branch `v1-reference`."
+- **AND** that bullet has no pull request link
+- **WHEN** the changelog is brought in line with this requirement
+- **THEN** that bullet is unchanged
+- **AND** it still has no pull request link
+
 ### Requirement: DevOps cuts releases
 
-Only DevOps MAY cut a release. A release cut MUST add one heading `## [x.y.z] - YYYY-MM-DD` and MUST move the bullets then under `## [Unreleased]` into that version section without adding bullet text. No other role MAY add a version heading or move a bullet out of `## [Unreleased]`. `docs/producer/process.md` MUST name DevOps as the owner of that cut.
+DevOps cuts a release by adding one heading `## [x.y.z] - YYYY-MM-DD` and moving the bullets then under `## [Unreleased]` into that version section without adding bullet text, and `docs/producer/process.md` MUST name DevOps as the owner of that cut.
 
 #### Scenario: An implementation pull request leaves version headings alone
 
@@ -182,7 +190,7 @@ Only DevOps MAY cut a release. A release cut MUST add one heading `## [x.y.z] - 
 
 ### Requirement: Mixed pull request category
 
-A pull request with no behavior path MUST NOT add a bullet. A behavior path is any changed path the skip requirement does not exempt. A pull request with a behavior path MUST add a bullet in each fitting section among Security, Removed, Deprecated, Added, Fixed, and Changed, and MUST NOT add a bullet for an exempt path.
+A pull request with no behavior path needs no bullet. A behavior path is any changed path the skip requirement does not exempt. A pull request with a behavior path MUST add a bullet in each fitting section: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`. It needs no bullet for an exempt path.
 
 #### Scenario: A mixed spec and docs pull request skips the bullet
 
@@ -240,58 +248,13 @@ A pull request with no behavior path MUST NOT add a bullet. A behavior path is a
 - **THEN** one new bullet is under `### Added`
 - **AND** no second bullet is required for the spec or docs paths
 
-### Requirement: CI enforces category and the pull request number
+### Requirement: Tests-only pull request
 
-When a bullet is required, the `pr-hygiene` job MUST fail unless a new bullet is under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`, and that bullet links the pull request's own number. The log MUST include `implementation PR missing CHANGELOG bullet`. A pull request whose every path is under `.cursor/`, or is exactly `README.md`, `Cargo.lock`, or `rust-toolchain.toml`, MUST pass with no bullet.
+A pull request that changes only tests under `crates/`, or that has no caller-visible effect, needs no bullet. It MAY add one bullet, and that bullet MUST be under `### Added`.
 
-#### Scenario: A categorized bullet linking this pull request passes
+#### Scenario: A tests-only pull request needs no bullet
 
-- **GIVEN** an implementation pull request numbered 80
-- **AND** the head adds one bullet under `### Added` whose text is absent from the base changelog
-- **AND** that bullet contains `https://github.com/fputs/genesis/pull/80`
-- **AND** the head Unreleased section has more bullets than the base section
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-
-#### Scenario: A bullet with no category fails
-
-- **GIVEN** an implementation pull request
-- **AND** the only new list item sits directly under `## [Unreleased]`, before any `###` heading
-- **AND** that item links the pull request's own number
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `implementation PR missing CHANGELOG bullet`
-
-#### Scenario: A bullet linking another pull request fails
-
-- **GIVEN** an implementation pull request numbered 80
-- **AND** the only new bullet is under `### Added` and contains `https://github.com/fputs/genesis/pull/10`
-- **AND** the head Unreleased section has more bullets than the base section
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job fails
-- **AND** the log includes `implementation PR missing CHANGELOG bullet`
-
-#### Scenario: A Deprecated bullet linking this pull request passes
-
-- **GIVEN** an implementation pull request
-- **AND** the new bullet is under `### Deprecated` and links that pull request's own number
-- **AND** the bullet text is absent from the base changelog
-- **AND** the head Unreleased section has more bullets than the base section
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-
-#### Scenario: Cursor, README, and toolchain files pass without a bullet
-
-- **GIVEN** a pull request whose paths are `.cursor/rules/example.md`, `README.md`, `Cargo.lock`, and `rust-toolchain.toml`
-- **AND** no Unreleased bullet is added
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
-
-#### Scenario: Repairing the pull request 10 link still needs this pull request's bullet
-
-- **GIVEN** an implementation pull request numbered 80
-- **AND** it adds `([#10](https://github.com/fputs/genesis/pull/10))` to the existing spec-drift spec bullet
-- **AND** it also adds one new bullet under `### Changed` that contains `https://github.com/fputs/genesis/pull/80`
-- **AND** the head Unreleased section has more bullets than the base section
-- **WHEN** the `pr-hygiene` job runs
-- **THEN** the job passes
+- **GIVEN** a pull request whose only diff is `crates/rules/src/encounter/tests/delay_ready_tests.rs`
+- **WHEN** a reviewer decides whether a new bullet is required
+- **THEN** no new bullet is required
+- **AND** a bullet it adds is under `### Added`
