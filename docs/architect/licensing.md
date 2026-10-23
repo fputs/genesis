@@ -20,11 +20,11 @@ Check: `LICENSE` is the MIT license, and those three trees contain no ORC grant 
 
 ## LIC-2. Rules mechanics are ORC Licensed Material
 
-Game rules mechanics are Licensed Material under the ORC License. That is the mechanics derived from the books listed in the Attribution section of `NOTICE-ORC.md`, plus the mechanics in `openspec/specs/` (dice and checks, creature template, modifiers, and grid movement), plus the mechanics stated in `docs/designer/`. The text of `NOTICE-ORC.md` is a legal notice. It states Reserved Material, which ORC I.a excludes, so that notice is not Licensed Material. The code under `crates/rules/` stays MIT source code under LIC-1.
+Game rules mechanics are Licensed Material under the ORC License. That is the mechanics derived from the books listed in the Attribution section of `LICENSES/ORC-NOTICE`, plus the mechanics in `openspec/specs/` (dice and checks, creature template, modifiers, and grid movement), plus the mechanics stated in `docs/designer/`. The text of `LICENSES/ORC-NOTICE` is a legal notice. It states Reserved Material, which ORC I.a excludes, so that notice is not Licensed Material. The code under `crates/rules/` stays MIT source code under LIC-1.
 
 The research quotes ORC I.e(2): expressions reasonably necessary to convey the functional ideas and methods of operation of a game, including character statistics, actions, encounters, combat, conditions, difficulty classes, and dice rolling. ORC I.h reserves trademarks, art, music, sound, and delineated characters, settings, plots, and proper nouns.
 
-Check: a rules spec or a designer rules document that states a mechanic is treated as ORC Licensed Material and satisfies LIC-3 and LIC-4. The text of `NOTICE-ORC.md` is not treated as Licensed Material. A source file under `crates/` is not reclassified as ORC text.
+Check: a rules spec or a designer rules document that states a mechanic is treated as ORC Licensed Material and satisfies LIC-3 and LIC-4. The text of `LICENSES/ORC-NOTICE` is not treated as Licensed Material. A source file under `crates/` is not reclassified as ORC text.
 
 ## LIC-3. Sources are three Remaster ORC books
 
@@ -64,15 +64,15 @@ Check: a rules entry that contains a Paizo proper noun, a lore paragraph, or Pai
 
 ## LIC-7. No Pathfinder branding beyond the Attribution book titles, and no compatibility claim
 
-Do not put "Pathfinder" in the product title, a logo, or other branding. Do not use the Paizo compatibility logo. Do not claim that the product is compatible with Pathfinder, and do not claim that Paizo sponsors, endorses, or approves it. Pathfinder may be named only as the book titles in the Attribution section of `NOTICE-ORC.md`. Repeating those same book titles as the permitted sources (LIC-3) or as a rules entry's source (LIC-4) is that Attribution naming. Internal repository file and directory names are not product branding and are exempt; this does not cover product titles, store pages, marketing, or in-game UI.
+Do not put "Pathfinder" in the product title, a logo, or other branding. Do not use the Paizo compatibility logo. Do not claim that the product is compatible with Pathfinder, and do not claim that Paizo sponsors, endorses, or approves it. Pathfinder may be named only as the book titles in the Attribution section of `LICENSES/ORC-NOTICE`. Repeating those same book titles as the permitted sources (LIC-3) or as a rules entry's source (LIC-4) is that Attribution naming. Internal repository file and directory names are not product branding and are exempt; this does not cover product titles, store pages, marketing, or in-game UI.
 
 The store page and marketing text carry no compatibility wording and no endorsement wording.
 
-The research quotes ORC I.b and II.d.i: the ORC grants no trademark rights and no permission to imply a connection with the licensor. The Compatibility License grant is limited to printed books and electronic books, and it says standalone game systems are not authorized (https://paizo.com/licenses/compatibility). This product is not under that license. Do not add a Paizo trademark line or a compatibility line to `NOTICE-ORC.md`.
+The research quotes ORC I.b and II.d.i: the ORC grants no trademark rights and no permission to imply a connection with the licensor. The Compatibility License grant is limited to printed books and electronic books, and it says standalone game systems are not authorized (https://paizo.com/licenses/compatibility). This product is not under that license. Do not add a Paizo trademark line or a compatibility line to `LICENSES/ORC-NOTICE`.
 
 **UNVERIFIED**: the research marks nominative fair use of a compatibility phrase as a lawyer question, not a grant from Paizo. This project does not use that phrase.
 
-Check: the product title, logos, store page, marketing text, `README.md`, and `NOTICE-ORC.md` contain no compatibility claim and no endorsement claim. A Pathfinder mention is one of the book titles in the Attribution section of `NOTICE-ORC.md`, or the same title repeated under LIC-3, LIC-4, or LIC-9.
+Check: the product title, logos, store page, marketing text, `README.md`, and `LICENSES/ORC-NOTICE` contain no compatibility claim and no endorsement claim. A Pathfinder mention is one of the book titles in the Attribution section of `LICENSES/ORC-NOTICE`, or the same title repeated under LIC-3, LIC-4, or LIC-9.
 
 ## LIC-8. Where the notice is placed
 
@@ -82,29 +82,29 @@ Required places:
 
 1. An in-game Credits or Legal screen reachable from the main menu.
 2. A notice file bundled with the build.
-3. `NOTICE-ORC.md` in this repository.
+3. `LICENSES/ORC-NOTICE` in this repository.
 
 Recommended, as project policy and not as an ORC requirement (research §1.2): the store page. The research says the license does not require the store page. The store page is not release-blocking.
 
 **UNVERIFIED**: the research marks placement ambiguous. Art. III names no location. The AxE says "a notice in your published work." A public repository is a distribution and needs the notice (research §6). Today only the repository copy exists. The in-game screen and the bundled file are still required and are not shipped.
 
-Check: `NOTICE-ORC.md` has the four headings. A release is incomplete while the in-game credits screen or the bundled notice file is missing. A missing store-page notice does not block the release.
+Check: `LICENSES/ORC-NOTICE` has the four headings. A release is incomplete while the in-game credits screen or the bundled notice file is missing. A missing store-page notice does not block the release.
 
 ## LIC-9. Attribution names the three books and their authors
 
-`NOTICE-ORC.md` attribution lists Pathfinder Player Core © 2023 Paizo Inc., Pathfinder GM Core © 2023 Paizo Inc., and Pathfinder Monster Core © 2024 Paizo Inc. The research says III.b(i) requires crediting each licensor, including upstream licensors, in the manner those parties request. Copying the full designer and author line from each book's legal page is the research's safe choice.
+`LICENSES/ORC-NOTICE` attribution lists Pathfinder Player Core © 2023 Paizo Inc., Pathfinder GM Core © 2023 Paizo Inc., and Pathfinder Monster Core © 2024 Paizo Inc. The research says III.b(i) requires crediting each licensor, including upstream licensors, in the manner those parties request. Copying the full designer and author line from each book's legal page is the research's safe choice.
 
-The author lines in `NOTICE-ORC.md` are still the short form, with the TODO that asks Evan to replace each line from his own copy. **UNVERIFIED** pending the legal pages of Player Core, GM Core, and Monster Core. The research's longer author lists were quoted from Archives of Nethys and from third-party reproductions, not from those books.
+The author lines in `LICENSES/ORC-NOTICE` are the full Designed by and Authors lines copied from the Archives of Nethys licenses page on 2026-10-23. The file has no author-line TODO. **UNVERIFIED** pending the legal pages of Player Core, GM Core, and Monster Core.
 
-Check: the three book lines are present. The check also fails while the author-line TODO is still in the file.
+Check: the three book lines are present. The check fails if an author-line TODO is in the file.
 
 ## LIC-10. Genesis Reserved Material stays closed
 
-Reserved Material is Evan's lore and the name "Project Genesis"; Genesis world and setting names, characters, places, factions, deities, plots, and dialogue; and Genesis art, music, and sound. The research quotes ORC I.h and the AxE: reserved material the publisher develops is exclusive property, and lore, names, story, art, and music stay closed. Art and audio in `docs/visual/` and `docs/audio/` are in that reserved set. `NOTICE-ORC.md` states that list in generic words.
+Reserved Material is Evan's lore and the name "Project Genesis"; Genesis world and setting names, characters, places, factions, deities, plots, and dialogue; and Genesis art, music, and sound. The research quotes ORC I.h and the AxE: reserved material the publisher develops is exclusive property, and lore, names, story, art, and music stay closed. Art and audio in `docs/visual/` and `docs/audio/` are in that reserved set. `LICENSES/ORC-NOTICE` states that list in generic words.
 
 **UNVERIFIED**: generic list pending named Genesis setting content and review by Evan or a lawyer. The research says Art. III.c asks for this product's own reserved material, and that Paizo's reserved-material paragraph does not have to be copied word for word.
 
-Check: `NOTICE-ORC.md` contains the Genesis reserved-material statement. A rules entry that copies Evan's setting names into mechanics fails LIC-6 and this rule.
+Check: `LICENSES/ORC-NOTICE` contains the Genesis reserved-material statement. A rules entry that copies Evan's setting names into mechanics fails LIC-6 and this rule.
 
 ## LIC-11. New mechanics Genesis adds are ORC Licensed Material
 
@@ -126,7 +126,7 @@ Check: a rules entry that reproduces an Archives of Nethys table, page structure
 
 ## LIC-13. Expressly Designated Licensed Material
 
-`NOTICE-ORC.md` states that this product contains no Expressly Designated Licensed Material. The research's draft notice uses that sentence, matching the "none" sentence it quotes from reproductions of Paizo's notices. A later decision can designate material. Until that decision is written down, the notice stays on "none."
+`LICENSES/ORC-NOTICE` states: None. No Reserved Material in this product is designated as Licensed Material. The research's draft notice uses a none sentence, matching the none sentence it quotes from reproductions of Paizo's notices. A later decision can designate material. Until that decision is written down, the notice stays on none.
 
 Check: the Expressly Designated Licensed Material section says there is none, or it names the elements a recorded decision designated.
 

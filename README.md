@@ -1,6 +1,6 @@
 # Genesis
 
-Genesis is a game built on a rules engine, with a basic map editor planned for Phase 2. Phase 1 is the rules crate, `crates/rules`. The books those mechanics are derived from are named in the Attribution section of [`NOTICE-ORC.md`](NOTICE-ORC.md).
+Genesis is a game built on a rules engine, with a basic map editor planned for Phase 2. Phase 1 is the rules crate, `crates/rules`. The books those mechanics are derived from are named in the Attribution section of [`LICENSES/ORC-NOTICE`](LICENSES/ORC-NOTICE).
 
 ## Status
 
@@ -84,6 +84,12 @@ That commit moves the change under `openspec/changes/archive/` and updates `open
 
 Code in this repository is under the MIT License. See [`LICENSE`](LICENSE). Copyright (c) 2026 Evan Burkey.
 
-The mechanics derived from the books listed in the Attribution section of [`NOTICE-ORC.md`](NOTICE-ORC.md), and any new mechanics this product adds, are Licensed Material under the ORC License.
+The mechanics derived from the books listed in the Attribution section of [`LICENSES/ORC-NOTICE`](LICENSES/ORC-NOTICE), and any new mechanics this product adds, are Licensed Material under the ORC License.
 
 Contributors follow the licensing requirements in [`docs/architect/licensing.md`](docs/architect/licensing.md).
+
+## ORC notice
+
+The ORC notice is [`LICENSES/ORC-NOTICE`](LICENSES/ORC-NOTICE).
+
+Genesis does not host player-made campaigns. Creators handle their own distribution and ORC attribution. The bundled campaign follows ORC rules.

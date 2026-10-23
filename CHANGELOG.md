@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- ORC notice in `LICENSES/ORC-NOTICE` for the license reference, Licensed Material, Reserved Material, and Attribution, and the note that Genesis does not host player-made campaigns. ([#85](https://github.com/fputs/genesis/pull/85))
 - One draft pull request carries a change from the spec commit through tests, code, and archive. Spec approval is a review line `spec-approved: <sha>`. One `OpenSpec-Refactor` kebab line can cover a crates-only refactor, and the Unreleased bullet is still required. ([#84](https://github.com/fputs/genesis/pull/84))
 - Fortitude, Reflex, and Will saves, including the basic-save damage multiplier. ([#81](https://github.com/fputs/genesis/pull/81))
 - Behavior tests for Hide on both sides of the degree boundary and the rejected side of the +20 modifier gate, Raise a Shield off-turn with no shield, and an unconscious creature's shield state. ([#72](https://github.com/fputs/genesis/pull/72))
@@ -43,6 +44,9 @@ v1 history lives on the `v1-reference` branch.
 - The equal-value condition-id tie uses condition id 4. ([#37](https://github.com/fputs/genesis/pull/37))
 - **BREAKING:** An `OpenSpec-Change` line fails unless it is the prefix, one space, and one kebab id. A dated archive folder name is not an id. Invalid ids log the whole remainder with non-printable characters and backslashes escaped as `\uXXXX`, and both spec-drift jobs share one pull request concurrency group. ([#33](https://github.com/fputs/genesis/pull/33))
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
+
+### Removed
+- `NOTICE-ORC.md`. The ORC notice is `LICENSES/ORC-NOTICE`. ([#85](https://github.com/fputs/genesis/pull/85))
 
 ### Fixed
 - The condition group key is (condition, statistic, bonus or penalty, type) after the status rewrite, so different types stack. ([#30](https://github.com/fputs/genesis/pull/30))
