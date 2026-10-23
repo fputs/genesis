@@ -9,14 +9,15 @@ use crate::check::{
 };
 use crate::modifiers::{Modifier, Statistic, reflex_modifiers, total};
 
-/// Inclusive levels a save may use. Currently `1` through `24`.
+/// Inclusive levels a save may use. Currently `1` through `25`.
 ///
-/// The minimum is 1 because player characters start at level 1. Monster Core level −1 and
-/// level 0 are out of scope. The maximum is 24 from the creature-building tables in GM Core,
-/// provisional pending a cite check. This is the only span `Level::new` reads.
+/// The minimum is 1. Player characters are levels 1 through 20. Level −1 and level 0 are
+/// out of scope. GM Core creature-building tables start at −1 and top out at 24. The
+/// maximum is 25 because Treerazer is the highest published creature. This is the only
+/// span `Level::new` reads.
 ///
-/// Player Core pg. 404, Saving Throws. GM Core, creature-building tables.
-pub const LEVEL_RANGE: RangeInclusive<i32> = 1..=24;
+/// Player Core pg. 91. GM Core pg. 112. Monster Core pg. 328.
+pub const LEVEL_RANGE: RangeInclusive<i32> = 1..=25;
 
 /// `level + 8` fits in `i32` for every value in [`LEVEL_RANGE`].
 const _: () = assert!(*LEVEL_RANGE.end() <= i32::MAX - 8);
