@@ -4,12 +4,12 @@ Read this before every change. It binds every agent that writes code in this rep
 
 ## 1. How work happens
 - Work only from an approved OpenSpec change in `openspec/changes/<id>/`. Implement exactly its tasks and scenarios. No extra features, refactors, or "while I'm here" fixes.
-- One change = one procedure family = one PR. The PR body includes `OpenSpec-Change: <id>`. Archive once, as the last commit right before merge (`openspec archive <id> --yes`). Do not un-archive and re-archive for a fix. Fixes before the archive go in normally. If the archive commit already exists and fixes are needed, never un-archive: add the fix commits that edit code and tests, then apply any spec text changes directly to the archived folder and to `openspec/specs` in the same push. The PR still needs green CI. A final no-op commit is not required.
+- One change = one procedure family = one PR. The PR body includes `OpenSpec-Change: <id>`. Archive once, as the last commit, only after Architect and QA have both passed the current head (`openspec archive <id> --yes`). Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff.
 - The router wakes Architect once per head SHA, after CI finishes. Architect and QA review that head in parallel and post one combined numbered fix list. A red CI check is the send-back. Reviewers do not re-check CI-gated items: format, the changelog bullet, archive order, spec drift.
 - Apply the whole fix list in one push. After two send-back rounds, escalate to Chief of Staff.
 - Fix a small spec clarification in the implementation PR and cite Designer. Send a behavior or scope change to Chief of Staff for Evan.
 - Designer and QA settle edge cases and tie rulings on the spec before coding is dispatched. A spec PR links `docs/designer/rules-rulings.md` and does not copy the log.
-- Architect merges an implementation PR when CI is green and Architect and QA both pass at that same head. No per-PR Chief of Staff acceptance. Chief of Staff spot-checks merged PRs daily.
+- Architect merges an implementation PR when CI is green after that archive commit. Architect and QA have both passed the head that was archived. No per-PR Chief of Staff acceptance. Chief of Staff spot-checks merged PRs daily.
 - Git: never force-push, rebase pushed commits, or delete branches. Fix mistakes with new commits. Coding agents do not merge to main.
 - Port code from branch `v1-reference` only when the change names the file. Port it to these rules, not as-is.
 

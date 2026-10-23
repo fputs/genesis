@@ -50,9 +50,9 @@ Characters are built by composition. The same build inputs always produce the sa
 Evan reviews and merges spec PRs (proposal, design, tasks, spec deltas). After that merge, Architect launches implementation on its own PR.
 
 1. The router wakes Architect once per head SHA, after CI finishes.
-2. OpenSpec archive happens once, as the last commit right before merge (`openspec archive <id> --yes`). No un-archive and re-archive per fix. No separate archive pull request. That commit leaves `main` green.
+2. Archive once, as the last commit, only after Architect and QA have both passed the current head (`openspec archive <id> --yes`). Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff. No separate archive pull request. That commit leaves `main` green.
 3. Architect and QA review in parallel at that same head and post one combined numbered fix list. A red CI check is the send-back. Reviewers do not re-check CI-gated items: format, the changelog bullet, archive order, spec drift.
-4. No per-PR Chief of Staff acceptance. Architect merges an implementation PR when CI is green and Architect and QA both pass at that same head. Chief of Staff spot-checks merged PRs daily.
+4. No per-PR Chief of Staff acceptance. Architect merges an implementation PR when CI is green after that archive commit. Architect and QA have both passed the head that was archived. Chief of Staff spot-checks merged PRs daily.
 5. Coding agents apply the whole fix list in one push. After two send-back rounds the PR escalates to Chief of Staff.
 6. A small spec clarification is fixed in the implementation PR with a Designer citation. A behavior or scope change goes to Chief of Staff for Evan.
 7. Designer and QA settle edge cases and tie rulings on the spec before coding is dispatched. A spec PR links `docs/designer/rules-rulings.md` and does not copy the log.

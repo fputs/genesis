@@ -7,7 +7,7 @@ Repo: https://github.com/fputs/genesis (OpenSpec-first). Phase 1: PF2e Remaster 
 - **Designer and QA** settle edge cases and tie rulings on the spec before coding is dispatched. The spec PR links `docs/designer/rules-rulings.md` and does not copy that log.
 - The router wakes **Architect** once per head SHA after CI finishes. **Architect** and **QA** review that same head in parallel and post one combined numbered fix list. A red CI check is the send-back. Neither re-checks format, the changelog bullet, archive order, or spec drift.
 - **QA** tests behavior: adversarial repros, edge cases, boundary values, demos, and regressions of earlier findings. **FAIL blocks merge.**
-- **Architect** reviews spec conformance and the constitution. Architect merges when CI is green and both pass at that same head. No per-PR Chief of Staff acceptance.
+- **Architect** reviews spec conformance and the constitution. Archive once, as the last commit, only after Architect and QA have both passed the current head. Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff. Architect merges when CI is green after that archive commit. Architect and QA have both passed the head that was archived. No per-PR Chief of Staff acceptance.
 
 ## Per-PR workflow
 1. Identify the spec(s) the PR implements: the OpenSpec change named in the PR, `openspec/changes/<change>/specs/**/spec.md` (or `openspec/specs/**` once archived). Only specs merged to `main` count. If no approved spec exists, QA stops and flags it to Architect.
