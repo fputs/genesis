@@ -1,0 +1,38 @@
+# Tasks
+
+DevOps does sections 1 and 2 on this branch after an allowed login comments `spec-approved: <sha>`. Architect does section 3 after that. Tests are committed before the code they cover. The archive checkbox stays open until the last commit, so the change is not fully checked while it is still active.
+
+## 1. Spec-drift refactor exemption
+
+- [ ] 1.1 In `scripts/spec-drift-check.test.mjs`, add a fixture test for each refactor scenario in `specs/spec-drift-check/spec.md`, before changing the check. Verify `node --test scripts/spec-drift-check.test.mjs` lists those test names.
+
+- [ ] 1.2 Export `isCodePath` from `scripts/spec-drift-check.mjs`. Implement the refactor exemption, the test-file rule, and the `spec-drift: refactor exemption refused` and `spec-drift: invalid refactor line` logs. Verify `node --test scripts/spec-drift-check.test.mjs` exits 0.
+
+## 2. spec-approved job
+
+- [ ] 2.1 Add `scripts/spec-approved.test.mjs` with one injected-comment fixture per scenario in `specs/spec-approved/spec.md`, and no network call, before adding the production script. Verify the file names each of those scenarios.
+
+- [ ] 2.2 Add `scripts/spec-approved.mjs` with no npm dependency. It imports `changeReferences` and `isCodePath`, hashes as `specs/spec-approved/spec.md` requires, and fails closed on the log lines in that spec. Verify `node --check scripts/spec-approved.mjs` and `node --test scripts/spec-approved.test.mjs` both exit 0.
+
+- [ ] 2.3 Add `.github/workflows/spec-approved.yml`, `openspec/spec-approved-authors.txt` whose only login is `fputs`, and `.github/CODEOWNERS` giving `/openspec/` and `/AGENTS.md` to `@fputs`. Verify the job name, the comment and review triggers, Node 22, tests-before-script, and read-only permissions. Verify the authors file and the two owner rules.
+
+- [ ] 2.4 In a commit before archive, add an Unreleased bullet for this change under `### Added`, linking this pull request's number. Verify the new bullet contains `https://github.com/fputs/genesis/pull/` plus that number.
+
+## 3. Constitution and workflow docs
+
+- [ ] 3.1 Update `AGENTS.md` section 1 to the single-pull-request flow in `specs/single-pr-flow/spec.md`, including the Designer citation and the `spec-approved` re-trigger. Verify section 1 no longer says Architect opens an implementation pull request, and that the review, git, and port rules remain.
+
+- [ ] 3.2 Set the `tasks` rule in `openspec/config.yaml` to `Every implementation task list ends with the AGENTS.md proof commands and archiving the change right before merge in the same pull request.` Verify that sentence is the rule.
+
+- [ ] 3.3 Update `docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` as `specs/single-pr-flow/spec.md` requires, including the 2026-10-23 revision and Evan's branch-protection admin step. Verify the test plan no longer says that only specs merged to `main` count. Do not edit GitHub branch protection.
+
+## 4. Proof and archive
+
+- [ ] 4.1 Run the AGENTS.md proof commands and verify each exits 0. Paste the output into the pull request.
+  - `cargo fmt --all --check`
+  - `cargo clippy --workspace --all-targets -- -D warnings`
+  - `cargo build --workspace`
+  - `cargo test --workspace`
+  - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
+
+- [ ] 4.2 As the last commit, right before merge, the merger runs `openspec archive adopt-single-pr-flow --yes` and checks this box in that commit. Verify the change is absent under `openspec/changes/` and present under `openspec/changes/archive/`.
