@@ -2399,4 +2399,107 @@ mod tests {
         assert_eq!(shield.broken_threshold, 4);
         assert_eq!(shield.shield_ac_bonus, 1);
     }
+
+    fn save_training(
+        level_value: i32,
+        constitution: i32,
+        dexterity: i32,
+        wisdom: i32,
+        fortitude: crate::save::Proficiency,
+        reflex: crate::save::Proficiency,
+        will: crate::save::Proficiency,
+    ) -> crate::save::SavingThrows {
+        crate::save::SavingThrows {
+            level: crate::save::Level::new(level_value).expect("level"),
+            constitution,
+            dexterity,
+            wisdom,
+            fortitude,
+            reflex,
+            will,
+        }
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn authored_armor_class_stays_authored() {
+        let mut parts = fighter_parts();
+        parts.saves = Some(save_training(
+            1,
+            2,
+            0,
+            0,
+            crate::save::Proficiency::Trained,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Untrained,
+        ));
+        let creature = derive(&build(parts));
+        assert_eq!(creature.armor_class, 18);
+        assert_eq!(creature.perception, 5);
+        assert_eq!(creature.strike.attack_bonus, 7);
+        let saves = creature.saves.expect("saves");
+        assert_eq!(saves.level.get(), 1);
+        assert_eq!(saves.constitution, 2);
+        assert_eq!(saves.fortitude, crate::save::Proficiency::Trained);
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn omitted_training_stays_omitted() {
+        let dice = ScriptedDice::new([10]);
+        let creature = derive(&build(fighter_parts()));
+        assert!(creature.saves.is_none());
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn the_same_build_twice_matches() {
+        let mut parts = fighter_parts();
+        parts.saves = Some(save_training(
+            5,
+            0,
+            -1,
+            0,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Expert,
+            crate::save::Proficiency::Untrained,
+        ));
+        let first = derive(&build(parts.clone()));
+        let second = derive(&build(parts));
+        assert_eq!(first.saves, second.saves);
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn a_later_contribution_replaces_training() {
+        let mut parts = fighter_parts();
+        parts.saves = Some(save_training(
+            1,
+            0,
+            0,
+            0,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Untrained,
+        ));
+        let mut ordered = contributions(&build(parts));
+        ordered.push(Contribution {
+            saves: Some(save_training(
+                1,
+                2,
+                0,
+                0,
+                crate::save::Proficiency::Trained,
+                crate::save::Proficiency::Untrained,
+                crate::save::Proficiency::Untrained,
+            )),
+            ..Contribution::default()
+        });
+        let creature = fold_contributions(&ordered).expect("fold");
+        let saves = creature.saves.expect("saves");
+        assert_eq!(saves.fortitude, crate::save::Proficiency::Trained);
+        assert_eq!(saves.level.get(), 1);
+        assert_eq!(saves.constitution, 2);
+    }
 }

@@ -4347,6 +4347,59 @@ mod tests {
         assert_eq!(dice.remaining(), 1);
     }
 
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn fortitude_and_will_do_not_share_a_stack() {
+        let fortitude = bonus(BonusType::Circumstance, 2, 1, 1, None, Statistic::Fortitude);
+        let will = bonus(BonusType::Circumstance, 1, 2, 1, None, Statistic::Will);
+        let stacked = summed(&[fortitude, will]);
+        assert_eq!(stacked.get(Statistic::Fortitude), 2);
+        assert_eq!(stacked.get(Statistic::Will), 1);
+    }
+
+    /// Player Core pg. 404, Saving Throws. Player Core pg. 446, Unconscious.
+    #[test]
+    fn unconscious_adds_nothing_to_fortitude() {
+        let fortitude = bonus(BonusType::Circumstance, 1, 1, 1, None, Statistic::Fortitude);
+        let stacked = summed(&[fortitude]);
+        assert_eq!(stacked.get(Statistic::Fortitude), 1);
+        assert!(
+            stacked
+                .applied()
+                .iter()
+                .all(|modifier| modifier.penalty_type() != Some(PenaltyType::Status))
+        );
+    }
+
+    /// Player Core pg. 404, Saving Throws. Player Core pg. 446, Unconscious.
+    #[test]
+    fn unconscious_adds_nothing_to_will() {
+        let will = bonus(BonusType::Circumstance, 1, 1, 1, None, Statistic::Will);
+        let stacked = summed(&[will]);
+        assert_eq!(stacked.get(Statistic::Will), 1);
+        assert!(
+            stacked
+                .applied()
+                .iter()
+                .all(|modifier| modifier.penalty_type() != Some(PenaltyType::Status))
+        );
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn reflex_keeps_the_unconscious_penalty() {
+        let modifiers = reflex_modifiers(true).expect("reflex");
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::Reflex), -4);
+        assert!(stacked.applied().iter().any(|modifier| {
+            modifier.penalty_type() == Some(PenaltyType::Status)
+                && modifier.value() == -4
+                && modifier.sequence() == 10
+                && modifier.statistic() == Statistic::Reflex
+        }));
+        assert_eq!(stacked.get(Statistic::Fortitude), 0);
+    }
+
     struct Lcg(u64);
 
     impl Lcg {

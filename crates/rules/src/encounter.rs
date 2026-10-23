@@ -7901,5 +7901,38 @@ mod tests {
         assert_eq!(hit_points(&encounter, 2), 20);
     }
 
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn no_saving_throws_keeps_its_own_arms() {
+        let error = EncounterError::NoSavingThrows;
+        assert_eq!(
+            ready_from_encounter(error),
+            ReadyError::Encounter(ReadyEncounter::NoSavingThrows)
+        );
+        assert_eq!(from_spend(error), ReactiveError::NoReaction);
+        assert_eq!(
+            as_damage_overflow(error),
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        );
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn save_overflow_keeps_its_own_arms() {
+        let error = EncounterError::SaveOverflow(ArithmeticOverflow::SumDoesNotFit);
+        assert_eq!(
+            ready_from_encounter(error),
+            ReadyError::Encounter(ReadyEncounter::SaveOverflow(
+                ArithmeticOverflow::SumDoesNotFit
+            ))
+        );
+        assert_eq!(from_spend(error), ReactiveError::NoReaction);
+        assert_eq!(
+            as_damage_overflow(error),
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        );
+    }
+
     mod delay_ready_tests;
+    mod save_tests;
 }
