@@ -35,4 +35,4 @@ Genesis DevOps agent implements this change. The spec pull request already remov
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [ ] 3.2 As the final commit of the implementation pull request, run `openspec archive amend-changelog-policy --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [x] 3.2 As the final commit of the implementation pull request, run `openspec archive amend-changelog-policy --yes` and verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
