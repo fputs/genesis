@@ -385,7 +385,7 @@ The job SHALL GET `pulls/{n}/reviews` with `per_page=100` and SHALL follow every
 
 ### Requirement: Dismissed and pending reviews
 
-Reviews whose state is `DISMISSED` or `PENDING` SHALL be removed before the latest review is picked, so an older undismissed approval can be the latest. They SHALL NOT supply the approved sha. A dismissed approval, with no other allowed review line, SHALL fail with `spec-approved: approval missing`. A `COMMENTED` review with an empty body SHALL be ignored when the latest is picked.
+Reviews whose state is `DISMISSED` or `PENDING` SHALL be removed before the latest review is picked, so an older undismissed approval can be the latest. They SHALL NOT supply the approved sha. A dismissed approval, with no other allowed review line, SHALL fail with `spec-approved: approval missing`. A `COMMENTED` review whose body is empty or whitespace-only after trim SHALL be ignored when the latest is picked.
 
 #### Scenario: A dismissed approval is missing
 
@@ -413,6 +413,15 @@ Reviews whose state is `DISMISSED` or `PENDING` SHALL be removed before the late
 - **WHEN** the job runs
 - **THEN** the job passes
 - **AND** the empty review is not the latest
+
+#### Scenario: A whitespace-only commented review leaves the approval
+
+- **GIVEN** user id `239839957` submitted a valid line whose digest matches the head
+- **AND** that user later submits a `COMMENTED` review whose body is whitespace only
+- **AND** the pull request changes a code path and has `OpenSpec-Change: add-foo`
+- **WHEN** the job runs
+- **THEN** the job passes
+- **AND** the whitespace-only review is not the latest
 
 ### Requirement: Importing the fence helper
 

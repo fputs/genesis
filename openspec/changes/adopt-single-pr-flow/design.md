@@ -67,7 +67,9 @@ The base sha is `pull_request.base.sha` from the payload. The steps run `git wor
 
 `scripts/pr-hygiene.mjs` guards `main()` with `runningAsScript()`, the same realpath test `scripts/spec-drift-check.mjs` uses, so importing `unfencedBody` does not run the check.
 
-Bootstrap applies only when that base sha lacks both the script and `.github/workflows/spec-approved.yml`. Exactly one of those files fails with `spec-approved: partial base`. The job then logs `bootstrap: no base script` and does not run a head copy. Deleting the script, its test, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, or the authors file still needs approval. An open pull request whose base sha predates the merge keeps the bootstrap pass until an event refreshes that base.
+Bootstrap applies only when that base sha lacks both the script and `.github/workflows/spec-approved.yml`. The job then logs `bootstrap: no base script` and does not run a head copy. Exactly one of those files fails with `spec-approved: partial base`. Deleting the script, its test, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, or the authors file still needs approval. An open pull request whose base sha predates the merge keeps the bootstrap pass until an event refreshes that base.
+
+Designer clarification: that log sentence follows the lacks-both case. A `COMMENTED` review whose body is empty or whitespace-only after trim is ignored when the latest review is picked.
 
 Alternative considered: run the head's script. Rejected. The head could replace the allow-list and the program together.
 
