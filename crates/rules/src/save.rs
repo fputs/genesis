@@ -4,9 +4,7 @@
 
 use std::ops::RangeInclusive;
 
-use crate::check::{
-    ArithmeticOverflow, CheckModifier, DcModifier, DegreeOfSuccess, dc_from_modifier,
-};
+use crate::check::{ArithmeticOverflow, CheckModifier, DegreeOfSuccess};
 use crate::modifiers::{Modifier, Statistic, reflex_modifiers, total};
 
 /// Inclusive levels a save may use. Currently `1` through `25`.
@@ -157,7 +155,7 @@ pub struct SaveRoll {
 
 /// Proficiency bonus for `rank` at `level`. Untrained is 0.
 ///
-/// [`LEVEL_RANGE`]'s maximum plus 8 fits in `i32`, so the missing sum is not a rules result.
+/// [`LEVEL_RANGE`] ends at 25, and the const assert keeps `level + 8` inside `i32`.
 ///
 /// Player Core pg. 404, Saving Throws.
 pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
@@ -168,11 +166,8 @@ pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
         Proficiency::Master => 6,
         Proficiency::Legendary => 8,
     };
-    match level.get().checked_add(added) {
-        Some(bonus) => bonus,
-        // The const assert on `LEVEL_RANGE` keeps `level + 8` inside `i32`.
-        None => level.get(),
-    }
+    // `LEVEL_RANGE` ends at 25, so this sum fits in `i32`.
+    level.get() + added
 }
 
 /// Attribute modifier, plus proficiency, plus modifiers on `save` only.
@@ -216,15 +211,12 @@ pub fn save_modifier(
 
 /// Saving throw DC: 10 plus the save modifier.
 ///
-/// A [`CheckModifier`] always fits a DC modifier, so this does not fail.
+/// A [`CheckModifier`] keeps `modifier + 255` inside `i32`, so `modifier + 10` fits.
 ///
 /// Player Core pg. 404, Saving Throws. Player Core pg. 401, Getting a DC from a Modifier.
 pub fn save_dc(modifier: CheckModifier) -> i32 {
-    match DcModifier::new(modifier.get()) {
-        Ok(modifier) => dc_from_modifier(modifier),
-        // `CheckModifier` keeps `modifier + 255` inside `i32`, so `modifier + 10` fits too.
-        Err(_) => modifier.get(),
-    }
+    // `CheckModifier::new` rejects a modifier that cannot be added to 255.
+    modifier.get() + 10
 }
 
 /// Basic-save damage for `degree`. Half of 1 stays 1. A result of 0 is not raised to 1.
@@ -253,8 +245,8 @@ pub fn basic_save_amount(amount: i32, degree: DegreeOfSuccess) -> Result<i32, Sa
 #[cfg(test)]
 mod tests {
     use super::{
-        Level, LevelError, Proficiency, Save, SavingThrows, basic_save_amount, proficiency_bonus,
-        save_dc, save_modifier,
+        Level, LevelError, Proficiency, Save, SaveError, SavingThrows, basic_save_amount,
+        proficiency_bonus, save_dc, save_modifier,
     };
     use crate::check::{DegreeOfSuccess, resolve_check};
     use crate::dice::ScriptedDice;
@@ -352,6 +344,36 @@ mod tests {
     #[test]
     fn critical_failure_on_0_damage_stays_0() {
         assert_eq!(amount(0, DegreeOfSuccess::CriticalFailure), 0);
+    }
+
+    /// Player Core pg. 404, Basic Saving Throws.
+    #[test]
+    fn a_negative_amount_is_rejected() {
+        assert_eq!(
+            basic_save_amount(-1, DegreeOfSuccess::CriticalSuccess),
+            Err(SaveError::NegativeAmount)
+        );
+        assert_eq!(
+            basic_save_amount(-1, DegreeOfSuccess::Success),
+            Err(SaveError::NegativeAmount)
+        );
+        assert_eq!(
+            basic_save_amount(-1, DegreeOfSuccess::Failure),
+            Err(SaveError::NegativeAmount)
+        );
+        assert_eq!(
+            basic_save_amount(-1, DegreeOfSuccess::CriticalFailure),
+            Err(SaveError::NegativeAmount)
+        );
+    }
+
+    /// Player Core pg. 407, Doubling and Halving Damage.
+    #[test]
+    fn critical_failure_just_under_2_to_the_30_doubles() {
+        assert_eq!(
+            basic_save_amount((1 << 30) - 1, DegreeOfSuccess::CriticalFailure),
+            Ok(2_147_483_646)
+        );
     }
 
     /// Player Core pg. 404, Saving Throws.

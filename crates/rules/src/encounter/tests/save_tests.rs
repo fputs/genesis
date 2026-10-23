@@ -246,6 +246,19 @@ fn natural_20_at_dc_minus_11_is_a_failure() {
 
 /// Player Core pg. 404, Basic Saving Throws.
 #[test]
+fn a_negative_amount_precedes_no_saving_throws() {
+    let mut encounter = opened(vec![alive(1, 20, None)], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, -1, &[], &[10]);
+    assert_eq!(error, Err(EncounterError::NegativeAmount));
+    assert_ne!(error, Err(EncounterError::NoSavingThrows));
+    assert_eq!(hit_points(&encounter, 1), 20);
+    assert_eq!(vital(&encounter, 1), Vital::Alive);
+    assert_eq!(dice.remaining(), 1);
+    assert_eq!(dice.d20(), 10);
+}
+
+/// Player Core pg. 404, Basic Saving Throws.
+#[test]
 fn a_negative_amount_rolls_nothing() {
     let mut encounter = opened(vec![plain(1, 20)], &[10]);
     let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, -1, &[], &[10]);
@@ -564,6 +577,53 @@ fn unconscious_will_does_not_include_minus_4() {
     let (roll, _) = resolved(person, Save::Will, 15, 0, &[], 15);
     assert_eq!(modifier_of(&roll), 0);
     assert_eq!(roll.total, 15);
+}
+
+/// Player Core pg. 404, Saving Throws.
+#[test]
+fn a_trained_constitution_at_the_maximum_rolls_nothing() {
+    let mut encounter = opened(
+        vec![alive(1, 20, fort(1, i32::MAX, Proficiency::Trained))],
+        &[8],
+    );
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
+    assert_eq!(
+        error,
+        Err(EncounterError::SaveOverflow(
+            ArithmeticOverflow::SumDoesNotFit
+        ))
+    );
+    assert_eq!(hit_points(&encounter, 1), 20);
+    assert_eq!(vital(&encounter, 1), Vital::Alive);
+    assert_eq!(dice.remaining(), 1);
+    assert_eq!(dice.d20(), 10);
+}
+
+/// Player Core pg. 407, Doubling and Halving Damage.
+#[test]
+fn critical_failure_of_2_to_the_30_writes_nothing() {
+    let mut encounter = opened(vec![plain(1, 20)], &[8]);
+    let (error, mut dice) = attempt(
+        &mut encounter,
+        1,
+        Save::Fortitude,
+        15,
+        1 << 30,
+        &[],
+        &[5, 19],
+    );
+    assert_eq!(
+        degree_of_success(5, 5, 15),
+        DegreeOfSuccess::CriticalFailure
+    );
+    assert_eq!(
+        error,
+        Err(EncounterError::DamageOverflow(ModifierError::Overflow))
+    );
+    assert_eq!(hit_points(&encounter, 1), 20);
+    assert_eq!(vital(&encounter, 1), Vital::Alive);
+    assert_eq!(dice.remaining(), 1);
+    assert_eq!(dice.d20(), 19);
 }
 
 /// Player Core pg. 407, Doubling and Halving Damage.
