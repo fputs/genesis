@@ -31,6 +31,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- The encounter's round wrap and a blow's delayed target are separate types, with no change to fight behavior. ([#78](https://github.com/fputs/genesis/pull/78))
 - **BREAKING:** A creature build carries optional `saves` training, and `Statistic` adds Fortitude and Will. ([#81](https://github.com/fputs/genesis/pull/81))
 - **BREAKING:** Strike, Reactive Strike, and a readied Strike roll the targeting flat check before the attack roll. A lost Strike returns `StrikeDelivery::Lost` and does not roll the attack d20. ([#83](https://github.com/fputs/genesis/pull/83))
 - pr-hygiene accepts a new Unreleased bullet only when it sits under Added, Changed, Deprecated, Removed, Fixed, or Security and links that pull request, and it skips the bullet when every other changed path is a crate test. ([#76](https://github.com/fputs/genesis/pull/76))

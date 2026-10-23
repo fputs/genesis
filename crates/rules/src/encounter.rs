@@ -198,19 +198,32 @@ pub enum EncounterError {
     CannotTarget,
 }
 
-/// Where the round sits between turns, and whether a blow's target had Delayed.
+/// Where the round sits between turns.
 ///
-/// One enum replaces a pending-wrap flag and a was-delayed flag.
+/// A blow's delayed target is [`TargetDelay`], not a variant here.
+/// A pending wrap cannot be stored as a delayed target.
 ///
 /// Player Core, Delay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TurnState {
-    /// The round is not waiting to wrap. A blow's target was not Delayed.
+    /// The round is not waiting to wrap.
     Continuing,
     /// The last turn ended while someone is Delayed. The round has not advanced.
     PendingWrap,
-    /// The blow was planned while the target's slot was Delayed.
-    DelayedTarget,
+}
+
+/// Whether a blow was planned while the target's slot was Delayed.
+///
+/// Split from [`TurnState`] so the round's wrap and the blow's target
+/// cannot occupy one value.
+///
+/// Player Core, Delay. Player Core, "Getting Knocked Out".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TargetDelay {
+    /// The target's slot was Delayed when the blow was planned.
+    Delayed,
+    /// The target's slot was not Delayed when the blow was planned.
+    NotDelayed,
 }
 
 /// Where a creature sits in the round.
@@ -1060,7 +1073,7 @@ impl Encounter {
             )
             .map_err(ReactiveError::DamageOverflow)?
         };
-        let actor_turn = self
+        let actor_delay = self
             .delayed_target(actor)
             .map_err(|_| ReactiveError::UnknownCombatant)?;
         if !misses(degree) {
@@ -1078,7 +1091,7 @@ impl Encounter {
             .map_err(ReactiveError::HitPoints)?;
             self.spend_reaction(reactor).map_err(from_spend)?;
             self.commit_reactive_blow(actor, &updated)?;
-            self.place_delayed_knockout(actor, reactor, actor_turn);
+            self.place_delayed_knockout(actor, reactor, actor_delay);
         } else {
             self.spend_reaction(reactor).map_err(from_spend)?;
         }
@@ -1871,11 +1884,11 @@ impl Encounter {
         self.reaction_gate(id, ReactionGate::Delay)
     }
 
-    fn delayed_target(&self, id: CombatantId) -> Result<TurnState, EncounterError> {
+    fn delayed_target(&self, id: CombatantId) -> Result<TargetDelay, EncounterError> {
         if self.slot_of(id)? == TurnSlot::Delayed {
-            Ok(TurnState::DelayedTarget)
+            Ok(TargetDelay::Delayed)
         } else {
-            Ok(TurnState::Continuing)
+            Ok(TargetDelay::NotDelayed)
         }
     }
 
@@ -2070,9 +2083,9 @@ impl Encounter {
         &mut self,
         target: CombatantId,
         attacker: CombatantId,
-        turn_state: TurnState,
+        delay: TargetDelay,
     ) {
-        if turn_state != TurnState::DelayedTarget {
+        if delay != TargetDelay::Delayed {
             return;
         }
         let pending = self
@@ -2383,7 +2396,7 @@ impl Encounter {
             .participant
             .state
             .clone();
-        let target_turn = self.delayed_target(target).map_err(ready_from_encounter)?;
+        let target_delay = self.delayed_target(target).map_err(ready_from_encounter)?;
         if let Err(error) = self.apply_damage(target, damage, degree) {
             return Err(ready_from_encounter(error));
         }
@@ -2393,7 +2406,7 @@ impl Encounter {
             }
             return Err(ready_from_encounter(error));
         }
-        self.place_delayed_knockout(target, readier, target_turn);
+        self.place_delayed_knockout(target, readier, target_delay);
         Ok(())
     }
 
@@ -9560,4 +9573,5 @@ mod tests {
 
     mod delay_ready_tests;
     mod save_tests;
+    mod target_delay_tests;
 }
