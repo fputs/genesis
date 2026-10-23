@@ -1,91 +1,269 @@
 # spec-drift-check
 
+## MODIFIED Requirements
+
+### Requirement: Code paths
+
+A changed path is a code path when it is exactly `Cargo.toml`, `Cargo.lock`, or `rust-toolchain.toml`, or when it starts with `crates/` or `.github/workflows/`. Changed paths SHALL be the additions, modifications, deletions, and both sides of renames from `git merge-base` of the event base sha and the head sha to the head. The job SHALL NOT diff `pull_request.base.sha` directly. No merge-base SHALL fail the job closed. No other path is a code path.
+
+A qualifying refactor exemption SHALL NOT clear that code-path classification and SHALL NOT log `spec-drift: code change missing OpenSpec-Change`. Every other pull request with a code path and no valid change reference SHALL still log that line.
+
+#### Scenario: A crate file is a code path
+
+- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs`
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: Root Cargo.toml is a code path
+
+- **GIVEN** a pull_request to `main` whose diff changes `Cargo.toml` and no other code path
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: Cargo.lock is a code path
+
+- **GIVEN** a pull_request to `main` whose diff changes `Cargo.lock` and no other code path
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: rust-toolchain.toml is a code path
+
+- **GIVEN** a pull_request to `main` whose diff changes `rust-toolchain.toml` and no other code path
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: A workflow file is a code path
+
+- **GIVEN** a pull_request to `main` whose diff changes `.github/workflows/ci.yml`
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: Deleting a crate file is a code path
+
+- **GIVEN** a pull_request to `main` whose diff deletes `crates/rules/src/lib.rs`
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: Renaming into crates is a code path
+
+- **GIVEN** a pull_request to `main` whose diff renames `docs/note.md` to `crates/rules/note.md`
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: Renaming out of crates is a code path
+
+- **GIVEN** a pull_request to `main` whose diff renames `crates/rules/src/lib.rs` to `docs/lib.rs`
+- **AND** the body has no change reference
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: A nested Cargo.toml is not a root manifest
+
+- **GIVEN** a pull_request to `main` whose only diff is `docs/Cargo.toml`
+- **AND** the body has no change reference
+- **AND** validation exits zero
+- **AND** no active change is fully checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+
+#### Scenario: A crates prefix without a slash is not a code path
+
+- **GIVEN** a pull_request to `main` whose only diff is `crates-extra/foo.rs`
+- **AND** the body has no change reference
+- **AND** validation exits zero
+- **AND** no active change is fully checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+
+#### Scenario: Files outside the diff do not count
+
+- **GIVEN** a pull_request to `main` whose diff is only `README.md`
+- **AND** the tree contains `crates/rules/src/lib.rs`
+- **AND** the body has no change reference
+- **AND** validation exits zero
+- **AND** no active change is fully checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+
+#### Scenario: The diff starts at the merge-base
+
+- **GIVEN** a pull_request whose base sha edits `crates/rules/src/lib.rs` after the merge-base
+- **AND** the head matches the merge-base for that file
+- **AND** the body has no change reference
+- **AND** validation exits zero
+- **AND** no active change is fully checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+- **AND** the path diff is `git diff` from `git merge-base` of the base sha and the head to the head
+
+#### Scenario: No merge-base fails closed
+
+- **GIVEN** a pull_request whose base sha and head sha have no merge-base
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: no merge-base`
+
+#### Scenario: A qualifying refactor does not log a missing change line
+
+- **GIVEN** a pull_request to `main` whose merge-base diff changes only `crates/rules/src/lib.rs`
+- **AND** the only reference line is `OpenSpec-Refactor: dice-and-checks`
+- **AND** validation exits zero
+- **AND** the completed-change check passes
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+- **AND** `crates/rules/src/lib.rs` is still a code path
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+
+### Requirement: Change reference line
+
+A body line, after one trailing CR is removed and surrounding whitespace is trimmed, that starts with the exact case-sensitive `OpenSpec-Change:` SHALL be a reference. It SHALL be valid if and only if it is that prefix, then exactly one U+0020, then one kebab id. Otherwise it SHALL be an invalid id and SHALL NOT be skipped or case-folded. Fenced lines SHALL count the same. This SHALL be the AGENTS.md line. The id SHALL be one or more `[a-z0-9]` groups joined by single hyphens.
+
+An `OpenSpec-Refactor:` line SHALL NOT be a change reference. Exactly one valid refactor line, and no `OpenSpec-Change` line, SHALL satisfy the missing-reference check when the qualifying refactor paths hold. A second refactor line, a malformed refactor line, or any `OpenSpec-Change` line beside a refactor line SHALL NOT satisfy it.
+
+#### Scenario: A trimmed line is a reference
+
+- **GIVEN** a pull_request to `main` that changes `Cargo.toml`
+- **AND** the body line is `  OpenSpec-Change: add-dice-and-checks  `
+- **AND** `openspec/changes/add-dice-and-checks/` exists
+- **AND** validation exits zero
+- **AND** the completed-change check passes
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+
+#### Scenario: Extra words are not a reference
+
+- **GIVEN** a pull_request to `main` that changes `Cargo.toml`
+- **AND** the only body line is `OpenSpec-Change: add-dice-and-checks extra`
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id add-dice-and-checks extra`
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+- **AND** the log does not include `spec-drift: unknown change`
+
+#### Scenario: An uppercase id is not skipped
+
+- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
+- **AND** the only body line is `OpenSpec-Change: Add-Foo`
+- **AND** `openspec/changes/add-foo/` exists
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id Add-Foo`
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+- **AND** the line is not accepted as `add-foo`
+
+#### Scenario: A valid id does not hide an invalid token
+
+- **GIVEN** a pull_request to `main` that changes `Cargo.toml`
+- **AND** the body contains `OpenSpec-Change: add-dice-and-checks` and `OpenSpec-Change: Add-Foo`
+- **AND** `openspec/changes/add-dice-and-checks/` exists
+- **AND** validation exits zero
+- **AND** the completed-change check passes
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: invalid change id Add-Foo`
+
+#### Scenario: A tab after the colon is invalid
+
+- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
+- **AND** the body line is `OpenSpec-Change:` immediately followed by a tab and `add-foo`
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log line is `spec-drift: invalid change id` immediately followed by `\u0009add-foo`
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: Two spaces before the id are invalid
+
+- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
+- **AND** the body line is `OpenSpec-Change:` plus two U+0020 spaces plus `add-foo`
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log line is `spec-drift: invalid change id` immediately followed by those two U+0020 spaces and `add-foo`
+- **AND** nothing in that remainder was stripped
+- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+
+#### Scenario: A lowercase prefix is ignored
+
+- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
+- **AND** the only body line is `openspec-change: foo`
+- **AND** `openspec/changes/foo/` exists
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
+- **AND** the log does not include `spec-drift: invalid change id`
+- **AND** the log does not include `spec-drift: unknown change foo`
+
+#### Scenario: A refactor line contributes no change id
+
+- **GIVEN** a body whose only reference line is `OpenSpec-Refactor: dice-and-checks`
+- **WHEN** `changeReferences` parses it
+- **THEN** that line contributes no change id
+
 ## ADDED Requirements
 
 ### Requirement: Refactor line
 
-A body line, after one trailing CR is removed and surrounding whitespace is trimmed, that starts with exact case-sensitive `OpenSpec-Refactor:` SHALL be a refactor line. It SHALL be valid only as that prefix, one U+0020, and one roadmap item. A roadmap item SHALL be one or more `[a-z0-9]` groups joined by single hyphens. Any other such line SHALL be malformed. Fenced lines SHALL count. `openspec-refactor:` SHALL NOT be a refactor line. The job SHALL NOT look the item up.
+A body line, after one trailing CR is removed and surrounding whitespace is trimmed, that starts with exact case-sensitive `OpenSpec-Refactor:` SHALL be a refactor line. It SHALL be valid only as that prefix, one U+0020, and one roadmap item matching `^[a-z0-9]+(?:-[a-z0-9]+)*$`. Fenced lines SHALL count. `openspec-refactor:` SHALL NOT be a refactor line. The job SHALL NOT look the item up. On push the job SHALL NOT read refactor lines.
 
 #### Scenario: A trimmed refactor line passes
 
 - **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
 - **AND** the body line is `  OpenSpec-Refactor: dice-and-checks  `
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
-
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-- **AND** the log does not include `spec-drift: invalid refactor item`
-
-- **AND** the log does not include `spec-drift: unknown change`
-
-#### Scenario: A single-group roadmap item passes
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: shields`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
 
 #### Scenario: An item absent from the decision log passes
 
 - **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
 - **AND** the body line is `OpenSpec-Refactor: not-a-real-item`
-
-- **AND** that token names no change and no heading in `docs/architect/decisions.md`
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
-
 - **AND** the log does not include `spec-drift: unknown change not-a-real-item`
 
 #### Scenario: A fenced refactor line counts
 
 - **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the only refactor line sits inside a fenced code block
-
-- **AND** that line is `OpenSpec-Refactor: grid-movement`
-
+- **AND** the only refactor line sits inside a fenced code block and is `OpenSpec-Refactor: grid-movement`
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
 
 #### Scenario: A lowercase refactor prefix is ignored
 
 - **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
 - **AND** the only body line is `openspec-refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
 
+#### Scenario: A push ignores a malformed refactor line
+
+- **GIVEN** a push to `main` that changes `crates/rules/src/lib.rs`
+- **AND** the event body is `OpenSpec-Refactor:`
+- **AND** validation exits zero
+- **AND** no active change is fully checked
+- **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
 - **AND** the log does not include `spec-drift: invalid refactor item`
 
 ### Requirement: Invalid refactor item
@@ -95,1013 +273,245 @@ A malformed refactor line SHALL fail on every pull request. The log line SHALL b
 #### Scenario: An empty refactor line is invalid
 
 - **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
 - **AND** the body contains a line `OpenSpec-Refactor:`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes a line whose text is exactly `spec-drift: invalid refactor item`
 
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: A spaceless refactor line is invalid
+#### Scenario: Extra words are an invalid refactor item
 
 - **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor:dice-and-checks`
-
+- **AND** the body line is `OpenSpec-Refactor: dice-and-checks extra`
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
-- **AND** the log includes a line whose text is exactly `spec-drift: invalid refactor itemdice-and-checks`
-
-#### Scenario: Two spaces before the roadmap item are invalid
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor:` plus two U+0020 spaces plus `dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log line is `spec-drift: invalid refactor item` immediately followed by those two U+0020 spaces and `dice-and-checks`
-
-- **AND** nothing in that remainder was stripped
-
-#### Scenario: A tab after the refactor colon is invalid
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor:` immediately followed by a tab and `dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log line is `spec-drift: invalid refactor item` immediately followed by `\u0009dice-and-checks`
-
-#### Scenario: Extra words are not a roadmap item
-
-- **GIVEN** a pull_request to `main` whose diff is only `README.md`
-
-- **AND** the only body line is `OpenSpec-Refactor: dice-and-checks extra`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
 - **AND** the log includes `spec-drift: invalid refactor item dice-and-checks extra`
 
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: An uppercase roadmap item is invalid
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the only body line is `OpenSpec-Refactor: Dice-And-Checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item Dice-And-Checks`
-
-- **AND** the line is not accepted as `dice-and-checks`
-
-#### Scenario: A slash in the roadmap item is invalid
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the only body line is `OpenSpec-Refactor: positioning/flanking`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item positioning/flanking`
-
-#### Scenario: A double hyphen is not a roadmap item
+#### Scenario: A tab after the refactor colon is escaped
 
 - **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor: dice--checks`
-
+- **AND** the body line is `OpenSpec-Refactor:` immediately followed by a tab and `dice`
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item dice--checks`
-
-#### Scenario: A zero-width space in the roadmap item is visible
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor:` plus one U+0020 plus U+200B plus `dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item \u200bdice-and-checks`
-
-- **AND** the log does not contain U+200B
-
-#### Scenario: An NBSP in the roadmap item is visible
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor:` plus one U+0020 plus U+00A0 plus `dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item \u00a0dice-and-checks`
-
-- **AND** the log does not contain U+00A0
-
-#### Scenario: A typed backslash escape differs from a real NBSP
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** one body line is `OpenSpec-Refactor:` plus one U+0020 plus the characters `\u00a0` plus `dice-and-checks`
-
-- **AND** another body line is `OpenSpec-Refactor:` plus one U+0020 plus U+00A0 plus `dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item \u005cu00a0dice-and-checks`
-
-- **AND** the log includes `spec-drift: invalid refactor item \u00a0dice-and-checks`
-
-- **AND** those two lines differ
-
-#### Scenario: A duplicate malformed remainder is logged once
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body contains `OpenSpec-Refactor: NOT-AN-ITEM` twice
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item NOT-AN-ITEM` once
+- **AND** the log line is `spec-drift: invalid refactor item` immediately followed by `\u0009dice`
 
 ### Requirement: Multiple refactor lines
 
-More than one refactor line SHALL fail on every pull request. The log SHALL include `spec-drift: multiple OpenSpec-Refactor lines`. A repeated roadmap item SHALL count again. The job SHALL NOT also log `spec-drift: code change missing OpenSpec-Change`.
+Two or more refactor lines SHALL fail, including two copies of one valid line. Duplicates SHALL NOT collapse. The log SHALL include `spec-drift: multiple OpenSpec-Refactor lines`. The job SHALL NOT also log the path lines or `spec-drift: code change missing OpenSpec-Change`.
 
-#### Scenario: The same refactor line twice fails
+#### Scenario: A repeated refactor line fails
 
 - **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
 - **AND** the body contains `OpenSpec-Refactor: dice-and-checks` twice
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: multiple OpenSpec-Refactor lines`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
 - **AND** the log does not include `spec-drift: refactor is not crates-only`
-
-#### Scenario: Two different roadmap items fail
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Refactor: grid-movement`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: multiple OpenSpec-Refactor lines`
-
-#### Scenario: A valid line beside a malformed refactor line fails
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs` and `README.md`
-
-- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Refactor: NOT-AN-ITEM`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item NOT-AN-ITEM`
-
-- **AND** the log includes `spec-drift: multiple OpenSpec-Refactor lines`
-
-- **AND** the log does not include `spec-drift: refactor is not crates-only`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
 
 ### Requirement: Refactor line conflicts with OpenSpec-Change
 
-A body that has at least one refactor line and at least one trimmed line starting with exact `OpenSpec-Change:` SHALL fail on every pull request. The log SHALL include `spec-drift: refactor line conflicts with OpenSpec-Change`. The job SHALL NOT also log `spec-drift: code change missing OpenSpec-Change`.
-
-#### Scenario: Both lines fail even when each would pass alone
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Change: add-dice-and-checks`
-
-- **AND** `openspec/changes/add-dice-and-checks/` exists
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor line conflicts with OpenSpec-Change`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-- **AND** the log does not include `spec-drift: unknown change`
-
-- **AND** the log does not include `spec-drift: refactor is not crates-only`
+Any refactor line plus any `OpenSpec-Change:` line SHALL fail, including on a docs-only pull request. The log SHALL include `spec-drift: refactor line conflicts with OpenSpec-Change`. A valid change id SHALL NOT win. The job SHALL NOT also log the path lines or the missing-reference line.
 
 #### Scenario: Both lines fail on a docs-only pull request
 
 - **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Change: add-dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
+- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Change: add-foo`
+- **AND** `openspec/changes/add-foo/` exists
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor line conflicts with OpenSpec-Change`
-
-#### Scenario: A conflict also logs an invalid change id
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Change: Add-Foo`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid change id Add-Foo`
-
-- **AND** the log includes `spec-drift: refactor line conflicts with OpenSpec-Change`
-
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: Change lines without a refactor line still pass
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body contains `OpenSpec-Change: add-dice-and-checks` and `OpenSpec-Change: add-project-foundation`
-
-- **AND** the first id is active and the second exists only under `openspec/changes/archive/2026-10-21-add-project-foundation/`
-
-- **AND** the body has no refactor line
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: multiple OpenSpec-Refactor lines`
-
-- **AND** the log does not include `spec-drift: refactor line conflicts with OpenSpec-Change`
 
 ### Requirement: Qualifying refactor paths
 
-Exactly one valid refactor line, and no `OpenSpec-Change:` line, SHALL satisfy the reference check only when every changed path starts with `crates/` or is exactly `CHANGELOG.md`, and no changed path starts with `openspec/`. Both sides of a rename SHALL count. Changed paths SHALL come from `git diff -z --name-status --find-renames` between the pull request base and the checked-out commit. The command SHALL NOT add `--find-copies`.
+Exactly one valid refactor line, and no `OpenSpec-Change:` line, SHALL satisfy the reference check only when every changed path starts with `crates/` or is exactly `CHANGELOG.md`. Both sides of a rename SHALL count. The diff SHALL be `git diff -z --name-status --find-renames` from `git merge-base` of the event base sha and the head sha to the head, with no `--find-copies`.
 
-#### Scenario: A crate file with a changelog bullet passes
+#### Scenario: A crate file with a changelog passes
 
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `CHANGELOG.md`
-
+- **GIVEN** a pull_request to `main` whose merge-base diff changes `crates/rules/src/lib.rs` and `CHANGELOG.md`
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-#### Scenario: A crate file without a changelog passes spec-drift
-
-- **GIVEN** a pull_request to `main` whose only diff is `crates/rules/src/lib.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** the head has no `CHANGELOG.md`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
 
 #### Scenario: Adding a test file passes
 
-- **GIVEN** a pull_request to `main` whose diff adds `crates/rules/src/encounter/tests/new_tests.rs` and modifies `crates/rules/src/lib.rs`
-
+- **GIVEN** a pull_request to `main` whose diff adds `crates/rules/src/encounter/tests/new_tests.rs`
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: refactor changes existing tests`
-
-#### Scenario: Deleting a non-test crate file passes
-
-- **GIVEN** a pull_request to `main` whose diff deletes `crates/rules/src/old.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-#### Scenario: Renaming a non-test crate file passes
-
-- **GIVEN** a pull_request to `main` whose diff renames `crates/rules/src/old.rs` to `crates/rules/src/new.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-#### Scenario: Renaming a non-test file into tests passes
-
-- **GIVEN** a pull_request to `main` whose diff renames `crates/rules/src/lib.rs` to `crates/rules/src/encounter/tests/lib.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: refactor changes existing tests`
 
 ### Requirement: Refactor path failures
 
-When that single valid line is the only reference and the diff has a code path, a changed path that does not start with `crates/` and is not exactly `CHANGELOG.md` SHALL log `spec-drift: refactor is not crates-only`. A changed path that starts with `openspec/` SHALL log `spec-drift: refactor changes openspec`. When both match, the log SHALL include both lines. The job SHALL NOT also log `spec-drift: code change missing OpenSpec-Change`.
-
-#### Scenario: Root Cargo.toml is not a refactor
-
-- **GIVEN** a pull_request to `main` whose only diff is `Cargo.toml`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-- **AND** the log does not include `spec-drift: refactor changes openspec`
+When that single valid line is the only reference and the diff has a code path, a path outside `crates/` and not exactly `CHANGELOG.md` SHALL log `spec-drift: refactor is not crates-only`. A path under `openspec/` SHALL also log `spec-drift: refactor changes openspec`. Order SHALL be crates-only, then openspec, then existing tests. The missing-reference line SHALL NOT be added. Otherwise path lines SHALL be omitted.
 
 #### Scenario: A crate file plus README is not a refactor
 
 - **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `README.md`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-#### Scenario: A crate file plus a workflow file is not a refactor
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `.github/workflows/ci.yml`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-#### Scenario: A crate file plus a script is not a refactor
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `scripts/note.mjs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-#### Scenario: A crate file plus docs is not a refactor
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor is not crates-only`
 
 #### Scenario: A lowercase changelog name is not the bullet file
 
 - **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `changelog.md`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor is not crates-only`
 
 #### Scenario: A crate file plus openspec logs both path lines
 
 - **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `openspec/specs/spec-drift-check/spec.md`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-- **AND** the log includes `spec-drift: refactor changes openspec`
-
 - **AND** `spec-drift: refactor is not crates-only` appears before `spec-drift: refactor changes openspec`
 
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: Renaming into crates is not crates-only
+#### Scenario: Renaming into crates counts both sides
 
 - **GIVEN** a pull_request to `main` whose diff renames `docs/note.md` to `crates/rules/note.md`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor is not crates-only`
 
-#### Scenario: Renaming out of crates is not crates-only
+#### Scenario: A docs-only valid refactor line passes
 
-- **GIVEN** a pull_request to `main` whose diff renames `crates/rules/src/lib.rs` to `docs/lib.rs`
-
+- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
+- **AND** validation exits zero
+- **AND** no active change is fully checked
 - **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-#### Scenario: A crates prefix without a slash is not under crates
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `crates-extra/foo.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
+- **THEN** the job passes
+- **AND** the log does not include `spec-drift: refactor is not crates-only`
 
 ### Requirement: Test file
 
-A test file SHALL be a changed path that starts with `crates/` and contains the substring `/tests/`. `crates/rules/src/tests.rs` and `crates/rules/src/lib.rs` SHALL NOT be test files. The job SHALL NOT parse Rust. A `#[cfg(test)]` module in a non-test path SHALL NOT make that path a test file. Reviewing that module SHALL stay with Architect and QA.
+A test file SHALL be a changed path that starts with `crates/` and contains the substring `/tests/`. `crates/rules/src/tests.rs` and `crates/rules/src/lib.rs` SHALL NOT be test files. The job SHALL NOT parse Rust. A `#[cfg(test)]` module in a non-test path SHALL NOT make that path a test file.
 
 #### Scenario: A tests directory path is a test file
 
 - **GIVEN** a pull_request to `main` whose diff modifies `crates/rules/src/encounter/tests/delay_ready_tests.rs`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor changes existing tests`
 
 #### Scenario: A sibling tests.rs file is not a test file
 
 - **GIVEN** a pull_request to `main` whose diff modifies `crates/rules/src/tests.rs`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: refactor changes existing tests`
 
 #### Scenario: An inline test module is not classified
 
 - **GIVEN** a pull_request to `main` whose diff modifies `crates/rules/src/lib.rs`
-
 - **AND** that file contains `#[cfg(test)]`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
-
 - **AND** the job does not parse the file to find `#[cfg(test)]`
-
-- **AND** the log does not include `spec-drift: refactor changes existing tests`
 
 ### Requirement: Existing test change
 
-An existing test file SHALL count as modified or removed when a record status is `M`, `D`, or `T` and that path is a test file, or when a status starting with `R` has a test file as its old path. Status `A` on a test file SHALL be allowed. A rename whose old path is not a test file SHALL be allowed when the new path is a test file. The status field SHALL be the git name-status token, including a score suffix on `R`.
+An existing test file SHALL count as modified or removed when a record status is `M`, `D`, or `T` and that path is a test file, or when a status starting with `R` has a test file as its old path. Status `A` on a test file SHALL be allowed. A rename whose old path is not a test file SHALL be allowed when the new path is a test file. The status token includes a score suffix such as `R100`.
 
 #### Scenario: Modifying a test file fails
 
 - **GIVEN** a pull_request to `main` whose diff status for `crates/rules/tests/foo.rs` is `M`
-
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor changes existing tests`
 
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+#### Scenario: Adding a test file is allowed
 
-#### Scenario: Deleting a test file fails
-
-- **GIVEN** a pull_request to `main` whose diff status for `crates/rules/src/encounter/tests/delay_ready_tests.rs` is `D`
-
+- **GIVEN** a pull_request to `main` whose diff status for `crates/rules/tests/foo.rs` is `A`
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
+- **AND** validation exits zero
+- **AND** the completed-change check passes
 - **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
 
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor changes existing tests`
-
-#### Scenario: A type change of a test file fails
+#### Scenario: A typechange of a test file fails
 
 - **GIVEN** a pull_request to `main` whose diff status for `crates/rules/tests/foo.rs` is `T`
-
+- **AND** that record replaces the file with a symlink
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor changes existing tests`
 
 #### Scenario: Renaming a test file fails
 
-- **GIVEN** a pull_request to `main` whose diff renames `crates/rules/src/encounter/tests/old.rs` to `crates/rules/src/encounter/tests/new.rs`
-
+- **GIVEN** a pull_request to `main` whose diff status starts with `R100`
+- **AND** the old path is `crates/rules/tests/foo.rs`
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
-
 - **AND** the log includes `spec-drift: refactor changes existing tests`
 
-#### Scenario: Adding a test file does not fail the test rule
+#### Scenario: Renaming a non-test file into tests passes
 
-- **GIVEN** a pull_request to `main` whose only diff adds `crates/rules/src/encounter/tests/new_tests.rs`
-
+- **GIVEN** a pull_request to `main` whose diff renames `crates/rules/src/lib.rs` to `crates/rules/src/encounter/tests/lib.rs`
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
 - **AND** validation exits zero
-
 - **AND** the completed-change check passes
-
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job passes
-
-#### Scenario: A modified test and a docs file log both lines
-
-- **GIVEN** a pull_request to `main` whose diff modifies `crates/rules/tests/foo.rs` and `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-- **AND** the log includes `spec-drift: refactor changes existing tests`
-
-- **AND** `spec-drift: refactor is not crates-only` appears before `spec-drift: refactor changes existing tests`
-
-#### Scenario: A modified test and an openspec file log three lines
-
-- **GIVEN** a pull_request to `main` whose diff modifies `crates/rules/tests/foo.rs` and `openspec/specs/spec-drift-check/spec.md`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor is not crates-only`
-
-- **AND** the log includes `spec-drift: refactor changes openspec`
-
-- **AND** the log includes `spec-drift: refactor changes existing tests`
-
-- **AND** those three lines appear in that order
-
-### Requirement: Path lines only for one valid line
-
-Path-condition lines SHALL be logged only for exactly one valid refactor line, no `OpenSpec-Change:` line, and a diff that has a code path. A malformed item, more than one refactor line, or a conflict SHALL NOT also log `spec-drift: refactor is not crates-only`, `spec-drift: refactor changes openspec`, or `spec-drift: refactor changes existing tests`.
-
-#### Scenario: A malformed line hides a mixed diff
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `docs/architect/decisions.md`
-
-- **AND** the only body line is `OpenSpec-Refactor: NOT-AN-ITEM`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: invalid refactor item NOT-AN-ITEM`
-
-- **AND** the log does not include `spec-drift: refactor is not crates-only`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: A conflict hides a mixed diff
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and `README.md`
-
-- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Change: add-dice-and-checks`
-
-- **AND** `openspec/changes/add-dice-and-checks/` exists
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: refactor line conflicts with OpenSpec-Change`
-
-- **AND** the log does not include `spec-drift: refactor is not crates-only`
-
-### Requirement: No code path skips refactor path rules
-
-When the diff has no code path, a valid refactor line SHALL NOT be tested against the path rules and SHALL NOT fail the reference check. A malformed refactor line, more than one refactor line, or a conflict SHALL still fail.
-
-#### Scenario: Docs-only with a valid refactor line passes
-
-- **GIVEN** a pull_request to `main` whose diff is only `docs/architect/decisions.md`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** no active change is fully checked
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: refactor is not crates-only`
-
-#### Scenario: Openspec-only with a valid refactor line passes
-
-- **GIVEN** a pull_request to `main` whose diff is only under `openspec/`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** no active change is fully checked
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: refactor changes openspec`
-
-#### Scenario: A changelog-only refactor line passes
-
-- **GIVEN** a pull_request to `main` whose only diff is `CHANGELOG.md`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** no active change is fully checked
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-### Requirement: Missing change line stays
-
-A code-path pull request with no refactor line, no invalid change line, and no valid change id SHALL still fail with `spec-drift: code change missing OpenSpec-Change`. One or more valid `OpenSpec-Change` lines and no refactor line SHALL still pass when every id exists.
-
-#### Scenario: Dropping the refactor line on edit fails
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body line `OpenSpec-Refactor: dice-and-checks` made the `spec-drift` job pass
-
-- **WHEN** the pull request is `edited` and the body has no refactor line and no `OpenSpec-Change` line
-
-- **THEN** `.github/workflows/spec-drift-edited.yml` runs
-
-- **AND** the check fails
-
-- **AND** the log includes `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: Adding the refactor line on edit passes
-
-- **GIVEN** a pull_request to `main` that changes only `crates/rules/src/lib.rs`
-
-- **AND** the body had no reference line and the `spec-drift` job failed
-
-- **WHEN** the pull request is `edited` and the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **THEN** `.github/workflows/spec-drift-edited.yml` runs
-
-- **AND** the check passes
-
-#### Scenario: One existing change line still passes
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body line is `OpenSpec-Change: add-dice-and-checks`
-
-- **AND** the body has no refactor line
-
-- **AND** `openspec/changes/add-dice-and-checks/` exists
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-### Requirement: Push skips refactor lines
-
-On push, the job SHALL NOT read refactor lines. A push that changes a code path SHALL NOT fail because a refactor line is missing, malformed, repeated, or paired with `OpenSpec-Change`.
-
-#### Scenario: A push ignores a malformed refactor line
-
-- **GIVEN** a push to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the event body is `OpenSpec-Refactor:`
-
-- **AND** validation exits zero
-
-- **AND** no active change is fully checked
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-- **AND** the log does not include `spec-drift: invalid refactor item`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-### Requirement: Behavior confirmation is not CI
-
-Architect and QA confirming that behavior is unchanged SHALL be required before merge and SHALL NOT be enforced by this job. The job SHALL NOT read reviews, approvals, or Rust sources to decide that behavior changed. A qualifying refactor line and paths SHALL pass when that confirmation is absent. No workflow `if` SHALL encode that confirmation.
-
-#### Scenario: A qualifying refactor passes with no review
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** the pull request has no review and no approval
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-#### Scenario: Workflows do not gate on a review
-
-- **GIVEN** `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml`
-
-- **WHEN** their `spec-drift` jobs are read
-
-- **THEN** neither job has an `if` that reads reviews, approvals, or a behavior confirmation
-
-- **AND** neither script step inspects Rust source for behavior
-
-### Requirement: Refactor does not skip the changelog
-
-Passing this exemption SHALL NOT waive the Unreleased bullet. A path under `crates/` SHALL stay an implementation pull request under the current `changelog` and `pr-hygiene` specs and SHALL still need a new Unreleased bullet. Those specs SHALL NOT exempt a tests-only diff or unchanged behavior. This job SHALL NOT check the bullet. `OpenSpec-Refactor` SHALL NOT be an own-change line.
-
-#### Scenario: Spec-drift ignores a missing bullet
-
-- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and adds no Unreleased bullet
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** validation exits zero
-
-- **AND** the completed-change check passes
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job passes
-
-- **AND** the log does not include `implementation PR missing CHANGELOG bullet`
-
-#### Scenario: Current specs still require the bullet
-
-- **GIVEN** `openspec/specs/pr-hygiene/spec.md` and `openspec/specs/changelog/spec.md`
-
-- **WHEN** those requirements are read
-
-- **THEN** a diff that changes `crates/rules/src/lib.rs` is an implementation pull request
-
-- **AND** it needs a new Unreleased bullet
-
-- **AND** neither spec exempts a path because it contains `/tests/`
-
-- **AND** neither spec exempts a pull request because behavior is unchanged
-
-#### Scenario: A refactor line is not an own-change line
-
-- **GIVEN** a pull_request body whose only reference line is `OpenSpec-Refactor: dice-and-checks`
-
-- **WHEN** own-change lines are parsed by the `OpenSpec-Change` rule
-
-- **THEN** that line contributes no change id
-
-### Requirement: Edited workflow and concurrency stay
-
-The `spec-drift` jobs in `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml` SHALL keep their triggers, names, permissions, and concurrency. Both SHALL still invoke `scripts/spec-drift-check.mjs`. The shared group SHALL stay `spec-drift-${{ github.event.pull_request.number || github.sha }}` with `cancel-in-progress: true`. Neither workflow SHALL add a workflow-level group. The Cargo job SHALL NOT join it. An edited body SHALL re-run that script.
-
-#### Scenario: The refactor check uses the shared group
-
-- **GIVEN** `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml`
-
-- **WHEN** the `spec-drift` job in each file is read
-
-- **THEN** each job's concurrency group is `spec-drift-${{ github.event.pull_request.number || github.sha }}`
-
-- **AND** each sets `cancel-in-progress: true`
-
-- **AND** each invokes `scripts/spec-drift-check.mjs`
-
-- **AND** `spec-drift-edited.yml` still runs on pull_request `edited` targeting `main`
-
-- **AND** neither file has a workflow-level concurrency group
-
-- **AND** the Cargo `ci` job has no concurrency key
-
-- **AND** neither file names a refactor-only concurrency group
-
-### Requirement: Other checks still run
-
-The validation check and the completed-change check SHALL still run when a refactor line is present. A failure of either SHALL still fail the job and SHALL still be logged beside any refactor failure line.
-
-#### Scenario: A completed change still fails beside a valid refactor
-
-- **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
-- **AND** active change `add-dice-and-checks` is fully checked
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: completed unarchived change add-dice-and-checks`
-
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-#### Scenario: Validation and an invalid refactor item both fail
-
-- **GIVEN** a pull_request to `main` whose validation exits non-zero
-
-- **AND** the body line is `OpenSpec-Refactor:`
-
-- **AND** the diff changes `crates/rules/src/lib.rs`
-
-- **WHEN** the `spec-drift` job runs
-
-- **THEN** the job fails
-
-- **AND** the log includes `spec-drift: validate failed`
-
-- **AND** the log includes a line whose text is exactly `spec-drift: invalid refactor item`
 
 ### Requirement: Refactor token order
 
-Invalid change ids SHALL be logged before invalid refactor items. Each list SHALL follow body order and SHALL log a duplicate remainder once. `spec-drift: multiple OpenSpec-Refactor lines` SHALL follow those items when more than one refactor line is present. `spec-drift: refactor line conflicts with OpenSpec-Change` SHALL follow that line when both prefixes are present. Unknown change ids and the missing-reference line SHALL follow those, and only when that existing rule still applies.
+Invalid change ids SHALL be logged before invalid refactor items, in body order, a duplicate remainder once. Then `spec-drift: multiple OpenSpec-Refactor lines` when more than one refactor line is present, then the conflict line when both prefixes are present. Unknown ids and the missing-reference line follow only when that existing rule still applies. Path lines follow the token lines.
 
 #### Scenario: Mixed body failures keep that order
 
 - **GIVEN** a pull_request to `main` that changes `crates/rules/src/lib.rs`
-
-- **AND** the body contains, in order, `OpenSpec-Change: Add-Foo`, `OpenSpec-Refactor: NOT-AN-ITEM`, and `OpenSpec-Refactor: dice-and-checks`
-
+- **AND** the body is `OpenSpec-Change: Add-Foo`, then `OpenSpec-Refactor: NOT-AN-ITEM`, then `OpenSpec-Refactor: dice-and-checks`
 - **WHEN** the `spec-drift` job runs
-
 - **THEN** the job fails
+- **AND** `Add-Foo` is logged before `NOT-AN-ITEM`
+- **AND** that item is logged before `spec-drift: multiple OpenSpec-Refactor lines`
+- **AND** that line is logged before `spec-drift: refactor line conflicts with OpenSpec-Change`
 
-- **AND** `spec-drift: invalid change id Add-Foo` appears before `spec-drift: invalid refactor item NOT-AN-ITEM`
+#### Scenario: Token failures omit path lines
 
-- **AND** that invalid refactor line appears before `spec-drift: multiple OpenSpec-Refactor lines`
+- **GIVEN** the pull request in the mixed body failure
+- **WHEN** the `spec-drift` job runs
+- **THEN** the log does not include `spec-drift: refactor is not crates-only`
 
-- **AND** that multiple line appears before `spec-drift: refactor line conflicts with OpenSpec-Change`
+### Requirement: Refactor does not skip the changelog
 
-- **AND** the log does not include `spec-drift: refactor is not crates-only`
+Passing this exemption SHALL NOT waive a bullet the changelog and pr-hygiene specs require; this job SHALL NOT check the bullet. `OpenSpec-Refactor` SHALL NOT be an own-change line.
 
-- **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
+#### Scenario: Spec-drift ignores a missing bullet
 
-### Requirement: Path failure order
-
-When path lines are logged, `spec-drift: refactor is not crates-only` SHALL precede `spec-drift: refactor changes openspec`, which SHALL precede `spec-drift: refactor changes existing tests`. A path line that does not apply SHALL be omitted. These lines SHALL follow any token-order lines.
-
-#### Scenario: Path failures keep crates, openspec, then tests
-
-- **GIVEN** a pull_request to `main` whose diff modifies `crates/rules/tests/foo.rs` and `openspec/specs/spec-drift-check/spec.md`
-
+- **GIVEN** a pull_request to `main` whose diff changes `crates/rules/src/lib.rs` and adds no Unreleased bullet
 - **AND** the body line is `OpenSpec-Refactor: dice-and-checks`
-
+- **AND** validation exits zero
+- **AND** the completed-change check passes
 - **WHEN** the `spec-drift` job runs
+- **THEN** the job passes
+- **AND** the log does not include `implementation PR missing CHANGELOG bullet`
 
-- **THEN** the job fails
+#### Scenario: The bullet stays with the other specs
 
-- **AND** `spec-drift: refactor is not crates-only` appears before `spec-drift: refactor changes openspec`
+- **GIVEN** `openspec/specs/pr-hygiene/spec.md` and `openspec/specs/changelog/spec.md`
+- **WHEN** those requirements are read
+- **THEN** this exemption does not waive a bullet those specs require
+- **AND** this job does not check the bullet
 
-- **AND** `spec-drift: refactor changes openspec` appears before `spec-drift: refactor changes existing tests`
+#### Scenario: A refactor line is not an own-change line
+
+- **GIVEN** a pull request body whose only reference line is `OpenSpec-Refactor: dice-and-checks`
+- **WHEN** own-change lines are parsed by the `OpenSpec-Change` rule
+- **THEN** that line contributes no change id

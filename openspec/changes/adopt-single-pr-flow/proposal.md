@@ -8,17 +8,17 @@ A change is split across a spec pull request and a later implementation pull req
 
 - **BREAKING** The separate spec pull request goes away. One draft pull request carries the spec, the tests, and the code.
 
-- The first commit adds only `openspec/changes/<id>/`. Designer rules on that pull request. An authorized login approves by commenting `spec-approved: <sha>`.
+- The first commit adds only `openspec/changes/<id>/`. Designer rules on that pull request. An allowed user id approves by a review whose body line is `spec-approved: <sha>`. An issue comment does not approve.
 
 - Tests, then code, follow on the same branch. Architect and QA review in parallel. The merger archives once, right before merge. Architect merges when CI is green.
 
 - A new `spec-approved` job hashes `proposal.md`, `design.md`, and `specs/**`, ignoring `tasks.md` and treating an archive move as the same content.
 
-- The job compares that hash to the tree at the sha in the latest allowed `spec-approved: <sha>` comment. It re-runs on `issue_comment` and `pull_request_review`. A pull request with no code path is exempt, by the same rule as `isCodePath`.
+- The job compares that hash to the tree at the sha in the latest allowed review. It re-runs on `pull_request` and `pull_request_review`. The check context name is `spec-approved`. A pull request with no code path is exempt, by the same rule as `isCodePath`.
 
-- Allowed logins are a configurable list. A missing list, an unreadable list, or an unread comment thread fails closed.
+- The script and the authors file are read from the base sha. The head is only the diff and the hash. Authors match GitHub user id `239839957`, not a login. A missing base script passes with `bootstrap: no base script`, which is this pull request.
 
-- `.github/CODEOWNERS` gives `/openspec/` and `/AGENTS.md` to `@fputs`. Branch protection stays out of scope and is an admin step for Evan.
+- `.github/CODEOWNERS` gives `/openspec/` and `/AGENTS.md` to `@fputs`. It takes effect only after Evan enables code-owner review and makes `spec-approved` required. Both stay out of scope.
 
 - **BREAKING** for the reference check: one `OpenSpec-Refactor:` line plus a kebab roadmap item stands in for `OpenSpec-Change` only when every path starts with `crates/` or is exactly `CHANGELOG.md`, no path is under `openspec/`, and no existing `/tests/` file is modified or removed. Adding a test file is allowed.
 

@@ -36,7 +36,7 @@ The first commit SHALL add, modify, or delete paths only under `openspec/changes
 
 ### Requirement: Designer rules before approval
 
-Designer SHALL post the spec ruling on the pull request before an allowed login comments `spec-approved: <sha>`. Designer and QA SHALL settle edge cases on that pull request before tests or code are committed. The pull request SHALL link `docs/designer/rules-rulings.md` and SHALL NOT copy that log.
+Designer SHALL post the spec ruling on the pull request before an allowed user submits a review whose body line is `spec-approved: <sha>`. Designer and QA SHALL settle edge cases on that pull request before tests or code are committed. The pull request SHALL link `docs/designer/rules-rulings.md` and SHALL NOT copy that log.
 
 #### Scenario: The ruling is on the pull request
 
@@ -48,37 +48,37 @@ Designer SHALL post the spec ruling on the pull request before an allowed login 
 
 #### Scenario: Coding waits for the ruling and the approval
 
-- **GIVEN** Designer has not ruled, or no allowed login has commented `spec-approved: <sha>`
+- **GIVEN** Designer has not ruled, or no allowed user has submitted `spec-approved: <sha>`
 - **WHEN** a commit would add tests or code
 - **THEN** that commit is not made
 
-### Requirement: Authorized approval comment
+### Requirement: Authorized approval review
 
-Evan SHALL approve the spec by a pull request comment `spec-approved: <sha>` whose author login is in the allowed list. The sha SHALL name the commit whose spec digest is approved. A behavior or scope change SHALL go to Chief of Staff for Evan, not into this comment.
+Evan SHALL approve the spec by a pull request review whose body line is `spec-approved: <sha>` and whose `user.id` is in the base authors file. The sha SHALL name the commit whose spec digest is approved. An issue comment SHALL NOT approve. A behavior or scope change SHALL go to Chief of Staff for Evan, not into this review.
 
-#### Scenario: An allowed login approves the spec sha
+#### Scenario: An allowed user id approves the spec sha
 
 - **GIVEN** Designer has ruled on the pull request
-- **WHEN** login `fputs` comments `spec-approved: <sha>` for the spec commit
+- **WHEN** user id `239839957` submits a review whose body line is `spec-approved: <sha>` for the spec commit
 - **THEN** the spec is approved at that sha
 
-#### Scenario: A scope change is not an approval comment
+#### Scenario: A scope change is not an approval review
 
 - **GIVEN** a behavior or scope change
 - **WHEN** it needs a decision
 - **THEN** it goes to Chief of Staff for Evan
-- **AND** it is not recorded only as a `spec-approved` comment
+- **AND** it is not recorded only as a `spec-approved` review
 
 ### Requirement: Clarification re-triggers approval
 
-A small spec clarification SHALL be fixed in this pull request and SHALL cite Designer. Any edit to `proposal.md`, `design.md`, or `specs/**` of the change SHALL require a new `spec-approved: <sha>` comment before `spec-approved` passes again.
+A small spec clarification SHALL be fixed in this pull request and SHALL cite Designer. Any edit to `proposal.md`, `design.md`, or `specs/**` of the change SHALL require a new `spec-approved: <sha>` review before `spec-approved` passes again.
 
-#### Scenario: A clarification cites Designer and needs a new comment
+#### Scenario: A clarification cites Designer and needs a new review
 
 - **GIVEN** an approved spec digest
 - **WHEN** the pull request edits `proposal.md`, `design.md`, or a file under `specs/` and cites Designer
-- **THEN** the previous `spec-approved` comment no longer matches
-- **AND** a new `spec-approved: <sha>` comment is required
+- **THEN** the previous `spec-approved` review no longer matches
+- **AND** a new `spec-approved: <sha>` review is required
 
 ### Requirement: Parallel review, archive, and merge
 
@@ -109,7 +109,7 @@ After tests and code land, Architect and QA SHALL review that head in parallel a
 - **GIVEN** `AGENTS.md` after this change
 - **WHEN** section 1 is read
 - **THEN** it describes one draft pull request, the spec-only first commit, and Designer ruling on it
-- **AND** it describes `spec-approved: <sha>`, tests then code, archive by the merger, and merge on green CI
+- **AND** it describes a `spec-approved: <sha>` review, tests then code, archive by the merger, and merge on green CI
 - **AND** it says a small spec clarification cites Designer and re-triggers `spec-approved`
 
 #### Scenario: Section 1 keeps the standing rules
@@ -133,20 +133,20 @@ The `tasks` rule in `openspec/config.yaml` SHALL end with archiving the change r
 
 ### Requirement: Workflow docs
 
-`docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` SHALL describe this flow. The decisions note SHALL record a 2026-10-23 revision and SHALL list branch protection as Evan's admin step. The test plan SHALL NOT say that only specs merged to `main` count. Evan SHALL still not review implementation code.
+`docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` SHALL describe this flow. The decisions note SHALL record a 2026-10-23 revision. It SHALL list two admin steps for Evan: enable code-owner review, and make the `spec-approved` check required. The test plan SHALL NOT say that only specs merged to `main` count. Evan SHALL still not review implementation code.
 
 #### Scenario: The docs drop the separate spec pull request
 
 - **GIVEN** those three docs after this change
 - **WHEN** they are read
-- **THEN** approval is the `spec-approved: <sha>` comment on this pull request
+- **THEN** approval is the `spec-approved: <sha>` review on this pull request
 - **AND** QA reads the change on the pull request head
 - **AND** `docs/qa/test-plan.md` does not say that only specs merged to `main` count
-- **AND** `docs/architect/decisions.md` lists code-owner review as an admin step for Evan
+- **AND** `docs/architect/decisions.md` lists code-owner review and the required `spec-approved` check as Evan's admin steps
 
 ### Requirement: CODEOWNERS
 
-`.github/CODEOWNERS` SHALL give `/openspec/` and `/AGENTS.md` to `@fputs`. No other owner SHALL be set on those paths. This change SHALL NOT edit GitHub branch protection or rulesets.
+`.github/CODEOWNERS` SHALL give `/openspec/` and `/AGENTS.md` to `@fputs`. No other owner SHALL be set on those paths. CODEOWNERS SHALL take effect only once Evan enables code-owner review and makes the `spec-approved` check required. Both are admin steps. This change SHALL NOT edit GitHub branch protection or rulesets.
 
 #### Scenario: The two paths are owned by fputs
 
@@ -161,7 +161,16 @@ The `tasks` rule in `openspec/config.yaml` SHALL end with archiving the change r
 - **GIVEN** this change
 - **WHEN** its repository diff is read
 - **THEN** it does not change branch protection or a ruleset
-- **AND** the admin step remains Evan's, outside the pull request
+- **AND** enabling code-owner review remains Evan's admin step
+- **AND** making `spec-approved` a required check remains Evan's admin step
+
+#### Scenario: CODEOWNERS waits for those admin steps
+
+- **GIVEN** `.github/CODEOWNERS` gives `/openspec/` and `/AGENTS.md` to `@fputs`
+- **AND** code-owner review is off, or `spec-approved` is not a required check
+- **WHEN** a pull request is opened
+- **THEN** those owner rules are not in force
+- **AND** they take effect only after both admin steps
 
 ### Requirement: Refactor behavior stays a human gate
 
