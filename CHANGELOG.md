@@ -28,6 +28,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** Preparing Aid accepts an unconscious or dying ally and rejects a dead ally. The reaction against a dead ally is rejected and does not spend the reaction. The reaction is spent only when the ally attempts the check. ([#75](https://github.com/fputs/genesis/pull/75))
 - A failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither. ([#69](https://github.com/fputs/genesis/pull/69))
 - A readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved. ([#64](https://github.com/fputs/genesis/pull/64))
 - **BREAKING:** `Vital::EnterDying` is replaced by Alive, Unconscious, Dying of 1, 2, or 3, and Dead. ([#59](https://github.com/fputs/genesis/pull/59))

@@ -12,7 +12,7 @@ Each new or changed scenario has one test. The test name is the scenario title i
 
 ## 3. Changelog, proof, and archive
 
-- [ ] 3.1 Add one bullet under `### Changed` in `## [Unreleased]` of root `CHANGELOG.md`, in a commit before the archive commit. The bullet says preparing Aid accepts an unconscious or dying ally and rejects a dead ally, the reaction against a dead ally is rejected and does not spend the reaction, and the reaction is spent only when the ally attempts the check, and it links to the implementation pull request. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Changed` and contains that link
+- [x] 3.1 Add one bullet under `### Changed` in `## [Unreleased]` of root `CHANGELOG.md`, in a commit before the archive commit. The bullet says preparing Aid accepts an unconscious or dying ally and rejects a dead ally, the reaction against a dead ally is rejected and does not spend the reaction, and the reaction is spent only when the ally attempts the check, and it links to the implementation pull request. Do not add the bullet in the spec-only pull request. Verify the new bullet is under `### Changed` and contains that link
 - [ ] 3.2 Run the AGENTS.md proof commands and verify each exits 0. Confirm `crates/rules/Cargo.toml` still has no dependencies
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
