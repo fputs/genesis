@@ -5053,6 +5053,43 @@ mod tests {
     }
 
     /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn notanally_wins_over_allydead() {
+        let (mut encounter, dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                dead(enemy(2, 0, 20, 11)),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let error = encounter.prepare_to_aid(id(1), id(2)).expect_err("enemy");
+        assert_eq!(error, EncounterError::NotAnAlly);
+        assert_ne!(error, EncounterError::AllyDead);
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn allydead_wins_over_noaidmodifier_when_preparing() {
+        let (mut encounter, dice) =
+            begin(vec![pc(1, 0, 20, 11), dead(pc(2, 0, 20, 11))], &[10, 8, 10]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let error = encounter.prepare_to_aid(id(1), id(2)).expect_err("dead");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert_ne!(error, EncounterError::NoAidModifier);
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
     /// Player Core, "Step 1: Start Your Turn".
     #[test]
     fn a_participant_starts_not_prepared() {
@@ -5395,6 +5432,210 @@ mod tests {
             AidPreparation::Prepared { ally: id(2) }
         );
         assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn aid_succeeds_for_an_unconscious_ally() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.set_vital_for_test(id(2), Vital::Unconscious);
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        assert!(reaction(&encounter, 1));
+        let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
+        assert_eq!(outcome.total, 17);
+        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.circumstance, AidCircumstance::Plus1);
+        assert_eq!(outcome.circumstance.value(), 1);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        assert_eq!(vital(&encounter, 2), Vital::Unconscious);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn aid_succeeds_for_a_dying_ally() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.set_vital_for_test(id(2), Vital::Dying(dying_value()));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        assert!(reaction(&encounter, 1));
+        let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
+        assert_eq!(outcome.total, 17);
+        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.circumstance, AidCircumstance::Plus1);
+        assert_eq!(outcome.circumstance.value(), 1);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        assert_eq!(vital(&encounter, 2), Vital::Dying(dying_value()));
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn notprepared_wins_over_allydead() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                dead(pc(2, 0, 20, 11)),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        let error = encounter
+            .aid(id(1), id(2), &mut dice)
+            .expect_err("unprepared");
+        assert_eq!(error, EncounterError::NotPrepared);
+        assert_ne!(error, EncounterError::AllyDead);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn notthepreparedally_wins_over_allydead() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+                dead(pc(3, 0, 20, 11)),
+            ],
+            &[10, 8, 6, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        let error = encounter.aid(id(1), id(3), &mut dice).expect_err("other");
+        assert_eq!(error, EncounterError::NotThePreparedAlly);
+        assert_ne!(error, EncounterError::AllyDead);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn allydead_wins_over_noaidmodifier() {
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 11), dead(pc(2, 0, 20, 11))], &[10, 8, 10]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        set_prepared(&mut encounter, 1, 2);
+        let error = encounter.aid(id(1), id(2), &mut dice).expect_err("dead");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert_ne!(error, EncounterError::NoAidModifier);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn allydead_wins_over_aidoverflow() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(
+                    1,
+                    Side::Pc,
+                    0,
+                    Some(2_147_483_628),
+                    Some(AidRank::BelowMaster),
+                ),
+                pc(2, 0, 20, 11),
+            ],
+            &[10, 8, 20],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        encounter.set_vital_for_test(id(2), Vital::Dead);
+        assert!(reaction(&encounter, 1));
+        let error = encounter.aid(id(1), id(2), &mut dice).expect_err("dead");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert_ne!(
+            error,
+            EncounterError::AidOverflow(ArithmeticOverflow::SumDoesNotFit)
+        );
+        assert!(reaction(&encounter, 1));
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    /// Player Core, "Reactions in Encounters".
+    #[test]
+    fn allydead_wins_over_noreaction() {
+        let (mut encounter, mut dice) = begin(
+            vec![
+                aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
+                pc(2, 0, 20, 11),
+            ],
+            &[10, 8, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
+        encounter.set_vital_for_test(id(2), Vital::Dead);
+        encounter.spend_reaction(id(1)).expect("spend reaction");
+        let error = encounter.aid(id(1), id(2), &mut dice).expect_err("dead");
+        assert_eq!(error, EncounterError::AllyDead);
+        assert_ne!(error, EncounterError::NoReaction);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(
+            preparation(&encounter, 1),
+            AidPreparation::Prepared { ally: id(2) }
+        );
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, Aid.
+    /// Player Core, Unconscious.
+    /// Player Core, "Getting Knocked Out".
+    #[test]
+    fn ready_from_encounter_surfaces_allydead() {
+        let mapped = ready_from_encounter(EncounterError::AllyDead);
+        assert_eq!(mapped, ReadyError::Encounter(ReadyEncounter::AllyDead));
+        assert_ne!(mapped, ReadyError::Encounter(ReadyEncounter::NotAnAlly));
     }
 
     /// Player Core, Aid.
