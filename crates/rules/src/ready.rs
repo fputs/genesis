@@ -351,6 +351,10 @@ pub enum ReadyEncounter {
     NotDelayed,
     /// Delay or Return was not at its trigger. Player Core, Delay.
     TriggerNotMet,
+    /// The creature has no save training. Player Core pg. 404, Saving Throws.
+    NoSavingThrows,
+    /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
+    SaveOverflow(ArithmeticOverflow),
 }
 
 /// Which stored action a fire check is comparing.

@@ -222,6 +222,7 @@ fn slow(value: u32) -> crate::encounter::Participant {
         aid_modifier: None,
         aid_rank: None,
         uses_dying_rules: Some(false),
+        saves: None,
     };
     participant(
         value,

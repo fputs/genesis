@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, Aid, Delay, and Ready.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, Aid, Delay, Ready, and saving throws.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -72,6 +72,10 @@ pub use ready::{
     ObservedAction, ReactionField, ReactionPlace, ReactiveStrikeInput, ReadyActivity,
     ReadyEncounter, ReadyError, ReadyStrike, ReadySuccess, ReadyTrigger, ResolvedReaction,
     StoredReady, StrikeRange, ready_cost,
+};
+pub use save::{
+    LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveError, SaveRoll, SavingThrows,
+    basic_save_amount, proficiency_bonus, save_dc, save_modifier,
 };
 pub use shield::{
     AttackBlowError, ShieldBlock, ShieldError, apply_attack_blow, lower_raised_shield,

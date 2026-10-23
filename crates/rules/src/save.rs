@@ -1,3 +1,250 @@
+//! Fortitude, Reflex, and Will.
+//!
+//! Player Core pg. 404, Saving Throws.
+
+use std::ops::RangeInclusive;
+
+use crate::check::{
+    ArithmeticOverflow, CheckModifier, DcModifier, DegreeOfSuccess, dc_from_modifier,
+};
+use crate::modifiers::{Modifier, Statistic, reflex_modifiers, total};
+
+/// Inclusive levels a save may use. Currently `1` through `2147483639` (`i32::MAX - 8`).
+///
+/// A Designer ruling will name the final span. Creatures below level 1, including Monster Core
+/// level −1 and level 0, are not supported yet.
+///
+/// Player Core pg. 404, Saving Throws.
+pub const LEVEL_RANGE: RangeInclusive<i32> = 1..=2_147_483_639;
+
+/// How much training a creature has in one save.
+///
+/// Untrained is +0 (DEV-56). The other ranks add the level and then 2, 4, 6, or 8.
+///
+/// Player Core pg. 404, Saving Throws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Proficiency {
+    /// No proficiency bonus. Player Core pg. 404, Saving Throws.
+    Untrained,
+    /// Level + 2. Player Core pg. 404, Saving Throws.
+    Trained,
+    /// Level + 4. Player Core pg. 404, Saving Throws.
+    Expert,
+    /// Level + 6. Player Core pg. 404, Saving Throws.
+    Master,
+    /// Level + 8. Player Core pg. 404, Saving Throws.
+    Legendary,
+}
+
+/// A level inside [`LEVEL_RANGE`].
+///
+/// Player Core pg. 404, Saving Throws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Level(i32);
+
+/// Why a level was rejected.
+///
+/// Player Core pg. 404, Saving Throws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LevelError {
+    /// The integer is outside [`LEVEL_RANGE`]. Player Core pg. 404, Saving Throws.
+    OutOfRange,
+}
+
+impl Level {
+    /// Accepts only [`LEVEL_RANGE`].
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    pub fn new(level: i32) -> Result<Self, LevelError> {
+        if LEVEL_RANGE.contains(&level) {
+            Ok(Self(level))
+        } else {
+            Err(LevelError::OutOfRange)
+        }
+    }
+
+    /// The stored level.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    pub fn get(self) -> i32 {
+        self.0
+    }
+}
+
+/// Attribute modifiers and proficiency for the three saves.
+///
+/// The attributes are modifiers, not scores. Player Core pg. 404, Saving Throws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SavingThrows {
+    /// Level used for every proficiency bonus. Player Core pg. 404, Saving Throws.
+    pub level: Level,
+    /// Constitution modifier. Player Core pg. 404, Saving Throws.
+    pub constitution: i32,
+    /// Dexterity modifier. Player Core pg. 404, Saving Throws.
+    pub dexterity: i32,
+    /// Wisdom modifier. Player Core pg. 404, Saving Throws.
+    pub wisdom: i32,
+    /// Fortitude rank. Player Core pg. 404, Saving Throws.
+    pub fortitude: Proficiency,
+    /// Reflex rank. Player Core pg. 404, Saving Throws.
+    pub reflex: Proficiency,
+    /// Will rank. Player Core pg. 404, Saving Throws.
+    pub will: Proficiency,
+}
+
+/// Which save is being rolled. Attack, Armor Class, Perception, and Damage are not saves.
+///
+/// Player Core pg. 404, Saving Throws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Save {
+    /// Constitution save. Player Core pg. 404, Saving Throws.
+    Fortitude,
+    /// Dexterity save. Player Core pg. 404, Saving Throws.
+    Reflex,
+    /// Wisdom save. Player Core pg. 404, Saving Throws.
+    Will,
+}
+
+impl Save {
+    /// The statistic whose modifiers apply to this save.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    pub fn statistic(self) -> Statistic {
+        match self {
+            Self::Fortitude => Statistic::Fortitude,
+            Self::Reflex => Statistic::Reflex,
+            Self::Will => Statistic::Will,
+        }
+    }
+}
+
+/// Why a save modifier or a basic-save amount was rejected.
+///
+/// Player Core pg. 404, Saving Throws. Player Core pg. 407, Doubling and Halving Damage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveError {
+    /// The listed amount was negative. Player Core pg. 404, Basic Saving Throws.
+    NegativeAmount,
+    /// The attribute, proficiency, and modifiers did not fit a check modifier.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    ModifierOverflow(ArithmeticOverflow),
+    /// Doubling the listed amount did not fit in `i32`.
+    ///
+    /// Player Core pg. 407, Doubling and Halving Damage.
+    DoubleOverflow(ArithmeticOverflow),
+}
+
+/// One basic save after the die and the multiplier.
+///
+/// Player Core pg. 404, Basic Saving Throws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SaveRoll {
+    /// The d20. Player Core, Checks.
+    pub natural: u8,
+    /// Natural roll plus the save modifier. Player Core pg. 404, Saving Throws.
+    pub total: i32,
+    /// Degree after the natural 20 or natural 1 shift. Player Core pg. 401, Natural 1 and Natural 20.
+    pub degree: DegreeOfSuccess,
+    /// Damage after the basic-save multiplier. Player Core pg. 404, Basic Saving Throws.
+    pub damage: i32,
+}
+
+/// Proficiency bonus for `rank` at `level`. Untrained is 0.
+///
+/// `level + 8` fits in `i32` because [`Level::new`] rejects every wider level.
+///
+/// Player Core pg. 404, Saving Throws.
+pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
+    let added = match rank {
+        Proficiency::Untrained => return 0,
+        Proficiency::Trained => 2,
+        Proficiency::Expert => 4,
+        Proficiency::Master => 6,
+        Proficiency::Legendary => 8,
+    };
+    match level.get().checked_add(added) {
+        Some(bonus) => bonus,
+        // `Level::new` already rejected every level for which `level + 8` does not fit.
+        None => level.get(),
+    }
+}
+
+/// Attribute modifier, plus proficiency, plus modifiers on `save` only.
+///
+/// `unconscious` is true for dying and unconscious. Only Reflex then includes the
+/// existing status penalty of −4. A modifier on another statistic is ignored.
+/// Proficiency is not a bonus type.
+///
+/// Player Core pg. 404, Saving Throws. Player Core pg. 446, Unconscious.
+pub fn save_modifier(
+    training: &SavingThrows,
+    save: Save,
+    unconscious: bool,
+    modifiers: &[Modifier],
+) -> Result<CheckModifier, SaveError> {
+    let (attribute, rank) = match save {
+        Save::Fortitude => (training.constitution, training.fortitude),
+        Save::Reflex => (training.dexterity, training.reflex),
+        Save::Will => (training.wisdom, training.will),
+    };
+    let mut applicable: Vec<Modifier> = modifiers
+        .iter()
+        .copied()
+        .filter(|modifier| modifier.statistic() == save.statistic())
+        .collect();
+    if unconscious && matches!(save, Save::Reflex) {
+        let reflex = reflex_modifiers(true)
+            .map_err(|_| SaveError::ModifierOverflow(ArithmeticOverflow::SumDoesNotFit))?;
+        applicable.extend(reflex);
+    }
+    let stacked = total(&applicable)
+        .map_err(|_| SaveError::ModifierOverflow(ArithmeticOverflow::SumDoesNotFit))?;
+    let combined = attribute
+        .checked_add(proficiency_bonus(training.level, rank))
+        .and_then(|sum| sum.checked_add(stacked.get(save.statistic())))
+        .ok_or(SaveError::ModifierOverflow(
+            ArithmeticOverflow::SumDoesNotFit,
+        ))?;
+    CheckModifier::new(combined).map_err(SaveError::ModifierOverflow)
+}
+
+/// Saving throw DC: 10 plus the save modifier.
+///
+/// A [`CheckModifier`] always fits a DC modifier, so this does not fail.
+///
+/// Player Core pg. 404, Saving Throws. Player Core pg. 401, Getting a DC from a Modifier.
+pub fn save_dc(modifier: CheckModifier) -> i32 {
+    match DcModifier::new(modifier.get()) {
+        Ok(modifier) => dc_from_modifier(modifier),
+        // `CheckModifier` keeps `modifier + 255` inside `i32`, so `modifier + 10` fits too.
+        Err(_) => modifier.get(),
+    }
+}
+
+/// Basic-save damage for `degree`. Half of 1 stays 1. A result of 0 is not raised to 1.
+///
+/// Player Core pg. 404, Basic Saving Throws. Player Core pg. 407, Doubling and Halving Damage.
+pub fn basic_save_amount(amount: i32, degree: DegreeOfSuccess) -> Result<i32, SaveError> {
+    if amount < 0 {
+        return Err(SaveError::NegativeAmount);
+    }
+    match degree {
+        DegreeOfSuccess::CriticalSuccess => Ok(0),
+        DegreeOfSuccess::Success => {
+            if amount == 0 {
+                Ok(0)
+            } else {
+                Ok((amount / 2).max(1))
+            }
+        }
+        DegreeOfSuccess::Failure => Ok(amount),
+        DegreeOfSuccess::CriticalFailure => amount
+            .checked_mul(2)
+            .ok_or(SaveError::DoubleOverflow(ArithmeticOverflow::SumDoesNotFit)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

@@ -248,7 +248,7 @@ fn natural_20_at_dc_minus_11_is_a_failure() {
 #[test]
 fn a_negative_amount_rolls_nothing() {
     let mut encounter = opened(vec![plain(1, 20)], &[10]);
-    let (error, dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, -1, &[], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, -1, &[], &[10]);
     assert_eq!(error, Err(EncounterError::NegativeAmount));
     assert_eq!(hit_points(&encounter, 1), 20);
     assert_eq!(dice.remaining(), 1);
@@ -573,7 +573,7 @@ fn trained_at_the_highest_legal_level_rolls_nothing() {
         vec![alive(1, 20, fort(2_147_483_639, 0, Proficiency::Trained))],
         &[8],
     );
-    let (error, dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
     assert_eq!(
         error,
         Err(EncounterError::SaveOverflow(
@@ -591,7 +591,7 @@ fn a_constitution_modifier_at_the_maximum_rolls_nothing() {
         vec![alive(1, 20, fort(1, 2_147_483_647, Proficiency::Untrained))],
         &[8],
     );
-    let (error, dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
     assert_eq!(
         error,
         Err(EncounterError::SaveOverflow(
@@ -606,7 +606,7 @@ fn a_constitution_modifier_at_the_maximum_rolls_nothing() {
 #[test]
 fn doubling_the_maximum_damage_writes_nothing() {
     let mut encounter = opened(vec![plain(1, 20)], &[8]);
-    let (error, dice) = attempt(
+    let (error, mut dice) = attempt(
         &mut encounter,
         1,
         Save::Fortitude,
@@ -807,7 +807,7 @@ fn the_same_save_twice_matches() {
 #[test]
 fn an_unknown_defender_rolls_nothing() {
     let mut encounter = opened(vec![plain(1, 20)], &[10]);
-    let (error, dice) = attempt(&mut encounter, 9, Save::Fortitude, 15, 5, &[], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 9, Save::Fortitude, 15, 5, &[], &[10]);
     assert_eq!(error, Err(EncounterError::UnknownCombatant));
     assert_eq!(dice.remaining(), 1);
     assert_eq!(dice.d20(), 10);
@@ -819,7 +819,7 @@ fn a_dead_defender_rolls_nothing() {
     let mut person = plain(1, 0);
     person.state.vital = Vital::Dead;
     let mut encounter = opened(vec![person], &[10]);
-    let (error, dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, -1, &[], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, -1, &[], &[10]);
     assert_eq!(error, Err(EncounterError::TargetDead));
     assert_ne!(error, Err(EncounterError::NegativeAmount));
     assert_eq!(hit_points(&encounter, 1), 0);
@@ -831,7 +831,7 @@ fn a_dead_defender_rolls_nothing() {
 #[test]
 fn no_save_training_rolls_nothing() {
     let mut encounter = opened(vec![alive(1, 20, None)], &[10]);
-    let (error, dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 5, &[], &[10]);
+    let (error, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 5, &[], &[10]);
     assert_eq!(error, Err(EncounterError::NoSavingThrows));
     assert_eq!(hit_points(&encounter, 1), 20);
     assert_eq!(dice.remaining(), 1);
@@ -954,7 +954,7 @@ fn a_save_after_a_strike_is_not_a_strike() {
 #[test]
 fn a_save_draws_no_flat_check_die() {
     let mut encounter = opened(vec![plain(1, 20)], &[10]);
-    let (result, dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 5, &[], &[6, 19]);
+    let (result, mut dice) = attempt(&mut encounter, 1, Save::Fortitude, 15, 5, &[], &[6, 19]);
     let roll = result.expect("save");
     assert_eq!(roll.degree, DegreeOfSuccess::Failure);
     assert_eq!(roll.damage, 5);

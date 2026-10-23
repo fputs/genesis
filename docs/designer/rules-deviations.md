@@ -1,7 +1,7 @@
 # Genesis — Rules Deviations Log (intentional departures from RAW)
 
 Owner: Designer (rules lawyer). Baseline: PF2e Remaster Player Core (PC), verified on AoN 2026-10-20. Designer rulings of 2026-10-20 are applied. **FINAL.**
-Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid.
+Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws.
 
 ## Deviations
 
@@ -52,6 +52,13 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 | DEV-46 | Hidden, concealed, and undetected (**retired**) | https://2e.aonprd.com/Conditions.aspx?ID=62 (PC 442, Concealed). https://2e.aonprd.com/Conditions.aspx?ID=79 (PC 444, Hidden). https://2e.aonprd.com/Conditions.aspx?ID=96 (PC 447, Undetected). Targeting a concealed, hidden, or undetected creature uses that condition's flat check. | **Retired.** On-turn Strike, a readied Strike, and Reactive Strike call `resolve_targeting` before the attack roll. A failed flat check loses the Strike. Undetected stays `CannotTarget` (DEV-41). | The caller no longer substitutes for the flat check. wire-targeting-into-strike calls `resolve_targeting` on each Strike path. | wire-targeting-into-strike |
 | DEV-50 | Aid preparation lifetime | https://2e.aonprd.com/Actions.aspx?ID=2292 (PC 416). The book requires a preparation, usually an action on your turn, and does not say when that preparation ends. | `prepare_to_aid` names one ally. The preparation ends at that aider's next `start_turn`, or when `aid` returns `Ok`, whichever comes first. | Designer ruling (#56). The table needs a typed end. | 13 |
 | DEV-51 | Aid trigger | https://2e.aonprd.com/Actions.aspx?ID=2292 (PC 416). The trigger is an ally about to use an action that requires a skill check or attack roll. | The caller names one attack roll. A skill check is not a trigger. No distance check and no repeat DC. The one-action preparation cost is not this row. Willing is not restated here: same `Side` is DEV-17 and DEV-26. | Phase 1 has no skill check and no GM on this action. | 13 |
+| DEV-52 | Several creatures return together | https://2e.aonprd.com/Actions.aspx?ID=2294 (PC 416). The book does not order them. | Enemies before PCs, then lower `CombatantId` (DEV-05, Rules 2423). | Replay would otherwise follow call order. | 11 |
+| DEV-53 | Ready's trigger | https://2e.aonprd.com/Actions.aspx?ID=2299 (PC 417). The creature names a trigger. | `MovesWithinReach` from outside reach, or `BeginsAction` of Strike, Stride, Step, Drop Prone, or Stand. | Those are the observations Phase 1 already has. | 12 |
+| DEV-54 | Ready's action | https://2e.aonprd.com/Actions.aspx?ID=2299 (PC 417). One single action or free action. | Strike, Stride, Step, or Dismiss. The Strike's target is the trigger subject. The cost is `ActionCost`. | Phase 1 can resolve those four. | 12 |
+| DEV-55 | Several reactions on one trigger | The book does not order reactions declared on the same trigger. | `resolve_reactions` runs readied actions and Reactive Strikes in current initiative order, each fully before the next. Ties use DEV-05. | Two reactions must not depend on call order. | 12 |
+| DEV-56 | A save may be untrained | https://2e.aonprd.com/Rules.aspx?ID=2296 (PC 404) | `Untrained` is legal and is +0 | No class grants trained | 14 |
+| DEV-57 | Shield Block on a basic save | https://2e.aonprd.com/Feats.aspx?ID=5212 (PC 262) | `basic_save` never calls the shield path | Shield Block triggers only on physical damage from an attack (Feats 5212, PC 262). Most basic-save damage is not from an attack; DEV-57 matters only for an attack that calls for a basic save. | 14 |
+| DEV-58 | Three attributes. Amends DEV-01 | https://2e.aonprd.com/Rules.aspx?ID=2296 (PC 404) | Constitution, Dexterity, and Wisdom only | Saves, not full derivation | 14 |
 
 Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49.
 

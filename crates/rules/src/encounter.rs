@@ -6,7 +6,7 @@
 use crate::aid::{AidOutcome, AidPreparation, FittingAidModifier, roll_aid};
 use crate::check::{
     ArithmeticOverflow, AttackTotalTerm, DegreeOfSuccess, MapInput, attack_check_total,
-    degree_of_success, multiple_attack_penalty,
+    degree_of_success, multiple_attack_penalty, resolve_check,
 };
 use crate::combatant::{
     CombatantId, CombatantState, Creature, DieCount, HpError, Vital, damage_dealt,
@@ -31,6 +31,7 @@ use crate::ready::{
     ReadyEncounter, ReadyError, ReadyStrike, ReadySuccess, ReadyTrigger, ResolvedReaction,
     StoredReady, StrikeRange, entered_reach, single_action, stored_agility,
 };
+use crate::save::{Save, SaveError, SaveRoll, basic_save_amount, save_modifier};
 use crate::shield::{
     AttackBlowError, PlannedBlow, ShieldBlock, ShieldError, lower_raised_shield, plan_attack_blow,
     raise_shield as raise_combatant_shield, reduce_shield, validate_raise,
@@ -186,6 +187,10 @@ pub enum EncounterError {
     ///
     /// Player Core, "Stand". Player Core, "Drop Prone".
     Positioning(PositioningError),
+    /// The creature has no save training. Player Core pg. 404, Saving Throws.
+    NoSavingThrows,
+    /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
+    SaveOverflow(ArithmeticOverflow),
 }
 
 /// Where the round sits between turns, and whether a blow's target had Delayed.
@@ -1246,6 +1251,79 @@ impl Encounter {
         .map_err(EncounterError::HitPoints)
     }
 
+    /// Rolls one basic save for `defender` and applies the multiplied damage.
+    ///
+    /// Unknown, dead, a negative amount, missing training, and a modifier that does not fit
+    /// are rejected before the die. A multiplied 0 does not call [`apply_resolved_blow`].
+    /// A positive failure is an ordinary blow. A positive critical failure is a critical blow
+    /// and is not doubled again. While a turn is open, every new knockout moves `defender`
+    /// to directly before that creature. The save spends no action, reaction, or attack.
+    ///
+    /// Player Core pg. 404, Saving Throws. Player Core pg. 404, Basic Saving Throws.
+    /// Player Core pg. 410, Getting Knocked Out.
+    pub fn basic_save(
+        &mut self,
+        defender: CombatantId,
+        save: Save,
+        dc: i32,
+        amount: i32,
+        modifiers: &[Modifier],
+        dice: &mut impl Dice,
+    ) -> Result<SaveRoll, EncounterError> {
+        let index = self.member_index(defender)?;
+        let member = self
+            .members
+            .get(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        let vital = member.participant.state.vital;
+        let training = member.participant.creature.saves;
+        if vital == Vital::Dead {
+            return Err(EncounterError::TargetDead);
+        }
+        if amount < 0 {
+            return Err(EncounterError::NegativeAmount);
+        }
+        let Some(training) = training else {
+            return Err(EncounterError::NoSavingThrows);
+        };
+        let unconscious = matches!(vital, Vital::Dying(_) | Vital::Unconscious);
+        let modifier =
+            save_modifier(&training, save, unconscious, modifiers).map_err(
+                |error| match error {
+                    SaveError::ModifierOverflow(error) => EncounterError::SaveOverflow(error),
+                    SaveError::NegativeAmount => EncounterError::NegativeAmount,
+                    SaveError::DoubleOverflow(error) => EncounterError::SaveOverflow(error),
+                },
+            )?;
+        let check = resolve_check(dice, modifier, dc);
+        let damage = match basic_save_amount(amount, check.degree) {
+            Ok(damage) => damage,
+            Err(SaveError::DoubleOverflow(_)) => {
+                return Err(EncounterError::DamageOverflow(ModifierError::Overflow));
+            }
+            Err(SaveError::NegativeAmount) => return Err(EncounterError::NegativeAmount),
+            Err(SaveError::ModifierOverflow(error)) => {
+                return Err(EncounterError::SaveOverflow(error));
+            }
+        };
+        if damage > 0 {
+            let blow = match check.degree {
+                DegreeOfSuccess::CriticalFailure => DegreeOfSuccess::CriticalSuccess,
+                DegreeOfSuccess::CriticalSuccess
+                | DegreeOfSuccess::Success
+                | DegreeOfSuccess::Failure => DegreeOfSuccess::Success,
+            };
+            self.apply_damage(defender, damage, blow)?;
+            self.place_save_knockout(defender);
+        }
+        Ok(SaveRoll {
+            natural: check.natural,
+            total: check.total,
+            degree: check.degree,
+            damage,
+        })
+    }
+
     /// Copies the blow back. The reactor's reaction is already cleared by [`Self::spend_reaction`].
     ///
     /// `initiative_move` is the dying report [`apply_resolved_blow`] stores on the copy.
@@ -1956,6 +2034,42 @@ impl Encounter {
         }
     }
 
+    /// Moves a save knockout to directly before the open creature.
+    ///
+    /// Strike still uses [`Self::place_delayed_knockout`], which returns early unless the
+    /// target had Delayed. A save uses the open turn as the anchor whenever the blow newly
+    /// stored a dying value. A multiplied 0 never reaches this function.
+    ///
+    /// Player Core pg. 410, Getting Knocked Out.
+    fn place_save_knockout(&mut self, defender: CombatantId) {
+        let Some(anchor) = self.open else {
+            return;
+        };
+        let pending = self
+            .state(defender)
+            .ok()
+            .and_then(|state| state.initiative_move);
+        if pending != Some(InitiativeMove::Pending) {
+            return;
+        };
+        self.order.retain(|existing| *existing != defender);
+        match self.order.iter().position(|existing| *existing == anchor) {
+            Some(index) => self.order.insert(index, defender),
+            None => self.order.push(defender),
+        }
+        if let Ok(index) = self.member_index(defender)
+            && let Some(member) = self.members.get_mut(index)
+        {
+            member.slot = TurnSlot::Normal;
+            member.participant.state.initiative_move = None;
+        }
+        if let Some(open) = self.open
+            && let Some(cursor) = self.order.iter().position(|existing| *existing == open)
+        {
+            self.cursor = cursor;
+        }
+    }
+
     fn move_on_turn(
         &mut self,
         id: CombatantId,
@@ -2445,6 +2559,10 @@ fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::NoCreature => ReadyError::Encounter(ReadyEncounter::NoCreature),
         EncounterError::NotDelayed => ReadyError::Encounter(ReadyEncounter::NotDelayed),
         EncounterError::TriggerNotMet => ReadyError::Encounter(ReadyEncounter::TriggerNotMet),
+        EncounterError::NoSavingThrows => ReadyError::Encounter(ReadyEncounter::NoSavingThrows),
+        EncounterError::SaveOverflow(error) => {
+            ReadyError::Encounter(ReadyEncounter::SaveOverflow(error))
+        }
     }
 }
 
@@ -2514,6 +2632,8 @@ fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::Delayed => ReactiveError::Delayed,
         EncounterError::Grid(_) => ReactiveError::NoReaction,
         EncounterError::Positioning(_) => ReactiveError::NoReaction,
+        EncounterError::NoSavingThrows => ReactiveError::NoReaction,
+        EncounterError::SaveOverflow(_) => ReactiveError::NoReaction,
     }
 }
 
@@ -2580,6 +2700,8 @@ fn as_damage_overflow(error: EncounterError) -> ReactiveError {
         EncounterError::Delayed => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::Grid(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::Positioning(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NoSavingThrows => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::SaveOverflow(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
     }
 }
 
@@ -2669,6 +2791,7 @@ mod tests {
             aid_modifier: None,
             aid_rank: None,
             uses_dying_rules: Some(dying),
+            saves: None,
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))
     }
@@ -4753,6 +4876,7 @@ mod tests {
             aid_modifier: modifier,
             aid_rank: rank,
             uses_dying_rules: Some(false),
+            saves: None,
         };
         participant(
             value,
@@ -6028,6 +6152,7 @@ mod tests {
             aid_modifier: Some(i32::MAX - 19),
             aid_rank: Some(AidRank::BelowMaster),
             uses_dying_rules: Some(false),
+            saves: None,
         };
         let aider = participant(
             1,

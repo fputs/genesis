@@ -110,6 +110,14 @@ pub enum Statistic {
     ///
     /// Player Core pg. 446, Unconscious.
     Reflex,
+    /// A Fortitude save. It does not share a stack with Reflex or Will.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    Fortitude,
+    /// A Will save. It does not share a stack with Reflex or Fortitude.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    Will,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -708,6 +716,8 @@ struct ByStatistic {
     perception: Buckets,
     damage: Buckets,
     reflex: Buckets,
+    fortitude: Buckets,
+    will: Buckets,
 }
 
 fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
@@ -717,6 +727,8 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         perception: Buckets::new(),
         damage: Buckets::new(),
         reflex: Buckets::new(),
+        fortitude: Buckets::new(),
+        will: Buckets::new(),
     };
     for modifier in modifiers.iter().copied() {
         push_bucket(buckets_for(&mut grouped, modifier.statistic), modifier);
@@ -728,6 +740,8 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         grouped.perception,
         grouped.damage,
         grouped.reflex,
+        grouped.fortitude,
+        grouped.will,
     ] {
         applied.extend(applied_from(buckets));
     }
@@ -741,6 +755,8 @@ fn buckets_for(grouped: &mut ByStatistic, statistic: Statistic) -> &mut Buckets 
         Statistic::Perception => &mut grouped.perception,
         Statistic::Damage => &mut grouped.damage,
         Statistic::Reflex => &mut grouped.reflex,
+        Statistic::Fortitude => &mut grouped.fortitude,
+        Statistic::Will => &mut grouped.will,
     }
 }
 
@@ -834,6 +850,8 @@ struct StatisticTotals {
     perception: i32,
     damage: i32,
     reflex: i32,
+    fortitude: i32,
+    will: i32,
 }
 
 impl StatisticTotals {
@@ -844,6 +862,8 @@ impl StatisticTotals {
             Statistic::Perception => self.perception,
             Statistic::Damage => self.damage,
             Statistic::Reflex => self.reflex,
+            Statistic::Fortitude => self.fortitude,
+            Statistic::Will => self.will,
         }
     }
 }
@@ -854,6 +874,8 @@ struct StatisticWide {
     perception: i64,
     damage: i64,
     reflex: i64,
+    fortitude: i64,
+    will: i64,
 }
 
 fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
@@ -868,6 +890,8 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         perception: 0,
         damage: 0,
         reflex: 0,
+        fortitude: 0,
+        will: 0,
     };
     for modifier in &applied {
         add_statistic(&mut wide, modifier.statistic, modifier.value)?;
@@ -878,6 +902,8 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         perception: i32::try_from(wide.perception).map_err(|_| ModifierError::Overflow)?,
         damage: i32::try_from(wide.damage).map_err(|_| ModifierError::Overflow)?,
         reflex: i32::try_from(wide.reflex).map_err(|_| ModifierError::Overflow)?,
+        fortitude: i32::try_from(wide.fortitude).map_err(|_| ModifierError::Overflow)?,
+        will: i32::try_from(wide.will).map_err(|_| ModifierError::Overflow)?,
     };
     Ok(ModifierTotal { totals, applied })
 }
@@ -893,6 +919,8 @@ fn add_statistic(
         Statistic::Perception => &mut wide.perception,
         Statistic::Damage => &mut wide.damage,
         Statistic::Reflex => &mut wide.reflex,
+        Statistic::Fortitude => &mut wide.fortitude,
+        Statistic::Will => &mut wide.will,
     };
     *slot = slot
         .checked_add(i64::from(value))
@@ -968,6 +996,8 @@ fn statistic_ord(statistic: Statistic) -> u8 {
         Statistic::Perception => 2,
         Statistic::Damage => 3,
         Statistic::Reflex => 4,
+        Statistic::Fortitude => 5,
+        Statistic::Will => 6,
     }
 }
 
@@ -3563,6 +3593,8 @@ mod tests {
                     Statistic::Perception,
                     Statistic::Damage,
                     Statistic::Reflex,
+                    Statistic::Fortitude,
+                    Statistic::Will,
                 ] {
                     assert_eq!(stacked.get(statistic), oracle_total(order, statistic));
                 }
@@ -3577,6 +3609,8 @@ mod tests {
         let mut perception = 0usize;
         let mut damage = 0usize;
         let mut reflex = 0usize;
+        let mut fortitude = 0usize;
+        let mut will = 0usize;
         for modifier in set.iter().copied() {
             if !matches(modifier) {
                 continue;
@@ -3587,6 +3621,8 @@ mod tests {
                 Statistic::Perception => &mut perception,
                 Statistic::Damage => &mut damage,
                 Statistic::Reflex => &mut reflex,
+                Statistic::Fortitude => &mut fortitude,
+                Statistic::Will => &mut will,
             };
             *count += 1;
             if *count >= 2 {
@@ -4022,6 +4058,8 @@ mod tests {
             Statistic::Perception,
             Statistic::Damage,
             Statistic::Reflex,
+            Statistic::Fortitude,
+            Statistic::Will,
         ] {
             let on_statistic: Vec<_> = modifiers
                 .iter()
