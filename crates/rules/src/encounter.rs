@@ -11,6 +11,7 @@ use crate::check::{
 use crate::combatant::{
     CombatantId, CombatantState, Creature, DieCount, HpError, Vital, damage_dealt,
 };
+use crate::detection::{DetectionError, Detections, TargetingResult, resolve_targeting};
 use crate::dice::{Dice, Faces};
 use crate::dying::{InitiativeMove, apply_resolved_blow};
 use crate::grid::{
@@ -23,7 +24,7 @@ use crate::positioning::{
     PostureChange, dismiss, drop_prone as positioning_drop_prone, stand as positioning_stand,
 };
 use crate::reactive::{
-    ActionIdentity, ReactiveError, ReactiveOutcome, ReactiveStrike, TriggerClass,
+    ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike, TriggerClass,
     attack_bonus_fits, disruption, not_a_trigger, outside_reach, reactive_attack_total,
 };
 use crate::ready::{
@@ -191,6 +192,10 @@ pub enum EncounterError {
     NoSavingThrows,
     /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
     SaveOverflow(ArithmeticOverflow),
+    /// The target is undetected, so it cannot be chosen. Nothing is spent and no die is drawn.
+    ///
+    /// Player Core pg. 447, Undetected. Player Core pg. 418, Strike.
+    CannotTarget,
 }
 
 /// Where the round sits between turns, and whether a blow's target had Delayed.
@@ -246,6 +251,35 @@ pub struct StrikeOutcome {
     pub map: i32,
     /// Damage dealt, or 0 on a miss. Player Core, "Damage Rolls".
     pub damage: i32,
+}
+
+/// A Strike the flat check did not affect. No attack d20 and no damage die were rolled.
+///
+/// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
+/// Player Core pg. 400, "Checks (Flat Checks)".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LostStrike {
+    /// The flat-check face. Player Core pg. 400, "Checks (Flat Checks)".
+    pub natural: u8,
+    /// Concealed is DC 5. Hidden, including hidden and concealed, is DC 11.
+    ///
+    /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
+    pub dc: i32,
+    /// The flat check's degree, including a critical failure on a natural 1.
+    ///
+    /// Player Core pg. 400, "Checks (Flat Checks)".
+    pub degree: DegreeOfSuccess,
+}
+
+/// A Strike that rolled against Armor Class, or a flat check that lost the Strike.
+///
+/// Player Core pg. 418, Strike. Player Core pg. 442, Concealed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrikeDelivery {
+    /// The attack d20 was rolled. Player Core pg. 418, Strike.
+    Rolled(StrikeOutcome),
+    /// The flat check did not affect the target. Player Core pg. 442, Concealed.
+    Lost(LostStrike),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -836,7 +870,11 @@ impl Encounter {
 
     /// Strikes `target` with `profile` on the active creature's turn.
     ///
-    /// A miss spends the action, records damage 0, and does not roll a damage die.
+    /// `detections` is the caller's map. An empty map draws no flat-check die. A concealed or
+    /// hidden target rolls that check before the attack d20. A lost check spends the action,
+    /// increments the attack count, and rolls no attack d20 and no damage die. An undetected
+    /// target is [`EncounterError::CannotTarget`] and spends nothing. This does not call
+    /// `note_strike`. A miss spends the action, records damage 0, and does not roll a damage die.
     /// [`HpError::NotAHit`] is not returned from this path. Success and critical success roll
     /// the damage dice once; a critical success doubles that total inside [`damage_dealt`].
     /// A hit passes that total and `block` through the encounter block once. It does not also
@@ -846,6 +884,10 @@ impl Encounter {
     /// only through [`Self::spend_reaction`].
     ///
     /// Player Core, Strike. Player Core, "Shield Block".
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the strike design names the attacker, target, profile, modifiers, shield block, detections, and dice as separate arguments"
+    )]
     pub fn strike(
         &mut self,
         attacker: CombatantId,
@@ -853,8 +895,9 @@ impl Encounter {
         profile: &StrikeProfile,
         modifiers: &[Modifier],
         block: ShieldBlock,
+        detections: &Detections,
         dice: &mut impl Dice,
-    ) -> Result<StrikeOutcome, EncounterError> {
+    ) -> Result<StrikeDelivery, EncounterError> {
         self.prepare_strike(attacker, target)?;
         let delayed_target = self.delayed_target(target)?;
         if let ShieldBlock::Requested = block {
@@ -865,6 +908,14 @@ impl Encounter {
         let attack_term = bounded_term(profile.attack_bonus)?;
         let map_term = bounded_term(map)?;
         let zero = bounded_term(0)?;
+        match flat_gate(resolve_targeting(detections, attacker, target, false, dice)) {
+            FlatGate::CannotTarget => return Err(EncounterError::CannotTarget),
+            FlatGate::Lost(lost) => {
+                self.finish_strike(attacker)?;
+                return Ok(StrikeDelivery::Lost(lost));
+            }
+            FlatGate::Roll => {}
+        }
         let natural = dice.d20();
         let attack_modifiers = attack_modifiers(modifiers);
         let total = attack_check_total(
@@ -896,13 +947,13 @@ impl Encounter {
             dealt
         };
         self.finish_strike(attacker)?;
-        Ok(StrikeOutcome {
+        Ok(StrikeDelivery::Rolled(StrikeOutcome {
             natural,
             total,
             degree,
             map,
             damage,
-        })
+        }))
     }
 
     /// Resolves one Reactive Strike from `reactor` against `actor`.
@@ -919,7 +970,7 @@ impl Encounter {
     /// Player Core, "Disrupting Actions". Player Core, "Multiple Attack Penalty".
     #[expect(
         clippy::too_many_arguments,
-        reason = "the reactive-strike design names the reactor, actor, trigger, squares, sizes, strike, modifiers, and dice as separate arguments"
+        reason = "the reactive-strike design names the reactor, actor, trigger, squares, sizes, strike, modifiers, detections, and dice as separate arguments"
     )]
     pub fn reactive_strike(
         &mut self,
@@ -935,6 +986,7 @@ impl Encounter {
         actor_size: Size,
         profile: &StrikeProfile,
         modifiers: &[Modifier],
+        detections: &Detections,
         dice: &mut impl Dice,
     ) -> Result<ReactiveOutcome, ReactiveError> {
         let reactor_vital = self
@@ -977,6 +1029,17 @@ impl Encounter {
         self.require_reaction(reactor).map_err(from_spend)?;
         attack_bonus_fits(profile.attack_bonus, modifiers)
             .map_err(ReactiveError::AttackOverflow)?;
+        match flat_gate(resolve_targeting(detections, reactor, actor, false, dice)) {
+            FlatGate::CannotTarget => return Err(ReactiveError::CannotTarget),
+            FlatGate::Lost(lost) => {
+                self.spend_reaction(reactor).map_err(from_spend)?;
+                return Ok(ReactiveOutcome {
+                    strike: StrikeDelivery::Lost(lost),
+                    disruption: Disruption::NotDisrupted,
+                });
+            }
+            FlatGate::Roll => {}
+        }
 
         let natural = dice.d20();
         let total = reactive_attack_total(natural, profile.attack_bonus, modifiers)
@@ -1020,13 +1083,13 @@ impl Encounter {
             self.spend_reaction(reactor).map_err(from_spend)?;
         }
         Ok(ReactiveOutcome {
-            strike: StrikeOutcome {
+            strike: StrikeDelivery::Rolled(StrikeOutcome {
                 natural,
                 total,
                 degree,
                 map: 0,
                 damage,
-            },
+            }),
             disruption: disruption(degree, cost),
         })
     }
@@ -1594,7 +1657,7 @@ impl Encounter {
     /// Player Core, "Ready". Player Core, "Reactive Strike". Player Core, "Range and Reach".
     #[expect(
         clippy::too_many_arguments,
-        reason = "the ready design names the actor, the observed action, its cost, both squares, the readied path, the caller-supplied field, the reactors, and the dice"
+        reason = "the ready design names the actor, the observed action, its cost, both squares, the readied path, the caller-supplied field, the reactors, detections, and the dice"
     )]
     pub fn resolve_reactions(
         &mut self,
@@ -1606,6 +1669,7 @@ impl Encounter {
         path: &[Square],
         field: &ReactionField<'_>,
         reactors: &[ReactiveStrikeInput<'_>],
+        detections: &Detections,
         dice: &mut impl Dice,
     ) -> Vec<ResolvedReaction> {
         let mut plan = Vec::new();
@@ -1628,7 +1692,8 @@ impl Encounter {
         for step in plan {
             match step {
                 ReactionPlan::Ready(id) => {
-                    let result = self.fire_ready(id, actor, action, from, to, path, field, dice);
+                    let result =
+                        self.fire_ready(id, actor, action, from, to, path, field, detections, dice);
                     resolved.push(ResolvedReaction::Ready { id, result });
                 }
                 ReactionPlan::Reactive(index) => {
@@ -1649,11 +1714,12 @@ impl Encounter {
                         input.actor_size,
                         &input.profile,
                         input.modifiers,
+                        detections,
                         dice,
                     );
                     resolved.push(ResolvedReaction::ReactiveStrike {
                         id,
-                        result: outcome.map(|_| ()),
+                        result: outcome,
                     });
                 }
             }
@@ -2092,7 +2158,7 @@ impl Encounter {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "firing a ready names the readier, the subject, the observed action, both squares, the path, the field, and the dice"
+        reason = "firing a ready names the readier, the subject, the observed action, both squares, the path, the field, detections, and the dice"
     )]
     fn fire_ready(
         &mut self,
@@ -2103,6 +2169,7 @@ impl Encounter {
         to: Square,
         path: &[Square],
         field: &ReactionField<'_>,
+        detections: &Detections,
         dice: &mut impl Dice,
     ) -> Result<ReadySuccess, ReadyError> {
         let stored_kind = self
@@ -2123,7 +2190,7 @@ impl Encounter {
             stored_kind,
         )?;
         match stored_kind {
-            ActivityKind::Strike => self.fire_strike(readier, checked, dice),
+            ActivityKind::Strike => self.fire_strike(readier, checked, detections, dice),
             ActivityKind::Stride | ActivityKind::Step => self.fire_move(readier, checked),
             ActivityKind::Dismiss => self.fire_dismiss(readier, checked),
         }
@@ -2245,11 +2312,27 @@ impl Encounter {
         &mut self,
         readier: CombatantId,
         checked: CheckedFire,
+        detections: &Detections,
         dice: &mut impl Dice,
     ) -> Result<ReadySuccess, ReadyError> {
         let Some(strike) = checked.strike else {
             return Err(ReadyError::WrongAction);
         };
+        match flat_gate(resolve_targeting(
+            detections,
+            readier,
+            strike.target,
+            false,
+            dice,
+        )) {
+            FlatGate::CannotTarget => return Err(ReadyError::CannotTarget),
+            FlatGate::Lost(lost) => {
+                self.spend_reaction(readier).map_err(ready_from_encounter)?;
+                self.clear_ready(readier)?;
+                return Ok(ReadySuccess::Lost(lost));
+            }
+            FlatGate::Roll => {}
+        }
         let natural = dice.d20();
         let total = attack_check_total(
             natural,
@@ -2563,6 +2646,7 @@ fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::SaveOverflow(error) => {
             ReadyError::Encounter(ReadyEncounter::SaveOverflow(error))
         }
+        EncounterError::CannotTarget => ReadyError::CannotTarget,
     }
 }
 
@@ -2634,6 +2718,7 @@ fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::Positioning(_) => ReactiveError::NoReaction,
         EncounterError::NoSavingThrows => ReactiveError::NoReaction,
         EncounterError::SaveOverflow(_) => ReactiveError::NoReaction,
+        EncounterError::CannotTarget => ReactiveError::CannotTarget,
     }
 }
 
@@ -2702,6 +2787,45 @@ fn as_damage_overflow(error: EncounterError) -> ReactiveError {
         EncounterError::Positioning(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::NoSavingThrows => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::SaveOverflow(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::CannotTarget => ReactiveError::DamageOverflow(ModifierError::Overflow),
+    }
+}
+
+enum FlatGate {
+    Roll,
+    Lost(LostStrike),
+    CannotTarget,
+}
+
+/// A lost flat check needs the face, the DC, and the degree. Anything else that does not
+/// affect the target spends nothing: today's DCs do not produce that result.
+fn flat_gate(result: Result<TargetingResult, DetectionError>) -> FlatGate {
+    let result = match result {
+        Ok(result) => result,
+        Err(
+            DetectionError::CannotTarget
+            | DetectionError::NotConscious
+            | DetectionError::SameCreature
+            | DetectionError::NoStealthDc
+            | DetectionError::EmptyArea
+            | DetectionError::AreaTooLarge
+            | DetectionError::DuplicateId
+            | DetectionError::Overflow
+            | DetectionError::PerceptionOutOfRange
+            | DetectionError::RequirementNotMet,
+        ) => return FlatGate::CannotTarget,
+    };
+    if result.affected {
+        return FlatGate::Roll;
+    }
+    if let (Some(natural), Some(dc), Some(degree)) = (result.natural, result.dc, result.degree) {
+        FlatGate::Lost(LostStrike {
+            natural,
+            dc,
+            degree,
+        })
+    } else {
+        FlatGate::CannotTarget
     }
 }
 
@@ -2748,6 +2872,7 @@ mod tests {
         BuildParts, CharacterBuild, CombatantId, DieCount, DyingValue, HpError, MeleeStrike,
         ReachFeet, ShieldTemplate, Vital, derive, new_combatant_state,
     };
+    use crate::detection::{Concealment, Detection, Detections, Relation, note_strike};
     use crate::dice::{Faces, ScriptedDice};
     use crate::dying::{InitiativeMove, apply_resolved_blow, take_initiative_move};
     use crate::grid::{Size, Square};
@@ -2861,6 +2986,57 @@ mod tests {
         encounter.state(id(value)).expect("state").reaction_ready
     }
 
+    fn rolled(delivery: StrikeDelivery) -> StrikeOutcome {
+        match delivery {
+            StrikeDelivery::Rolled(outcome) => outcome,
+            StrikeDelivery::Lost(lost) => panic!("expected a rolled strike, lost {lost:?}"),
+        }
+    }
+
+    fn delivered(outcome: &ReactiveOutcome) -> &StrikeOutcome {
+        match &outcome.strike {
+            StrikeDelivery::Rolled(strike) => strike,
+            StrikeDelivery::Lost(lost) => panic!("expected a rolled strike, lost {lost:?}"),
+        }
+    }
+
+    fn lost(delivery: StrikeDelivery) -> LostStrike {
+        match delivery {
+            StrikeDelivery::Lost(lost) => lost,
+            StrikeDelivery::Rolled(outcome) => panic!("expected a lost strike, rolled {outcome:?}"),
+        }
+    }
+
+    fn relate(
+        detections: Detections,
+        observer: u32,
+        subject: u32,
+        detection: Detection,
+        concealment: Concealment,
+        stealth_dc: Option<i32>,
+    ) -> Detections {
+        detections
+            .store(
+                id(observer),
+                id(subject),
+                Relation {
+                    detection,
+                    concealment,
+                },
+                stealth_dc,
+            )
+            .expect("relation")
+    }
+
+    fn plate() -> ShieldTemplate {
+        ShieldTemplate {
+            hardness: 5,
+            hit_points: 20,
+            broken_threshold: 10,
+            shield_ac_bonus: 2,
+        }
+    }
+
     fn hit_points(encounter: &Encounter, value: u32) -> i32 {
         encounter.state(id(value)).expect("state").hit_points
     }
@@ -2910,16 +3086,19 @@ mod tests {
             assert_eq!(initiative(&encounter, 2), 14);
             let order = encounter.order().to_vec();
             assert_eq!(encounter.start_turn().expect("start"), id(1));
-            let outcome = encounter
-                .strike(
-                    id(1),
-                    id(2),
-                    &profile(0, Agility::NotAgile, 1, 8, 4),
-                    &[],
-                    ShieldBlock::Declined,
-                    &mut dice,
-                )
-                .expect("strike");
+            let outcome = rolled(
+                encounter
+                    .strike(
+                        id(1),
+                        id(2),
+                        &profile(0, Agility::NotAgile, 1, 8, 4),
+                        &[],
+                        ShieldBlock::Declined,
+                        &Detections::new(),
+                        &mut dice,
+                    )
+                    .expect("strike"),
+            );
             (order, outcome.total, outcome.damage, dice.remaining())
         };
         let first = run([10, 14, 12, 3]);
@@ -3217,6 +3396,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("knockout");
@@ -3247,6 +3427,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 1, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("strike"),
@@ -3278,6 +3459,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("knockout");
@@ -3599,16 +3781,19 @@ mod tests {
         let (mut encounter, mut dice) =
             begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
         assert_eq!(encounter.start_turn().expect("start"), id(1));
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(8, Agility::NotAgile, 0, 8, 0),
-                &[],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.map, 0);
         assert_eq!(outcome.total, 18);
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
@@ -3636,6 +3821,7 @@ mod tests {
                 &profile(10, Agility::NotAgile, 1, 8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("knockout");
@@ -3645,16 +3831,19 @@ mod tests {
         assert_eq!(encounter.start_turn().expect("empty"), id(2));
         encounter.end_turn().expect("close empty");
         assert_eq!(encounter.start_turn().expect("again"), id(1));
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(8, Agility::NotAgile, 0, 8, 0),
-                &[],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("second");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("second"),
+        );
         assert_eq!(outcome.total, 18);
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
     }
@@ -3672,6 +3861,7 @@ mod tests {
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("early"),
@@ -3694,6 +3884,7 @@ mod tests {
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("off"),
@@ -3716,6 +3907,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("missing"),
@@ -3739,6 +3931,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("self"),
@@ -3764,6 +3957,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("dead"),
@@ -3788,6 +3982,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("empty"),
@@ -3804,18 +3999,904 @@ mod tests {
             begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 12)], &[14, 10, 10]);
         encounter.start_turn().expect("start");
         let modifier = penalty(PenaltyType::Circumstance, -2, 1, Statistic::ArmorClass);
-        let outcome = encounter
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(0, Agility::NotAgile, 0, 8, 0),
+                    &[modifier],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
+        assert_eq!(outcome.total, 10);
+        assert_eq!(outcome.degree, DegreeOfSuccess::Failure);
+    }
+
+    /// Player Core pg. 418, Strike. Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    #[test]
+    fn an_observed_target_draws_the_attack_die_first() {
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 10, 4]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
+        assert_eq!(outcome.total, 18);
+        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(actions(&encounter, 1), 2);
+    }
+
+    /// Player Core pg. 418, Strike. Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    #[test]
+    fn a_natural_5_at_dc_5_then_the_attack_roll() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 5, 10, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let delivery = encounter
             .strike(
                 id(1),
                 id(2),
-                &profile(0, Agility::NotAgile, 0, 8, 0),
-                &[modifier],
+                &profile(8, Agility::NotAgile, 1, 8, 4),
+                &[],
                 ShieldBlock::Declined,
+                &detections,
                 &mut dice,
             )
             .expect("strike");
-        assert_eq!(outcome.total, 10);
-        assert_eq!(outcome.degree, DegreeOfSuccess::Failure);
+        let StrikeDelivery::Rolled(outcome) = delivery else {
+            panic!("expected a rolled strike, got {delivery:?}");
+        };
+        assert_eq!(outcome.total, 18);
+        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.damage, 7);
+        assert_eq!(dice.remaining(), 0);
+        assert_eq!(
+            detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Observed,
+                concealment: Concealment::Concealed,
+            }
+        );
+        assert_eq!(actions(&encounter, 1), 2);
+    }
+
+    /// Player Core pg. 418, Strike. Player Core pg. 444, Hidden. Player Core pg. 400, "Checks (Flat Checks)".
+    #[test]
+    fn a_natural_11_at_dc_11_then_the_attack_roll() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Hidden,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)],
+            &[10, 8, 11, 10, 3],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let delivery = encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(8, Agility::NotAgile, 1, 8, 4),
+                &[],
+                ShieldBlock::Declined,
+                &detections,
+                &mut dice,
+            )
+            .expect("strike");
+        let StrikeDelivery::Rolled(outcome) = delivery else {
+            panic!("expected a rolled strike, got {delivery:?}");
+        };
+        assert_eq!(outcome.total, 18);
+        assert_eq!(outcome.degree, DegreeOfSuccess::Success);
+        assert_eq!(outcome.damage, 7);
+        assert_eq!(dice.remaining(), 0);
+        assert_eq!(
+            detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Hidden,
+                concealment: Concealment::NotConcealed,
+            }
+        );
+    }
+
+    /// Player Core pg. 418, Strike. Player Core pg. 444, Hidden. Player Core pg. 442, Concealed.
+    #[test]
+    fn hidden_and_concealed_succeed_on_one_dc_11_roll() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Hidden,
+            Concealment::Concealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)],
+            &[10, 8, 11, 10, 3],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
+        assert_eq!(outcome.total, 18);
+        assert_eq!(outcome.damage, 7);
+        assert_eq!(dice.remaining(), 0);
+        assert_eq!(
+            detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Hidden,
+                concealment: Concealment::Concealed,
+            }
+        );
+    }
+
+    /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    #[test]
+    fn the_same_lost_strike_twice_matches() {
+        let run = || {
+            let detections = relate(
+                Detections::new(),
+                1,
+                2,
+                Detection::Observed,
+                Concealment::Concealed,
+                None,
+            );
+            let (mut encounter, mut dice) =
+                begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4, 10]);
+            assert_eq!(encounter.start_turn().expect("start"), id(1));
+            let delivery = encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost");
+            assert_eq!(dice.remaining(), 1);
+            assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+            delivery
+        };
+        let first = run();
+        let second = run();
+        assert_eq!(first, second);
+        let lost = lost(first);
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+    }
+
+    /// Player Core pg. 442, Concealed. Player Core pg. 402, "Multiple Attack Penalty".
+    #[test]
+    fn a_natural_4_at_dc_5_loses_the_strike() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let target = participant(2, Side::Pc, creature(20, 18, 0, false, Some(plate())));
+        let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), target], &[10, 8, 4, 10, 3]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(actions(&encounter, 1), 2);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+        assert_eq!(dice.remaining(), 2);
+        let state = encounter.state(id(2)).expect("state");
+        assert_eq!(state.hit_points, 20);
+        assert_eq!(state.shield_hit_points, Some(20));
+        assert!(state.reaction_ready);
+        assert_eq!(
+            detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Observed,
+                concealment: Concealment::Concealed,
+            }
+        );
+    }
+
+    /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
+    #[test]
+    fn a_natural_1_at_dc_5_loses_the_strike_and_counts() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 1, 10]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.natural, 1);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::CriticalFailure);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 444, Hidden. Player Core pg. 402, "Multiple Attack Penalty".
+    #[test]
+    fn a_natural_10_at_dc_11_makes_the_next_strike_take_minus_5() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Hidden,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+            &[15, 10, 5, 10, 12],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.dc, 11);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        let second = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(3),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("second"),
+        );
+        assert_eq!(second.map, -5);
+        assert_eq!(second.total, 15);
+        assert_eq!(second.degree, DegreeOfSuccess::Failure);
+        assert_eq!(actions(&encounter, 1), 1);
+    }
+
+    /// Player Core pg. 442, Concealed. Player Core pg. 402, "Multiple Attack Penalty".
+    #[test]
+    fn a_lost_strike_makes_the_next_agile_strike_take_minus_4() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+            &[15, 10, 5, 4, 14, 3],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let first = encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(8, Agility::Agile, 1, 8, 4),
+                &[],
+                ShieldBlock::Declined,
+                &detections,
+                &mut dice,
+            )
+            .expect("lost");
+        assert!(matches!(first, StrikeDelivery::Lost(_)));
+        let second = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(3),
+                    &profile(8, Agility::Agile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("second"),
+        );
+        assert_eq!(second.map, -4);
+        assert_eq!(second.total, 18);
+        assert_eq!(second.damage, 7);
+        assert_ne!(second.map, -5);
+    }
+
+    /// Player Core pg. 442, Concealed. Player Core pg. 402, "Multiple Attack Penalty".
+    #[test]
+    fn two_lost_strikes_make_the_third_take_minus_10() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+            &[15, 10, 5, 4, 4, 15],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let attack = profile(8, Agility::NotAgile, 0, 8, 0);
+        for _ in 0..2 {
+            assert!(matches!(
+                encounter
+                    .strike(
+                        id(1),
+                        id(2),
+                        &attack,
+                        &[],
+                        ShieldBlock::Declined,
+                        &detections,
+                        &mut dice,
+                    )
+                    .expect("lost"),
+                StrikeDelivery::Lost(_)
+            ));
+        }
+        let third = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(3),
+                    &attack,
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("third"),
+        );
+        assert_eq!(third.map, -10);
+        assert_eq!(third.total, 13);
+        assert_eq!(third.degree, DegreeOfSuccess::Failure);
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(encounter.turn_open(), Some(id(1)));
+    }
+
+    /// Player Core pg. 444, Hidden. Player Core pg. 442, Concealed.
+    #[test]
+    fn hidden_and_concealed_lose_on_one_dc_11_roll() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Hidden,
+            Concealment::Concealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)],
+            &[10, 8, 10, 20, 6],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.natural, 10);
+        assert_eq!(lost.dc, 11);
+        assert_eq!(dice.remaining(), 2);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+        assert_eq!(
+            detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Hidden,
+                concealment: Concealment::Concealed,
+            }
+        );
+    }
+
+    /// Player Core pg. 434, Hidden. Player Core pg. 244, Hide. Player Core pg. 442, Concealed.
+    #[test]
+    fn a_lost_strike_still_reveals_the_hidden_striker() {
+        let detections = relate(
+            relate(
+                relate(
+                    Detections::new(),
+                    2,
+                    1,
+                    Detection::Hidden,
+                    Concealment::NotConcealed,
+                    Some(17),
+                ),
+                3,
+                1,
+                Detection::Hidden,
+                Concealment::NotConcealed,
+                Some(17),
+            ),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+            &[15, 10, 5, 4, 10],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(detections.get(id(2), id(1)).detection, Detection::Hidden);
+        let notice = note_strike(detections, id(1), id(2));
+        assert_eq!(
+            notice.detections.get(id(2), id(1)).detection,
+            Detection::Observed
+        );
+        assert_eq!(
+            notice.detections.get(id(3), id(1)).detection,
+            Detection::Observed
+        );
+        assert_eq!(
+            notice.detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Observed,
+                concealment: Concealment::Concealed,
+            }
+        );
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 244, Hide. Player Core pg. 442, Concealed.
+    #[test]
+    fn a_lost_reactive_strike_still_reveals_the_striker() {
+        let detections = relate(
+            relate(
+                relate(
+                    Detections::new(),
+                    2,
+                    1,
+                    Detection::Hidden,
+                    Concealment::NotConcealed,
+                    Some(17),
+                ),
+                3,
+                1,
+                Detection::Hidden,
+                Concealment::NotConcealed,
+                Some(17),
+            ),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 5),
+                pc(2, 0, 20, 18),
+                pc(3, 0, 20, 18),
+            ],
+            &[15, 10, 5, 4, 10],
+        );
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect("lost");
+        let lost = lost(outcome.strike);
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(detections.get(id(2), id(1)).detection, Detection::Hidden);
+        let notice = note_strike(detections, id(1), id(2));
+        assert_eq!(
+            notice.detections.get(id(2), id(1)).detection,
+            Detection::Observed
+        );
+        assert_eq!(
+            notice.detections.get(id(3), id(1)).detection,
+            Detection::Observed
+        );
+        assert_eq!(
+            notice.detections.get(id(1), id(2)).concealment,
+            Concealment::Concealed
+        );
+    }
+
+    /// Player Core pg. 447, Undetected. Player Core pg. 418, Strike.
+    #[test]
+    fn an_undetected_target_cannot_be_struck() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 11]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("undetected"),
+            EncounterError::CannotTarget
+        );
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(
+            detections.get(id(1), id(2)).detection,
+            Detection::Undetected
+        );
+    }
+
+    /// Player Core pg. 418, Strike. Player Core pg. 447, Undetected.
+    #[test]
+    fn a_dead_undetected_target_is_target_dead() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), dead(pc(2, 0, 20, 18))], &[10, 8, 11]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let error = encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(8, Agility::NotAgile, 0, 8, 0),
+                &[],
+                ShieldBlock::Declined,
+                &detections,
+                &mut dice,
+            )
+            .expect_err("dead");
+        assert_eq!(error, EncounterError::TargetDead);
+        assert_ne!(error, EncounterError::CannotTarget);
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 418, Strike. Player Core pg. 442, Concealed.
+    #[test]
+    fn no_actions_beats_a_concealed_flat_check() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.spend_actions(id(1), 3).expect("spend");
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("no actions"),
+            EncounterError::InsufficientActions
+        );
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(encounter.turn_open(), Some(id(1)));
+    }
+
+    /// Player Core pg. 402, "Multiple Attack Penalty". Player Core pg. 442, Concealed.
+    #[test]
+    fn an_attack_count_at_the_maximum_draws_no_flat_check() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.set_attack_count_for_test(id(1), 255);
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("count"),
+            EncounterError::AttackCountOverflow
+        );
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 255);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core, "Shield Block". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_shield_that_is_not_raised_draws_no_flat_check() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let target = participant(2, Side::Pc, creature(20, 18, 0, false, Some(plate())));
+        let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), target], &[10, 8, 4]);
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Requested,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("not raised"),
+            EncounterError::NotRaised
+        );
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    fn raised_defender(rolls: &[u8]) -> (Encounter, ScriptedDice) {
+        let target = participant(2, Side::Pc, creature(20, 18, 0, false, Some(plate())));
+        let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), target], rolls);
+        assert_eq!(encounter.start_turn().expect("defender"), id(2));
+        encounter.raise_shield(id(2)).expect("raise");
+        encounter.end_turn().expect("end");
+        assert_eq!(encounter.start_turn().expect("striker"), id(1));
+        (encounter, dice)
+    }
+
+    /// Player Core, "Shield Block". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_lost_strike_against_a_raised_shield_leaves_it_untouched() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = raised_defender(&[8, 14, 4, 10, 3]);
+        let lost = lost(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Requested,
+                    &detections,
+                    &mut dice,
+                )
+                .expect("lost"),
+        );
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(dice.remaining(), 2);
+        let state = encounter.state(id(2)).expect("state");
+        assert!(state.reaction_ready);
+        assert!(state.shield_raised);
+        assert_eq!(state.shield_hit_points, Some(20));
+    }
+
+    /// Player Core, "Shield Block". Player Core pg. 447, Undetected.
+    #[test]
+    fn cannot_target_against_a_raised_shield_spends_nothing() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = raised_defender(&[8, 14, 11]);
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Requested,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("undetected"),
+            EncounterError::CannotTarget
+        );
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(dice.remaining(), 1);
+        let state = encounter.state(id(2)).expect("state");
+        assert!(state.reaction_ready);
+        assert!(state.shield_raised);
+        assert_eq!(state.shield_hit_points, Some(20));
+    }
+
+    /// Player Core, Penalties. Player Core pg. 442, Concealed.
+    #[test]
+    fn a_flat_check_success_can_still_overflow_the_attack() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![pc(1, 0, 20, 11), pc(2, 0, 20, 11)],
+            &[14, 10, 5, 11, 8],
+        );
+        encounter.start_turn().expect("start");
+        let modifiers = [
+            penalty(PenaltyType::Untyped, i32::MIN, 1, Statistic::Attack),
+            penalty(PenaltyType::Untyped, i32::MIN, 2, Statistic::Attack),
+        ];
+        assert_eq!(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(0, Agility::NotAgile, 0, 8, 0),
+                    &modifiers,
+                    ShieldBlock::Declined,
+                    &detections,
+                    &mut dice,
+                )
+                .expect_err("overflow"),
+            EncounterError::AttackOverflow(ModifierError::Overflow)
+        );
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(
+            encounter
+                .attack_trait_penalty(id(1), Agility::NotAgile)
+                .expect("penalty"),
+            0
+        );
     }
 
     /// Player Core, Penalties.
@@ -3831,20 +4912,24 @@ mod tests {
                 &profile(9, Agility::NotAgile, 0, 8, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("first");
         let modifier = penalty(PenaltyType::Circumstance, -2, 1, Statistic::Attack);
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(9, Agility::NotAgile, 0, 8, 0),
-                &[modifier],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("second");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(9, Agility::NotAgile, 0, 8, 0),
+                    &[modifier],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("second"),
+        );
         assert_eq!(outcome.map, -5);
         assert_eq!(outcome.total, 14);
         assert_eq!(outcome.degree, DegreeOfSuccess::Failure);
@@ -3860,16 +4945,19 @@ mod tests {
             bonus(BonusType::Circumstance, 4, 1, Statistic::Attack),
             bonus(BonusType::Circumstance, 1, 2, Statistic::Attack),
         ];
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(0, Agility::NotAgile, 0, 8, 0),
-                &modifiers,
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(0, Agility::NotAgile, 0, 8, 0),
+                    &modifiers,
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.total, 14);
         assert_ne!(outcome.total, 15);
     }
@@ -3884,16 +4972,19 @@ mod tests {
             bonus(BonusType::Circumstance, 2, 1, Statistic::Attack),
             penalty(PenaltyType::Circumstance, -2, 2, Statistic::Attack),
         ];
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(0, Agility::NotAgile, 0, 8, 0),
-                &modifiers,
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(0, Agility::NotAgile, 0, 8, 0),
+                    &modifiers,
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.total, 10);
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
         assert_ne!(outcome.total, 12);
@@ -3910,16 +5001,19 @@ mod tests {
             penalty(PenaltyType::Circumstance, -2, 1, Statistic::Attack),
             penalty(PenaltyType::Untyped, -3, 2, Statistic::Damage),
         ];
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(8, Agility::NotAgile, 0, 8, 0),
-                &modifiers,
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &modifiers,
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.total, 18);
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
     }
@@ -3937,20 +5031,24 @@ mod tests {
                 &profile(0, Agility::NotAgile, 0, 8, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("first");
         let modifier = penalty(PenaltyType::Untyped, -5, 1, Statistic::Attack);
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(0, Agility::NotAgile, 0, 8, 0),
-                &[modifier],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("second");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(0, Agility::NotAgile, 0, 8, 0),
+                    &[modifier],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("second"),
+        );
         assert_eq!(outcome.map, -5);
         assert_eq!(outcome.total, 2);
         assert_ne!(outcome.total, 7);
@@ -3970,19 +5068,23 @@ mod tests {
                 &profile(8, Agility::Agile, 0, 8, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("first");
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(8, Agility::Agile, 0, 8, 0),
-                &[],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("second");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::Agile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("second"),
+        );
         assert_eq!(outcome.map, -4);
         assert_eq!(outcome.total, 18);
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
@@ -3998,14 +5100,40 @@ mod tests {
         encounter.start_turn().expect("start");
         let weapon = profile(8, Agility::NotAgile, 0, 8, 0);
         encounter
-            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &weapon,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("first");
         encounter
-            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &weapon,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("second");
-        let outcome = encounter
-            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
-            .expect("third");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &weapon,
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("third"),
+        );
         assert_eq!(outcome.map, -10);
         assert_eq!(outcome.total, 13);
         assert_eq!(outcome.degree, DegreeOfSuccess::Failure);
@@ -4026,6 +5154,7 @@ mod tests {
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("early"),
@@ -4033,16 +5162,19 @@ mod tests {
         );
         assert_eq!(dice.remaining(), 1);
         encounter.start_turn().expect("start");
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(8, Agility::NotAgile, 0, 8, 0),
-                &[],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.map, 0);
         assert_eq!(outcome.total, 18);
     }
@@ -4062,6 +5194,7 @@ mod tests {
                     &profile(8, Agility::NotAgile, 0, 8, 0),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("count"),
@@ -4080,10 +5213,26 @@ mod tests {
         encounter.start_turn().expect("start");
         let weapon = profile(8, Agility::NotAgile, 0, 8, 0);
         encounter
-            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &weapon,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("first");
         encounter
-            .strike(id(1), id(2), &weapon, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &weapon,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("second");
         encounter.end_turn().expect("end");
         assert_eq!(
@@ -4120,16 +5269,19 @@ mod tests {
             &prefix,
         );
         encounter.start_turn().expect("start");
-        let outcome = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(attack, Agility::NotAgile, dice_count, face, bonus),
-                modifiers,
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(attack, Agility::NotAgile, dice_count, face, bonus),
+                    modifiers,
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         (outcome, dice.remaining())
     }
 
@@ -4217,10 +5369,11 @@ mod tests {
             &profile(0, Agility::NotAgile, 1, 8, 4),
             &[],
             ShieldBlock::Declined,
+            &Detections::new(),
             &mut dice,
         );
         assert_ne!(result, Err(EncounterError::HitPoints(HpError::NotAHit)));
-        let outcome = result.expect("short-circuit");
+        let outcome = rolled(result.expect("short-circuit"));
         assert_eq!(outcome.degree, DegreeOfSuccess::Failure);
         assert_eq!(outcome.damage, 0);
         assert_eq!(actions(&encounter, 1), 2);
@@ -4247,10 +5400,11 @@ mod tests {
             &profile(0, Agility::NotAgile, 1, 8, 4),
             &[],
             ShieldBlock::Declined,
+            &Detections::new(),
             &mut dice,
         );
         assert_ne!(result, Err(EncounterError::HitPoints(HpError::NotAHit)));
-        let outcome = result.expect("short-circuit");
+        let outcome = rolled(result.expect("short-circuit"));
         assert_eq!(outcome.degree, DegreeOfSuccess::CriticalFailure);
         assert_eq!(outcome.damage, 0);
         assert_eq!(actions(&encounter, 1), 2);
@@ -4345,6 +5499,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 4),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4368,6 +5523,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 4, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4391,6 +5547,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 4, -5),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4411,6 +5568,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4440,6 +5598,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 4, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4466,6 +5625,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 0, 8, 0),
                     &modifiers,
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("overflow"),
@@ -4496,6 +5656,7 @@ mod tests {
                     &profile(0, Agility::NotAgile, 1, 4, 2_147_483_647),
                     &[],
                     ShieldBlock::Declined,
+                    &Detections::new(),
                     &mut dice,
                 )
                 .expect_err("overflow"),
@@ -4571,6 +5732,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4594,16 +5756,19 @@ mod tests {
             &[14, 10, 20, 4, 20, 1],
         );
         crit_encounter.start_turn().expect("crit start");
-        let crit = crit_encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(0, Agility::NotAgile, 1, 8, 1),
-                &[],
-                ShieldBlock::Declined,
-                &mut crit_dice,
-            )
-            .expect("crit strike");
+        let crit = rolled(
+            crit_encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(0, Agility::NotAgile, 1, 8, 1),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut crit_dice,
+                )
+                .expect("crit strike"),
+        );
         assert_eq!(crit.degree, DegreeOfSuccess::CriticalSuccess);
         assert_eq!(
             vital(&crit_encounter, 2),
@@ -4637,6 +5802,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut inconsistent_dice,
             ),
             Err(EncounterError::HitPoints(HpError::InconsistentVital))
@@ -4668,6 +5834,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 12),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -4832,16 +5999,19 @@ mod tests {
         encounter.raise_shield(id(1)).expect("raise");
         encounter.end_turn().expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
-        let outcome = encounter
-            .strike(
-                id(2),
-                id(1),
-                &profile(0, Agility::NotAgile, 1, 8, 4),
-                &[],
-                ShieldBlock::Requested,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(2),
+                    id(1),
+                    &profile(0, Agility::NotAgile, 1, 8, 4),
+                    &[],
+                    ShieldBlock::Requested,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
         assert_eq!(hit_points(&encounter, 1), 23);
         assert_eq!(
@@ -6177,6 +7347,7 @@ mod tests {
                 &profile(0, Agility::NotAgile, 1, 8, 4),
                 &[],
                 ShieldBlock::Requested,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("strike");
@@ -6253,6 +7424,31 @@ mod tests {
             to_size,
             &attack,
             modifiers,
+            &Detections::new(),
+            dice,
+        )
+    }
+
+    fn react_seen(
+        encounter: &mut Encounter,
+        dice: &mut ScriptedDice,
+        detections: &Detections,
+        attack: StrikeProfile,
+    ) -> Result<ReactiveOutcome, ReactiveError> {
+        encounter.reactive_strike(
+            id(1),
+            id(2),
+            one_action(MANIPULATE),
+            ActionIdentity::Other,
+            None,
+            ReactiveStrike::Available,
+            sq(0, 0),
+            sq(0, 1),
+            Size::Medium,
+            Size::Medium,
+            &attack,
+            &[],
+            detections,
             dice,
         )
     }
@@ -6267,6 +7463,244 @@ mod tests {
             with_reach(pc(1, 0, 20, actor_ac), reach),
             combatant(2, actor_side, 0, actor_hp, actor_ac, false),
         ]
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_natural_5_at_dc_5_then_the_reactive_attack() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 5, 10, 3]);
+        assert_eq!(encounter.turn_open(), None);
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+        )
+        .expect("reactive");
+        let StrikeDelivery::Rolled(strike) = outcome.strike else {
+            panic!("expected a rolled strike, got {outcome:?}");
+        };
+        assert_eq!(strike.degree, DegreeOfSuccess::Success);
+        assert_eq!(strike.total, 18);
+        assert_eq!(strike.map, 0);
+        assert_eq!(strike.damage, 7);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert_eq!(hit_points(&encounter, 2), 13);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(
+            detections.get(id(1), id(2)),
+            Relation {
+                detection: Detection::Observed,
+                concealment: Concealment::Concealed,
+            }
+        );
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_natural_4_at_dc_5_loses_the_reactive_strike() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 4, 10, 3]);
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert!(reaction(&encounter, 1));
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 1, 8, 4),
+        )
+        .expect("lost");
+        let lost = lost(outcome.strike);
+        assert_eq!(lost.natural, 4);
+        assert_eq!(lost.dc, 5);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert_eq!(outcome.disruption, Disruption::NotDisrupted);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(actions(&encounter, 1), 0);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(hit_points(&encounter, 2), 20);
+        assert_eq!(dice.remaining(), 2);
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 444, Hidden.
+    #[test]
+    fn a_natural_10_at_dc_11_loses_the_reactive_strike() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Hidden,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 12]);
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect("lost");
+        let lost = lost(outcome.strike);
+        assert_eq!(lost.natural, 10);
+        assert_eq!(lost.dc, 11);
+        assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(hit_points(&encounter, 2), 20);
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 444, Hidden. Player Core pg. 442, Concealed.
+    #[test]
+    fn hidden_and_concealed_use_one_dc_11_roll() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Hidden,
+            Concealment::Concealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 20]);
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect("lost");
+        let lost = lost(outcome.strike);
+        assert_eq!(lost.natural, 10);
+        assert_eq!(lost.dc, 11);
+        assert_eq!(dice.remaining(), 1);
+        assert!(!reaction(&encounter, 1));
+        assert_eq!(hit_points(&encounter, 2), 20);
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 402, "Multiple Attack Penalty".
+    #[test]
+    fn a_lost_reactive_strike_does_not_count_toward_map() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) = begin(
+            vec![
+                with_reach(pc(1, 0, 20, 18), 5),
+                pc(2, 0, 20, 18),
+                pc(3, 0, 20, 18),
+            ],
+            &[15, 10, 5, 4, 12, 8],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        encounter.set_attack_count_for_test(id(1), 1);
+        encounter.spend_actions(id(1), 1).expect("spend");
+        assert!(reaction(&encounter, 1));
+        let outcome = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect("lost");
+        assert!(matches!(outcome.strike, StrikeDelivery::Lost(_)));
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+        let strike = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(3),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
+        assert_eq!(strike.natural, 12);
+        assert_eq!(strike.map, -5);
+        assert_eq!(strike.total, 15);
+        assert_ne!(strike.map, -10);
+        assert_ne!(strike.total, 11);
+        assert_eq!(strike.degree, DegreeOfSuccess::Failure);
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(actions(&encounter, 1), 1);
+        assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
+    }
+
+    /// Player Core pg. 447, Undetected. Player Core pg. 138, "Reactive Strike".
+    #[test]
+    fn an_undetected_actor_cannot_be_the_target() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 11]);
+        let error = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect_err("undetected");
+        assert_eq!(error, ReactiveError::CannotTarget);
+        assert_ne!(error, ReactiveError::NoReaction);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 138, "Reactive Strike". Player Core pg. 447, Undetected.
+    #[test]
+    fn no_reaction_beats_an_undetected_actor() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 11]);
+        encounter.spend_reaction(id(1)).expect("spend");
+        let error = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 0, 8, 0),
+        )
+        .expect_err("spent");
+        assert_eq!(error, ReactiveError::NoReaction);
+        assert_ne!(error, ReactiveError::CannotTarget);
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core, "Reactive Strike".
@@ -6296,11 +7730,11 @@ mod tests {
         let first = run();
         let second = run();
         assert_eq!(first, second);
-        assert_eq!(first.strike.natural, 10);
-        assert_eq!(first.strike.total, 18);
-        assert_eq!(first.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(first.strike.map, 0);
-        assert_eq!(first.strike.damage, 7);
+        assert_eq!(delivered(&first).natural, 10);
+        assert_eq!(delivered(&first).total, 18);
+        assert_eq!(delivered(&first).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&first).map, 0);
+        assert_eq!(delivered(&first).damage, 7);
         assert_eq!(first.disruption, Disruption::NotDisrupted);
     }
 
@@ -6329,10 +7763,10 @@ mod tests {
             &[],
         )
         .expect("manipulate");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.total, 18);
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).total, 18);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert_eq!(hit_points(&encounter, 2), 13);
         assert!(!reaction(&encounter, 1));
@@ -6364,9 +7798,9 @@ mod tests {
             &[],
         )
         .expect("move");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert!(!reaction(&encounter, 1));
         assert_eq!(actions(&encounter, 1), 0);
@@ -6395,9 +7829,9 @@ mod tests {
             &[],
         )
         .expect("ranged");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert!(!reaction(&encounter, 1));
         assert_eq!(actions(&encounter, 1), 0);
@@ -6426,9 +7860,9 @@ mod tests {
             &[],
         )
         .expect("same side");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert_eq!(hit_points(&encounter, 2), 13);
         assert!(!reaction(&encounter, 1));
@@ -6456,8 +7890,8 @@ mod tests {
             &[],
         )
         .expect("one outcome");
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert_eq!(hit_points(&encounter, 2), 13);
         assert!(!reaction(&encounter, 1));
@@ -6485,9 +7919,9 @@ mod tests {
             &[],
         )
         .expect("free manipulate");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert!(!reaction(&encounter, 1));
         assert_eq!(actions(&encounter, 1), 0);
@@ -6817,8 +8251,8 @@ mod tests {
             &[],
         )
         .expect("diagonal");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert!(!reaction(&encounter, 1));
     }
 
@@ -6905,7 +8339,7 @@ mod tests {
             &[],
         )
         .expect("first");
-        assert_eq!(first.strike.damage, 7);
+        assert_eq!(delivered(&first).damage, 7);
         assert_eq!(hit_points(&encounter, 2), 13);
         let error = react(
             &mut encounter,
@@ -7014,8 +8448,8 @@ mod tests {
         assert_eq!(actions(&encounter, 1), 3);
         assert_eq!(encounter.turn_open(), Some(id(1)));
         assert!(!reaction(&encounter, 1));
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(hit_points(&encounter, 2), 13);
     }
 
@@ -7044,7 +8478,7 @@ mod tests {
         )
         .expect("off turn");
         assert_eq!(actions(&encounter, 1), 0);
-        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(delivered(&outcome).map, 0);
         assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
         assert!(!reaction(&encounter, 1));
         assert_eq!(encounter.turn_open(), Some(id(2)));
@@ -7058,10 +8492,26 @@ mod tests {
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         let miss = profile(8, Agility::NotAgile, 0, 8, 0);
         encounter
-            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &miss,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("first");
         encounter
-            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &miss,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("second");
         encounter.end_turn().expect("end");
         assert_eq!(encounter.start_turn().expect("next"), id(2));
@@ -7085,7 +8535,7 @@ mod tests {
             &[],
         )
         .expect("off turn");
-        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(delivered(&outcome).map, 0);
         assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
         assert_eq!(actions(&encounter, 1), 0);
         assert_eq!(encounter.turn_open(), Some(id(2)));
@@ -7099,10 +8549,26 @@ mod tests {
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         let miss = profile(8, Agility::NotAgile, 0, 8, 0);
         encounter
-            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &miss,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("first");
         encounter
-            .strike(id(1), id(2), &miss, &[], ShieldBlock::Declined, &mut dice)
+            .strike(
+                id(1),
+                id(2),
+                &miss,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
             .expect("second");
         assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
         assert_eq!(actions(&encounter, 1), 1);
@@ -7124,12 +8590,12 @@ mod tests {
             &modifiers,
         )
         .expect("agile reaction");
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.total, 24);
-        assert_ne!(outcome.strike.total, 16);
-        assert_ne!(outcome.strike.total, 14);
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).total, 24);
+        assert_ne!(delivered(&outcome).total, 16);
+        assert_ne!(delivered(&outcome).total, 14);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
         assert_eq!(actions(&encounter, 1), 1);
     }
@@ -7147,6 +8613,7 @@ mod tests {
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("first");
@@ -7169,19 +8636,22 @@ mod tests {
             &[],
         )
         .expect("reaction");
-        assert_eq!(outcome.strike.map, 0);
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).map, 0);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
-        let follow = encounter
-            .strike(
-                id(1),
-                id(2),
-                &profile(8, Agility::NotAgile, 0, 8, 0),
-                &[],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("follow");
+        let follow = rolled(
+            encounter
+                .strike(
+                    id(1),
+                    id(2),
+                    &profile(8, Agility::NotAgile, 0, 8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("follow"),
+        );
         assert_eq!(follow.map, -5);
         assert_eq!(follow.total, 15);
         assert_ne!(follow.map, -10);
@@ -7215,9 +8685,9 @@ mod tests {
             &[],
         )
         .expect("crit");
-        assert_eq!(outcome.strike.total, 25);
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(delivered(&outcome).total, 25);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(delivered(&outcome).damage, 14);
         assert_eq!(outcome.disruption, Disruption::Disrupted);
         assert_eq!(hit_points(&encounter, 2), 6);
         assert_eq!(actions(&encounter, 2), 2);
@@ -7247,8 +8717,8 @@ mod tests {
             &[],
         )
         .expect("move crit");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(delivered(&outcome).damage, 14);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert!(!reaction(&encounter, 1));
     }
@@ -7274,8 +8744,8 @@ mod tests {
             &[],
         )
         .expect("ranged crit");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
-        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(delivered(&outcome).damage, 14);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
     }
 
@@ -7300,10 +8770,10 @@ mod tests {
             &[],
         )
         .expect("natural 20");
-        assert_eq!(outcome.strike.total, 20);
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Success);
-        assert_eq!(outcome.strike.damage, 7);
-        assert_ne!(outcome.strike.damage, 14);
+        assert_eq!(delivered(&outcome).total, 20);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Success);
+        assert_eq!(delivered(&outcome).damage, 7);
+        assert_ne!(delivered(&outcome).damage, 14);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert_eq!(hit_points(&encounter, 2), 13);
         assert_eq!(vital(&encounter, 1), Vital::Alive);
@@ -7562,7 +9032,7 @@ mod tests {
             &[],
         )
         .expect("temp");
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(temp_hp(&encounter, 2), 0);
         assert_eq!(hit_points(&encounter, 2), 18);
         assert_eq!(wounded(&encounter, 2), 0);
@@ -7598,7 +9068,7 @@ mod tests {
             &[],
         )
         .expect("temp rounds");
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(temp_hp(&encounter, 2), 0);
         assert_eq!(hit_points(&encounter, 2), 18);
         assert_eq!(encounter.state(id(2)).expect("state").temp_rounds, 0);
@@ -7625,14 +9095,14 @@ mod tests {
             &[],
         )
         .expect("miss");
-        assert_eq!(outcome.strike.total, 9);
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::Failure);
-        assert_eq!(outcome.strike.damage, 0);
+        assert_eq!(delivered(&outcome).total, 9);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::Failure);
+        assert_eq!(delivered(&outcome).damage, 0);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert_eq!(dice.remaining(), 1);
         assert_eq!(hit_points(&encounter, 2), 20);
         assert!(!reaction(&encounter, 1));
-        assert_eq!(outcome.strike.map, 0);
+        assert_eq!(delivered(&outcome).map, 0);
     }
 
     /// Player Core, Strike.
@@ -7656,8 +9126,8 @@ mod tests {
             &[],
         )
         .expect("crit miss");
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalFailure);
-        assert_eq!(outcome.strike.damage, 0);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::CriticalFailure);
+        assert_eq!(delivered(&outcome).damage, 0);
         assert_eq!(outcome.disruption, Disruption::NotDisrupted);
         assert_eq!(dice.remaining(), 1);
         assert_eq!(hit_points(&encounter, 2), 20);
@@ -7689,7 +9159,7 @@ mod tests {
             &[],
         )
         .expect("knockout");
-        assert_eq!(outcome.strike.damage, 14);
+        assert_eq!(delivered(&outcome).damage, 14);
         assert_eq!(hit_points(&encounter, 2), 0);
         assert_eq!(
             vital(&encounter, 2),
@@ -7736,7 +9206,7 @@ mod tests {
             &[],
         )
         .expect("shield");
-        assert_eq!(outcome.strike.damage, 7);
+        assert_eq!(delivered(&outcome).damage, 7);
         assert_eq!(hit_points(&encounter, 2), 13);
         assert_eq!(
             encounter.state(id(2)).expect("state").shield_hit_points,
@@ -7990,8 +9460,8 @@ mod tests {
             &[],
         )
         .expect("fits");
-        assert_eq!(outcome.strike.total, 2_147_483_647);
-        assert_eq!(outcome.strike.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(delivered(&outcome).total, 2_147_483_647);
+        assert_eq!(delivered(&outcome).degree, DegreeOfSuccess::CriticalSuccess);
         assert!(!reaction(&encounter, 1));
     }
 
@@ -8056,6 +9526,36 @@ mod tests {
             as_damage_overflow(error),
             ReactiveError::DamageOverflow(ModifierError::Overflow)
         );
+    }
+
+    /// Player Core, "Reactive Strike". Player Core, "Damage Rolls". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_concealed_damage_total_that_does_not_fit_consumes_three_dice() {
+        let detections = relate(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 5, 10, 1, 4]);
+        let error = react_seen(
+            &mut encounter,
+            &mut dice,
+            &detections,
+            profile(8, Agility::NotAgile, 1, 8, 2_147_483_647),
+        )
+        .expect_err("damage overflow");
+        assert_eq!(
+            error,
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        );
+        assert_eq!(dice.remaining(), 1);
+        assert_eq!(dice.d20(), 4);
+        assert!(reaction(&encounter, 1));
+        assert_eq!(hit_points(&encounter, 2), 20);
     }
 
     mod delay_ready_tests;

@@ -925,16 +925,19 @@ fn a_save_after_a_strike_is_not_a_strike() {
     let defender = alive(2, 30, fort(1, 0, Proficiency::Untrained));
     let (mut encounter, mut dice) = begin(vec![striker, defender], &[10, 8, 11, 8, 15]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
-    let strike = encounter
-        .strike(
-            id(1),
-            id(2),
-            &profile(0, Agility::NotAgile, 1, 8, 0),
-            &[],
-            ShieldBlock::Declined,
-            &mut dice,
-        )
-        .expect("strike");
+    let strike = rolled(
+        encounter
+            .strike(
+                id(1),
+                id(2),
+                &profile(0, Agility::NotAgile, 1, 8, 0),
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
+            .expect("strike"),
+    );
     assert_eq!(strike.total, 11);
     assert_eq!(strike.degree, DegreeOfSuccess::Success);
     assert_eq!(strike.damage, 8);

@@ -24,9 +24,16 @@ const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
 
 const MISSING = "implementation PR missing CHANGELOG bullet";
 const ARCHIVE = "archive commit is not last";
-const LOG = "## [Unreleased]\n\n### Added\n- old\n";
-const NEW_LOG = "## [Unreleased]\n\n### Added\n- old\n- new gate\n";
-const GATE_LOG = "## [Unreleased]\n\n### Added\n- old\n- Record the gate\n";
+const PULL_URL = "https://github.com/fputs/genesis/pull";
+
+function linkedBullet(text, number = 7) {
+  return `- ${text} ([#${number}](${PULL_URL}/${number}))`;
+}
+
+const LOG = `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n`;
+const NEW_LOG = `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n${linkedBullet("new gate")}\n`;
+const GATE_LOG = `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate\n`;
+const LINKED_GATE = `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`;
 const OUTSIDE_LOG = "## [Unreleased]\n\n### Added\n- old\n\n## [0.1.0]\n\n- shipped\n";
 const NO_HEADING = "# Changelog\n\n- old\n";
 const MOVED_BASE =
@@ -37,9 +44,8 @@ const EDITED_BASE = "## [Unreleased]\n\n### Added\n- Record the gate\n";
 const EDITED_HEAD = "## [Unreleased]\n\n### Added\n- Record the gate today\n";
 const FENCED_BULLET = "## [Unreleased]\n\n### Added\n- old\n\n```\n- brand new bullet\n```\n";
 const FENCED_OPEN = "```\n## [Unreleased]\n\n- brand new bullet\n```\n";
-const FENCED_CLOSE =
-  "## [Unreleased]\n\n### Added\n- old\n\n```\n## [0.1.0]\n```\n\n- brand new bullet\n";
-const MAIN_BULLET = "- main only bullet";
+const FENCED_CLOSE = `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n\n\`\`\`\n## [0.1.0]\n\`\`\`\n\n${linkedBullet("brand new bullet")}\n`;
+const MAIN_BULLET = linkedBullet("main only bullet");
 const MAIN_LOG = `${LOG}${MAIN_BULLET}\n`;
 
 function withLog(files) {
@@ -147,7 +153,14 @@ const cases = [
     base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
     head: { "crates/rules/src/lib.rs": "new\n", "CHANGELOG.md": OUTSIDE_LOG },
   }),
-  passing("Any Unreleased list item passes", {
+  passing("An Added bullet linking pull request 7 passes", {
+    base: withLog({ ".github/workflows/pr-hygiene.yml": "old\n" }),
+    head: {
+      ".github/workflows/pr-hygiene.yml": "new\n",
+      "CHANGELOG.md": LINKED_GATE,
+    },
+  }),
+  failing("A bullet with no link fails", [MISSING], {
     base: withLog({ ".github/workflows/pr-hygiene.yml": "old\n" }),
     head: {
       ".github/workflows/pr-hygiene.yml": "new\n",
@@ -798,6 +811,152 @@ const cases = [
       },
     ],
   }),
+  failing("A bullet under an unknown heading fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Notes\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  failing("A bullet that links another pull request fails", [MISSING], {
+    number: 80,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n${linkedBullet("Record the gate", 10)}\n`,
+    },
+  }),
+  passing("A Deprecated bullet linking this pull request passes", {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Deprecated\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  failing("A missing pull request number fails closed", [MISSING], {
+    omitNumber: true,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  failing("A bullet with no category fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  failing("Pull request 8 linking pull 80 fails", [MISSING], {
+    number: 8,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n${linkedBullet("Record the gate", 80)}\n`,
+    },
+  }),
+  failing("A lowercase category heading fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### added\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  failing("A level-four heading does not set the category", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n#### Added\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  passing("A level-four heading does not reset the category", {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n#### Removed\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  failing("The category resets when Unreleased opens", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `### Added\n\n## [Unreleased]\n\n${linkedBullet("old")}\n${linkedBullet("Record the gate")}\n`,
+    },
+  }),
+  passing("A tests-only pull request passes without a bullet", {
+    base: withLog({
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "old\n",
+    }),
+    head: {
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "new\n",
+    },
+  }),
+  passing("The job ignores a tests-only bullet heading", {
+    base: withLog({
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "old\n",
+    }),
+    head: {
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Fixed\n${linkedBullet("old")}\n- tests only\n`,
+    },
+  }),
+  failing(
+    "A ready tests-only pull request naming an active own change fails archive-last",
+    [ARCHIVE],
+    {
+      draft: false,
+      body: "OpenSpec-Change: add-foo",
+      base: withLog({
+        "crates/rules/src/encounter/tests/delay_ready_tests.rs": "old\n",
+        "openspec/changes/add-foo/proposal.md": "proposal\n",
+      }),
+      head: {
+        "crates/rules/src/encounter/tests/delay_ready_tests.rs": "new\n",
+      },
+    },
+  ),
+  failing("A tests helper file is not tests-only", [MISSING], {
+    base: withLog({ "crates/x/tests_helper.rs": "old\n" }),
+    head: { "crates/x/tests_helper.rs": "new\n" },
+  }),
+  failing("A tests path outside crates is not tests-only", [MISSING], {
+    base: withLog({ "scripts/tests/note.mjs": "old\n" }),
+    head: { "scripts/tests/note.mjs": "new\n" },
+  }),
+  failing("A mixed tests and src diff needs a bullet", [MISSING], {
+    base: withLog({
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "old\n",
+      "crates/rules/src/lib.rs": "old\n",
+    }),
+    head: {
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "new\n",
+      "crates/rules/src/lib.rs": "new\n",
+    },
+  }),
+  failing("An http link fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate ([#7](http://github.com/fputs/genesis/pull/7))\n`,
+    },
+  }),
+  failing("A non-integer pull request number fails closed", [MISSING], {
+    number: 7.5,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate ([#7](https://github.com/fputs/genesis/pull/7.5))\n`,
+    },
+  }),
+  passing("A bullet linking pull 80 then pull 8 passes", {
+    number: 8,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate (https://github.com/fputs/genesis/pull/80) (https://github.com/fputs/genesis/pull/8)\n`,
+    },
+  }),
   failing("A missing path uses C-locale git text", [MISSING], {
     gitStub: "locale",
     excludes: [ARCHIVE, "chemin inexistant"],
@@ -1347,34 +1506,31 @@ function spawnScript(built, row) {
     env.PR_HYGIENE_ACTION = "opened";
   }
 
-  const wantsPayload =
-    row.invalidPayload ||
-    row.usePayloadForShas ||
-    row.usePayloadForBody ||
-    row.draft !== undefined ||
-    (row.labels ?? []).length > 0;
-  if (wantsPayload) {
-    const payloadPath = join(built.dir, "event.json");
-    if (row.invalidPayload) {
-      writeFileSync(payloadPath, "{");
-    } else {
-      writeFileSync(
-        payloadPath,
-        JSON.stringify({
-          action: row.action ?? "opened",
-          pull_request: {
-            number: 7,
-            body: row.body ?? "",
-            ...(row.draft !== undefined ? { draft: row.draft } : {}),
-            base: { sha: built.baseSha },
-            head: { sha: built.headSha },
-            labels: (row.labels ?? []).map((name) => ({ name })),
-          },
-        }),
-      );
+  const payloadPath = join(built.dir, "event.json");
+  if (row.invalidPayload) {
+    writeFileSync(payloadPath, "{");
+  } else {
+    const pullRequest = {
+      body: row.body ?? "",
+      ...(row.draft !== undefined ? { draft: row.draft } : {}),
+      labels: (row.labels ?? []).map((name) => ({ name })),
+    };
+    if (!row.omitNumber) {
+      pullRequest.number = row.number ?? 7;
     }
-    env.GITHUB_EVENT_PATH = payloadPath;
+    if (row.usePayloadForShas) {
+      pullRequest.base = { sha: built.baseSha };
+      pullRequest.head = { sha: built.headSha };
+    }
+    writeFileSync(
+      payloadPath,
+      JSON.stringify({
+        action: row.action ?? "opened",
+        pull_request: pullRequest,
+      }),
+    );
   }
+  env.GITHUB_EVENT_PATH = payloadPath;
 
   if (!row.usePayloadForShas && !row.omitBaseSha) {
     env.PR_HYGIENE_BASE_SHA = built.baseSha;

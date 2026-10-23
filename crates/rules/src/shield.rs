@@ -246,11 +246,22 @@ mod tests {
         BuildParts, CharacterBuild, CombatantId, DieCount, DyingValue, MeleeStrike, ReachFeet,
         ShieldTemplate, Vital, derive, new_combatant_state,
     };
+    use crate::detection::Detections;
     use crate::dice::{Faces, ScriptedDice};
     use crate::dying::start_of_turn;
-    use crate::encounter::{Agility, Encounter, EncounterError, Participant, Side, StrikeProfile};
+    use crate::encounter::{
+        Agility, Encounter, EncounterError, Participant, Side, StrikeDelivery, StrikeOutcome,
+        StrikeProfile,
+    };
     use crate::modifiers::{BonusType, Cover, ModifierTotal, Statistic};
     use crate::positioning::{AttackKind, CoverBenefit, OffGuard, armor_class};
+
+    fn rolled(delivery: StrikeDelivery) -> StrikeOutcome {
+        match delivery {
+            StrikeDelivery::Rolled(outcome) => outcome,
+            StrikeDelivery::Lost(lost) => panic!("expected a rolled strike, lost {lost:?}"),
+        }
+    }
 
     fn id(value: u32) -> CombatantId {
         CombatantId(value)
@@ -1537,6 +1548,7 @@ mod tests {
                 &profile(8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("drop to 0");
@@ -1604,16 +1616,19 @@ mod tests {
         encounter.raise_shield(id(1)).expect("raise");
         encounter.end_turn().expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
-        let outcome = encounter
-            .strike(
-                id(2),
-                id(1),
-                &profile(8, 4),
-                &[],
-                ShieldBlock::Requested,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(2),
+                    id(1),
+                    &profile(8, 4),
+                    &[],
+                    ShieldBlock::Requested,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
         let state = encounter.state(id(1)).expect("state");
         assert_eq!(state.hit_points, 23);
@@ -1635,16 +1650,19 @@ mod tests {
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.end_turn().expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
-        let outcome = encounter
-            .strike(
-                id(2),
-                id(1),
-                &profile(8, 0),
-                &[],
-                ShieldBlock::Declined,
-                &mut dice,
-            )
-            .expect("strike");
+        let outcome = rolled(
+            encounter
+                .strike(
+                    id(2),
+                    id(1),
+                    &profile(8, 0),
+                    &[],
+                    ShieldBlock::Declined,
+                    &Detections::new(),
+                    &mut dice,
+                )
+                .expect("strike"),
+        );
         assert_eq!(outcome.degree, DegreeOfSuccess::Success);
         let state = encounter.state(id(1)).expect("state");
         assert_eq!(state.hit_points, 12);
@@ -1670,6 +1688,7 @@ mod tests {
                 &profile(8, 0),
                 &[],
                 ShieldBlock::Requested,
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("not raised");
@@ -1701,6 +1720,7 @@ mod tests {
                 &profile(8, 1),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect("first");
@@ -1711,6 +1731,7 @@ mod tests {
                 &profile(8, 1),
                 &[],
                 ShieldBlock::Requested,
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("dying");

@@ -215,6 +215,10 @@ pub struct TargetingResult {
     pub dc: Option<i32>,
     /// The numeric degree, or nothing when no die was drawn. Player Core pg. 400, "Checks (Flat Checks)".
     pub degree: Option<DegreeOfSuccess>,
+    /// The flat-check face, or nothing when no die was drawn.
+    ///
+    /// Player Core pg. 400, "Checks (Flat Checks)".
+    pub natural: Option<u8>,
     /// A failed concealed or hidden flat check still uses the action. This module does not spend it.
     ///
     /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
@@ -383,6 +387,7 @@ pub fn resolve_targeting(
         affected,
         dc: Some(roll.dc),
         degree: Some(roll.degree),
+        natural: roll.natural,
         action_spent: !affected,
         counts_for_map: !affected,
     })
@@ -661,6 +666,7 @@ fn untargeted() -> TargetingResult {
         affected: true,
         dc: None,
         degree: None,
+        natural: None,
         action_spent: false,
         counts_for_map: false,
     }
@@ -1159,6 +1165,87 @@ mod tests {
         assert!(result.affected);
         assert!(!result.action_spent);
         assert!(!result.counts_for_map);
+    }
+
+    /// Player Core pg. 400, "Checks (Flat Checks)". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_natural_4_at_dc_5_reports_that_face() {
+        let detections = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (result, dice) = run_target(&detections, 1, 2, false, &[4]);
+        let result = result.expect("flat check");
+        assert_eq!(result.natural, Some(4));
+        assert_eq!(result.dc, Some(5));
+        assert_eq!(result.degree, Some(DegreeOfSuccess::Failure));
+        assert!(!result.affected);
+        assert!(result.action_spent);
+        assert!(result.counts_for_map);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core pg. 400, "Checks (Flat Checks)". Player Core pg. 442, Concealed.
+    #[test]
+    fn a_natural_5_at_dc_5_reports_that_face() {
+        let detections = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        );
+        let (result, dice) = run_target(&detections, 1, 2, false, &[5]);
+        let result = result.expect("flat check");
+        assert_eq!(result.natural, Some(5));
+        assert_eq!(result.dc, Some(5));
+        assert_eq!(result.degree, Some(DegreeOfSuccess::Success));
+        assert!(result.affected);
+        assert!(!result.action_spent);
+        assert!(!result.counts_for_map);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Player Core pg. 400, "Checks (Flat Checks)". Player Core pg. 442, Concealed.
+    #[test]
+    fn an_observed_target_reports_no_face() {
+        let detections = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::NotConcealed,
+            None,
+        );
+        let (result, dice) = run_target(&detections, 1, 2, false, &[4]);
+        let result = result.expect("no roll");
+        assert!(result.affected);
+        assert_eq!(result.natural, None);
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 400, "Checks (Flat Checks)". Player Core pg. 447, Undetected.
+    #[test]
+    fn an_undetected_target_reports_no_face() {
+        let detections = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Undetected,
+            Concealment::NotConcealed,
+            Some(17),
+        );
+        let (result, dice) = run_target(&detections, 1, 2, false, &[11]);
+        assert_eq!(
+            result.expect_err("cannot target"),
+            DetectionError::CannotTarget
+        );
+        assert_eq!(dice.remaining(), 1);
     }
 
     /// Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".

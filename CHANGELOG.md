@@ -25,11 +25,13 @@ v1 history lives on the `v1-reference` branch.
 - Pull-request hygiene job `pr-hygiene` (`scripts/pr-hygiene.mjs`, `.github/workflows/pr-hygiene.yml`). An implementation pull request must add a bullet under `## [Unreleased]`, and when a named OpenSpec change is removed the archive commit must be last. ([#23](https://github.com/fputs/genesis/pull/23))
 - Dice, checks, and creature templates: injected dice, degree of success, flat checks, the multiple attack penalty, and a character build that derives a creature from its validated base. Folding a later contribution returns an error when the list is empty, the damage die cannot be stored, or a sum overflows. ([#7](https://github.com/fputs/genesis/pull/7))
 - Spec-drift CI check (`scripts/spec-drift-check.mjs`), now run in `ci.yml` with its tests. It gates OpenSpec validation and flags completed changes that haven't been archived. Any PR that touches code or `.github/workflows/**` must also reference an OpenSpec change id with `OpenSpec-Change:`. ([#10](https://github.com/fputs/genesis/pull/10))
-- `openspec/specs/spec-drift-check` spec, archived from the add-spec-drift-check change.
+- `openspec/specs/spec-drift-check` spec, archived from the add-spec-drift-check change. ([#10](https://github.com/fputs/genesis/pull/10))
 
 ### Changed
 
 - **BREAKING:** A creature build carries optional `saves` training, and `Statistic` adds Fortitude and Will. ([#81](https://github.com/fputs/genesis/pull/81))
+- **BREAKING:** Strike, Reactive Strike, and a readied Strike roll the targeting flat check before the attack roll. A lost Strike returns `StrikeDelivery::Lost` and does not roll the attack d20. ([#83](https://github.com/fputs/genesis/pull/83))
+- pr-hygiene accepts a new Unreleased bullet only when it sits under Added, Changed, Deprecated, Removed, Fixed, or Security and links that pull request, and it skips the bullet when every other changed path is a crate test. ([#76](https://github.com/fputs/genesis/pull/76))
 - **BREAKING:** Preparing Aid accepts an unconscious or dying ally and rejects a dead ally. The reaction against a dead ally is rejected and does not spend the reaction. The reaction is spent only when the ally attempts the check. ([#75](https://github.com/fputs/genesis/pull/75))
 - A failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither. ([#69](https://github.com/fputs/genesis/pull/69))
 - A readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved. ([#64](https://github.com/fputs/genesis/pull/64))
