@@ -16,9 +16,9 @@ A change is split across a spec pull request and a later implementation pull req
 
 - The job compares that hash to the tree at the sha in the latest allowed review. It re-runs on `pull_request` and `pull_request_review`. The check context name is `spec-approved`. A pull request with no code path is exempt, by the same rule as `isCodePath`.
 
-- The script and the authors file are read from the base sha. The head is only the diff and the hash. Authors match GitHub user id `239839957`, not a login. A missing base script passes with `bootstrap: no base script`, which is this pull request.
+- The script and the authors file run from a worktree of `pull_request.base.sha`. The head is only the diff and the hash. Authors match GitHub user id `239839957`. Bootstrap applies only when the base lacks both the script and the workflow file.
 
-- `.github/CODEOWNERS` gives `/openspec/` and `/AGENTS.md` to `@fputs`. It takes effect only after Evan enables code-owner review and makes `spec-approved` required. Both stay out of scope.
+- `.github/CODEOWNERS` gives `/openspec/`, `/AGENTS.md`, `/.github/`, and `/scripts/` to `@fputs`. The workflow file runs from the merge ref. The owner rules hold only after Evan enables required code-owner review through Chief of Staff and makes `spec-approved` required.
 
 - **BREAKING** for the reference check: one `OpenSpec-Refactor:` line plus a kebab roadmap item stands in for `OpenSpec-Change` only when every path starts with `crates/` or is exactly `CHANGELOG.md`, no path is under `openspec/`, and no existing `/tests/` file is modified or removed. Adding a test file is allowed.
 

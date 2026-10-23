@@ -47,7 +47,9 @@ Fences are CommonMark, via `unfencedBody` exported from `scripts/pr-hygiene.mjs`
 
 The list is `GET pulls/{n}/reviews?per_page=100`, following Link `rel=next`. Among allowed user ids, the greatest `submitted_at` wins, then the greatest review id. `updated_at` does not reorder. A newer review from a disallowed id does not displace an allowed one.
 
-The latest allowed review is the only source. A malformed line fails with `spec-approved: approval malformed` and does not fall back. No line there fails with `spec-approved: approval missing` and does not fall back. A missing token, a non-2xx response, or a skipped next page fails with `spec-approved: reviews unavailable`.
+The latest allowed review is the only source. After trim, a line that starts with `spec-approved:` is an attempt. Anything else that is not exactly `spec-approved: ` plus 40 lowercase hex digits is malformed, including a second attempt in the same review. No attempt means missing. A later allowed review with no attempt, such as `LGTM`, cancels an earlier approval. `DISMISSED` and `PENDING` reviews are ignored. An issue comment is ignored.
+
+A missing token, a non-2xx response, or a skipped next page fails with `spec-approved: reviews unavailable`.
 
 The sha must pass `git merge-base --is-ancestor` against `pull_request.head.sha`. A rebase or force-push that drops it fails with `spec-approved: approved sha unavailable`. The digest at that sha must equal the digest at the head.
 
@@ -55,13 +57,17 @@ Alternative considered: issue comments, ordered by `updated_at`. Rejected. Revie
 
 ### 4. The script runs from the base sha
 
-`.github/workflows/spec-approved.yml` is its own workflow so a review does not re-run Cargo. The check context name is `spec-approved`. Concurrency is `spec-approved-${{ github.event.pull_request.number }}` with `cancel-in-progress: true`.
+`.github/workflows/spec-approved.yml` is its own workflow so a review does not re-run Cargo. The job id is `spec-approved`, with no `name:` key and no matrix, so the check context stays that id. Concurrency is `spec-approved-${{ github.event.pull_request.number }}` with `cancel-in-progress: true`.
+
+The workflow file runs from the pull request merge ref, so a pull request can rewrite it. `/.github/` and `/scripts/` are owned by `@fputs`. That guarantee waits on required code-owner review, which Evan turns on through Chief of Staff.
 
 Every event checks out `pull_request.head.sha` and fetches `refs/pull/<n>/head` with full history. A fork gets the read-only token and no secrets, and the same checkout. A failed lookup fails with `spec-approved: pull request unavailable`. Permissions are `contents: read` and `pull-requests: read`. The workflow declares no secrets and does not use `pull_request_target`.
 
-The steps execute `scripts/spec-approved.mjs` and read the authors file from the base sha. `isCodePath` and `unfencedBody` load from the base blobs. The head is only the diff and the hash. A head that adds another user id, and a review from that id, still fails with `spec-approved: approval missing`.
+The base sha is `pull_request.base.sha` from the payload. The steps run `git worktree add $RUNNER_TEMP/base` for that sha, then `node --test` and the script in that tree. The head checkout is the repo root. A head that adds another user id, and a review from that id, still fails with `spec-approved: approval missing`.
 
-When the base has no `scripts/spec-approved.mjs` blob, the job passes and logs `bootstrap: no base script`. It does not run the head's script and does not special-case a change id. That is this pull request, whose base is `main` before the script exists. After merge, the base has the blob and the notice does not apply.
+`scripts/pr-hygiene.mjs` guards `main()` with `runningAsScript()`, the same realpath test `scripts/spec-drift-check.mjs` uses, so importing `unfencedBody` does not run the check.
+
+Bootstrap applies only when that base sha lacks both the script and `.github/workflows/spec-approved.yml`. The job then logs `bootstrap: no base script` and does not run a head copy. Deleting the script, its test, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, or the authors file still needs approval. An open pull request whose base sha predates the merge keeps the bootstrap pass until an event refreshes that base.
 
 Alternative considered: run the head's script. Rejected. The head could replace the allow-list and the program together.
 
@@ -71,7 +77,7 @@ Alternative considered: run the head's script. Rejected. The head could replace 
 
 No merge-base fails with `spec-approved: no merge-base`. No code path, or a pull request that meets the qualifying refactor paths, passes with no review. A conflicting, malformed, or repeated refactor line does not.
 
-Every returned id is hashed. An invalid token fails with `spec-approved: invalid change id`. An unknown id fails with `spec-approved: unknown change <id>`. Zero ids on a non-exempt code path fail with `spec-approved: missing OpenSpec-Change`. A hash difference fails with `spec-approved: spec hash mismatch`.
+Every returned id is hashed against one approved sha. That sha covers all of them. An invalid token fails with `spec-approved: invalid change id`. An unknown id fails with `spec-approved: unknown change <id>`. Zero ids on a non-exempt code path fail with `spec-approved: missing OpenSpec-Change`. A hash difference fails with `spec-approved: spec hash mismatch`.
 
 ### 6. The refactor exemption follows pull request 79
 
@@ -95,7 +101,7 @@ Alternative considered: a free-text item and one `refactor exemption refused` lo
 
 `AGENTS.md` section 1 replaces the two-pull-request sentences and keeps the review, git, and port rules. The config `tasks` rule ends with the sentence in the single-pr-flow spec. The three workflow docs drop "only specs merged to main".
 
-They record two admin steps: Evan enables code-owner review, and Evan makes the `spec-approved` check required. CODEOWNERS does nothing until both are on. This change does not edit branch protection. A small clarification still cites Designer. Because it edits hashed files, `spec-approved` fails until a new review matches.
+They record two admin steps: required code-owner review through Chief of Staff, and the required `spec-approved` check. CODEOWNERS does nothing until both are on. They also say an open pull request whose base sha predates the merge keeps bootstrap until an event refreshes that base. This change does not edit branch protection. A small clarification still cites Designer. Because it edits hashed files, `spec-approved` fails until a new review matches.
 
 ## Risks / Trade-offs
 

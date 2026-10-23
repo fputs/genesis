@@ -8,26 +8,27 @@ The spec-approved check fails a code-path pull request whose spec digest does no
 
 ### Requirement: Spec-approved job
 
-The repository SHALL run a job named `spec-approved` from `.github/workflows/spec-approved.yml` on Node 22. That name SHALL be the check context a required check matches. It SHALL test, then run, the base blobs of `scripts/spec-approved.test.mjs` and `scripts/spec-approved.mjs`. The script SHALL have no npm dependencies. Permissions SHALL be only `contents: read` and `pull-requests: read`. Git children SHALL use `LC_ALL=C`.
+The repository SHALL run a job whose id is `spec-approved` from `.github/workflows/spec-approved.yml` on Node 22, with no `name:` key and no matrix. That id SHALL be the check context a required check matches. It SHALL test, then run, the base copies of `scripts/spec-approved.test.mjs` and `scripts/spec-approved.mjs`. The script SHALL have no npm dependencies. Permissions SHALL be only `contents: read` and `pull-requests: read`. Git children SHALL use `LC_ALL=C`.
 
 #### Scenario: The job tests the base script first
 
 - **GIVEN** `.github/workflows/spec-approved.yml`
 - **WHEN** the job runs and the base sha has `scripts/spec-approved.mjs`
 - **THEN** it uses Node 22
-- **AND** the check run name is `spec-approved`
-- **AND** `node --test` of the base test blob runs before the base script blob
+- **AND** the check context is `spec-approved`
+- **AND** the job has no `name:` key and no matrix
+- **AND** `node --test` from the base worktree runs before the base script
 - **AND** permissions are `contents: read` and `pull-requests: read` only
 - **AND** the workflow declares no secrets
 
 ### Requirement: Events that re-run the job
 
-The job SHALL run on pull_request `opened`, `synchronize`, `reopened`, `edited`, and `ready_for_review` targeting `main`, and on pull_request_review `submitted` and `edited`. It SHALL NOT filter on review state. It SHALL NOT run on `issue_comment` or on push.
+The job SHALL run on pull_request `opened`, `synchronize`, `reopened`, `edited`, and `ready_for_review` targeting `main`, and on pull_request_review `submitted`, `edited`, and `dismissed`. It SHALL NOT run on `issue_comment` or on push.
 
 #### Scenario: A review re-runs the job
 
 - **GIVEN** a pull request targeting `main`
-- **WHEN** a pull request review is submitted or edited in any state
+- **WHEN** a pull request review is submitted, edited, or dismissed
 - **THEN** the `spec-approved` job runs
 
 #### Scenario: An issue comment does not run the job
@@ -82,7 +83,7 @@ The job SHALL use concurrency group `spec-approved-${{ github.event.pull_request
 
 ### Requirement: Base script and authors file
 
-The job SHALL execute `scripts/spec-approved.mjs` from the pull request base sha and SHALL read `openspec/spec-approved-authors.txt` from that sha. It SHALL load `isCodePath` and `unfencedBody` from the base blobs. The head SHALL be used only to diff and to hash. A head edit to the script or the authors file SHALL NOT change the program or the allow-list.
+The base sha SHALL be `pull_request.base.sha` from the payload. The job SHALL run `git worktree add $RUNNER_TEMP/base` for that sha, then `node --test` and `scripts/spec-approved.mjs` from that tree, with the head checkout as the repo root. It SHALL read the authors file, `isCodePath`, and `unfencedBody` from that tree. The head SHALL be used only to diff and to hash. A head edit to the script or the authors file SHALL NOT change the program or the allow-list.
 
 #### Scenario: A head edit to the authors file is ignored
 
@@ -104,11 +105,11 @@ The job SHALL execute `scripts/spec-approved.mjs` from the pull request base sha
 
 ### Requirement: Bootstrap when the base has no script
 
-When the base sha has no blob `scripts/spec-approved.mjs`, the job SHALL pass and SHALL log `bootstrap: no base script`. It SHALL NOT run a copy from the head. The job SHALL NOT special-case a change id. This notice is how this pull request passes before that blob exists on the base.
+Bootstrap SHALL apply only when that base sha lacks both `scripts/spec-approved.mjs` and `.github/workflows/spec-approved.yml`. The job SHALL then pass and log `bootstrap: no base script`, and SHALL NOT run a head copy. If either blob exists, bootstrap SHALL NOT apply. The job SHALL NOT special-case a change id. An open pull request keeps that pass until an event refreshes `pull_request.base.sha` to a commit that has both blobs.
 
 #### Scenario: This pull request bootstraps
 
-- **GIVEN** the base sha has no `scripts/spec-approved.mjs`
+- **GIVEN** the base sha has neither `scripts/spec-approved.mjs` nor `.github/workflows/spec-approved.yml`
 - **AND** the head adds that script
 - **WHEN** the job runs
 - **THEN** the job passes
@@ -154,9 +155,30 @@ The job SHALL take change ids from `changeReferences`. It SHALL import `isCodePa
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: missing OpenSpec-Change`
 
+#### Scenario: No merge-base fails closed
+
+- **GIVEN** a pull request whose base sha and head sha have no merge-base
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: no merge-base`
+
+### Requirement: Approval paths
+
+These paths SHALL require approval the way a code path does: `scripts/spec-approved.mjs`, `scripts/spec-approved.test.mjs`, `scripts/spec-drift-check.mjs`, `scripts/pr-hygiene.mjs`, and `openspec/spec-approved-authors.txt`. A diff that only deletes one or more of them, with no allowed review, SHALL fail with `spec-approved: approval missing`. Any other `scripts/` path SHALL NOT by itself require approval.
+
+#### Scenario: Deleting the approval files fails closed
+
+- **GIVEN** the base sha has both `scripts/spec-approved.mjs` and `.github/workflows/spec-approved.yml`
+- **AND** the diff only deletes those five paths
+- **AND** there is no allowed review
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval missing`
+- **AND** the log does not include `bootstrap: no base script`
+
 ### Requirement: Spec digest
 
-The job SHALL hash `proposal.md`, `design.md` when present, and every blob under `specs/` of the named change at the head and at the approved sha. Paths SHALL be relative to the change directory and sorted by UTF-8 bytes. `tasks.md` and any other file SHALL be omitted. The active directory SHALL be used when it exists, otherwise exactly one archive directory whose stripped id matches. The same bytes SHALL match after an archive move.
+The job SHALL hash `proposal.md`, `design.md` when present, and every blob under `specs/` of the named change at the head and at the approved sha. Paths SHALL be relative to the change directory and sorted by UTF-8 bytes. `tasks.md` and any other file SHALL be omitted. The active directory SHALL be used when it exists, otherwise exactly one archive directory whose stripped id matches. The same bytes SHALL match after an archive move. One approved sha SHALL cover every change id.
 
 #### Scenario: Checking tasks does not change the digest
 
@@ -186,6 +208,14 @@ The job SHALL hash `proposal.md`, `design.md` when present, and every blob under
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: ambiguous change path`
 
+#### Scenario: One sha covers two change ids
+
+- **GIVEN** the body names `add-foo` and `add-bar`, and both changes exist
+- **AND** one allowed review names a sha whose digest matches both ids at that sha and at the head
+- **WHEN** the job runs
+- **THEN** the job passes
+- **AND** a second review is not required
+
 ### Requirement: Spec digest bytes
 
 The digest SHALL be lowercase hex SHA-256. Each hashed file SHALL be encoded as its relative path, a NUL byte, an 8-byte big-endian length, and the raw blob bytes, in sorted path order.
@@ -199,7 +229,7 @@ The digest SHALL be lowercase hex SHA-256. Each hashed file SHALL be encoded as 
 
 ### Requirement: Approval line
 
-After one trailing CR is removed, a line SHALL be valid only when it is exactly `spec-approved: ` plus 40 lowercase hex digits and nothing else. The job SHALL NOT trim. Uppercase hex, a shorter sha, a second space, a missing space, and trailing text SHALL be invalid. Fenced lines SHALL be removed first by pr-hygiene's `unfencedBody`, which the job SHALL import and SHALL NOT reimplement. The pull request body and review line comments SHALL NOT count. Only a `pull_request_review` body SHALL count.
+After one trailing CR is removed and the line is trimmed, a line that starts with case-sensitive `spec-approved:` SHALL be an approval attempt. It SHALL be valid only when that trimmed line is exactly `spec-approved: ` plus 40 lowercase hex digits. Any other attempt SHALL be malformed. No attempt SHALL mean missing. Two attempts in one review SHALL be malformed. Fenced lines SHALL be removed first by pr-hygiene's `unfencedBody`. Only a `pull_request_review` body SHALL count.
 
 #### Scenario: Uppercase hex is invalid
 
@@ -249,6 +279,41 @@ After one trailing CR is removed, a line SHALL be valid only when it is exactly 
 - **AND** the log includes `spec-approved: approval missing`
 - **AND** the fence decision is pr-hygiene's `unfencedBody`
 
+#### Scenario: Trimmed whitespace around an exact line is valid
+
+- **GIVEN** the latest allowed review body is two spaces, then `spec-approved: ` plus 40 lowercase hex digits
+- **AND** the head digest matches that sha
+- **WHEN** the job runs
+- **THEN** the job passes
+
+#### Scenario: A line that is not an attempt is missing
+
+- **GIVEN** the latest allowed review body is `LGTM`
+- **AND** the pull request changes a code path
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval missing`
+- **AND** the log does not include `spec-approved: approval malformed`
+
+#### Scenario: Two approval lines in one review are malformed
+
+- **GIVEN** one allowed review contains two lines that are each `spec-approved: ` plus 40 lowercase hex digits
+- **AND** the pull request changes a code path
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval malformed`
+- **AND** neither line is used
+
+#### Scenario: A newer issue comment is ignored
+
+- **GIVEN** no review contains an approval attempt
+- **AND** user id `239839957` later comments `spec-approved: ` plus 40 lowercase hex digits on the issue
+- **AND** the pull request changes a code path and then synchronizes
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval missing`
+- **AND** the issue comment is not the approval
+
 ### Requirement: Latest allowed review
 
 The job SHALL GET `pulls/{n}/reviews` with `per_page=100` and SHALL follow every Link `rel=next` until none remains. Among reviews whose `user.id` is allowed, the greatest `submitted_at`, then the greatest numeric review id, SHALL be the latest. `updated_at` SHALL NOT order them. A review whose id is not allowed SHALL NOT displace an allowed one. A missing token, a non-2xx response, or a next page that is not fetched SHALL fail with `spec-approved: reviews unavailable`.
@@ -284,12 +349,45 @@ The job SHALL GET `pulls/{n}/reviews` with `per_page=100` and SHALL follow every
 - **THEN** the job passes
 - **AND** the disallowed review is not the approval
 
+#### Scenario: A later review with no approval line cancels
+
+- **GIVEN** an earlier allowed review has a valid line whose digest matches the head
+- **AND** a later allowed review body is `LGTM` or a changes-requested review with no approval attempt
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval missing`
+- **AND** the earlier review is not used
+
 #### Scenario: A truncated review page fails closed
 
 - **GIVEN** the reviews API returns a Link `rel=next` that the job does not fetch
 - **WHEN** the job runs
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: reviews unavailable`
+
+### Requirement: Dismissed and pending reviews
+
+Reviews whose state is `DISMISSED` or `PENDING` SHALL NOT supply the approved sha. A dismissed approval, with no other allowed review line, SHALL fail with `spec-approved: approval missing`.
+
+#### Scenario: A dismissed approval is missing
+
+- **GIVEN** the only allowed review has a valid `spec-approved: ` line
+- **AND** that review's state is `DISMISSED`
+- **AND** the pull request changes a code path
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval missing`
+
+### Requirement: Importing the fence helper
+
+Importing `unfencedBody` SHALL NOT run the hygiene check. The job SHALL import it and SHALL NOT reimplement it. `scripts/pr-hygiene.mjs` SHALL guard `main()` with `runningAsScript()`, as `scripts/spec-drift-check.mjs` does. A test SHALL import the module and assert that the check does not run.
+
+#### Scenario: Importing pr-hygiene has no side effects
+
+- **GIVEN** a test imports `scripts/pr-hygiene.mjs`
+- **WHEN** that import finishes
+- **THEN** `main` does not run
+- **AND** the hygiene check does not read the event or the diff
 
 ### Requirement: Approved sha is an ancestor
 

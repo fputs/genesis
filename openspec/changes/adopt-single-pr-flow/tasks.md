@@ -12,11 +12,11 @@ DevOps does sections 1 and 2 on this branch after user id `239839957` submits a 
 
 - [ ] 2.1 Add `scripts/spec-approved.test.mjs` with one injected-review fixture per scenario in `specs/spec-approved/spec.md`, and no network call, before adding the production script. Verify the file names each of those scenarios.
 
-- [ ] 2.2 Export `unfencedBody` from `scripts/pr-hygiene.mjs` without changing its behavior. Add `scripts/spec-approved.mjs` with no npm dependency. It imports `changeReferences`, `isCodePath`, and `unfencedBody`, hashes as `specs/spec-approved/spec.md` requires, checks `git merge-base --is-ancestor`, and fails closed on the log lines in that spec. Verify `node --check scripts/spec-approved.mjs` and `node --test scripts/spec-approved.test.mjs` both exit 0.
+- [ ] 2.2 Guard `main()` in `scripts/pr-hygiene.mjs` with `runningAsScript()`, as `scripts/spec-drift-check.mjs` does, and export `unfencedBody`. Add a test that importing the module does not run the check. Add `scripts/spec-approved.mjs` with no npm dependency. It imports `changeReferences`, `isCodePath`, and `unfencedBody`, hashes as the spec requires, checks `git merge-base --is-ancestor`, and fails closed on the log lines in that spec. Verify `node --test` for both test files exits 0.
 
-- [ ] 2.3 Add `.github/workflows/spec-approved.yml` and `openspec/spec-approved-authors.txt` whose only id is `239839957`. The job name is `spec-approved`. Run the script and the authors file from the base sha. Check out `pull_request.head.sha` and fetch `refs/pull/<n>/head` with full history. Concurrency group is `spec-approved-${{ github.event.pull_request.number }}`.
+- [ ] 2.3 Add `.github/workflows/spec-approved.yml` whose job id is `spec-approved`, with no `name:` key and no matrix. Add `openspec/spec-approved-authors.txt` whose only id is `239839957`. Check out the head, fetch `refs/pull/<n>/head`, and run `git worktree add $RUNNER_TEMP/base` for `pull_request.base.sha`. Run tests and the script from that worktree. The head checkout is the repo root. Concurrency group is `spec-approved-${{ github.event.pull_request.number }}`.
 
-- [ ] 2.4 Triggers are pull_request and pull_request_review only. Permissions are `contents: read` and `pull-requests: read`, with no secrets. When the base has no script, pass and log `bootstrap: no base script`. Add `.github/CODEOWNERS` giving `/openspec/` and `/AGENTS.md` to `@fputs`. Verify those settings and the two owner rules.
+- [ ] 2.4 Triggers include pull_request_review `dismissed`, and ignore `DISMISSED` and `PENDING` when choosing the latest review. Permissions are `contents: read` and `pull-requests: read`, with no secrets. Bootstrap only when the base lacks both the script and the workflow file. Add `.github/CODEOWNERS` giving `/openspec/`, `/AGENTS.md`, `/.github/`, and `/scripts/` to `@fputs`. Verify those settings.
 
 - [ ] 2.5 In a commit before archive, add an Unreleased bullet for this change under `### Added`, linking this pull request's number. Verify the new bullet contains `https://github.com/fputs/genesis/pull/` plus that number.
 
@@ -26,7 +26,7 @@ DevOps does sections 1 and 2 on this branch after user id `239839957` submits a 
 
 - [ ] 3.2 Set the `tasks` rule in `openspec/config.yaml` to `Every implementation task list ends with the AGENTS.md proof commands and archiving the change right before merge in the same pull request.` Verify that sentence is the rule.
 
-- [ ] 3.3 Update `docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` as `specs/single-pr-flow/spec.md` requires, including the 2026-10-23 revision. List Evan's two admin steps: enable code-owner review, and make the `spec-approved` check required. Verify the test plan no longer says that only specs merged to `main` count. Do not edit GitHub branch protection.
+- [ ] 3.3 Update `docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` as `specs/single-pr-flow/spec.md` requires, including the 2026-10-23 revision. List required code-owner review through Chief of Staff, the required `spec-approved` check, and that older-base pull requests keep bootstrap until an event refreshes their base. Verify the test plan no longer says that only specs merged to `main` count. Do not edit GitHub branch protection.
 
 ## 4. Proof and archive
 

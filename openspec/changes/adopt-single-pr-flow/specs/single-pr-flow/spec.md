@@ -133,7 +133,7 @@ The `tasks` rule in `openspec/config.yaml` SHALL end with archiving the change r
 
 ### Requirement: Workflow docs
 
-`docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` SHALL describe this flow. The decisions note SHALL record a 2026-10-23 revision. It SHALL list two admin steps for Evan: enable code-owner review, and make the `spec-approved` check required. The test plan SHALL NOT say that only specs merged to `main` count. Evan SHALL still not review implementation code.
+`docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` SHALL describe this flow. The decisions note SHALL record a 2026-10-23 revision and two admin steps: required code-owner review through Chief of Staff, and the required `spec-approved` check. Open pull requests whose base sha predates the merge keep bootstrap until an event refreshes their base. The test plan SHALL NOT say that only specs merged to `main` count. Evan SHALL still not review implementation code.
 
 #### Scenario: The docs drop the separate spec pull request
 
@@ -142,11 +142,17 @@ The `tasks` rule in `openspec/config.yaml` SHALL end with archiving the change r
 - **THEN** approval is the `spec-approved: <sha>` review on this pull request
 - **AND** QA reads the change on the pull request head
 - **AND** `docs/qa/test-plan.md` does not say that only specs merged to `main` count
-- **AND** `docs/architect/decisions.md` lists code-owner review and the required `spec-approved` check as Evan's admin steps
+
+#### Scenario: The docs record the admin steps and bootstrap
+
+- **GIVEN** `docs/architect/decisions.md` after this change
+- **WHEN** the 2026-10-23 revision is read
+- **THEN** it lists required code-owner review through Chief of Staff and the required `spec-approved` check
+- **AND** it says an open pull request whose base sha predates the merge keeps bootstrap until an event refreshes that base
 
 ### Requirement: CODEOWNERS
 
-`.github/CODEOWNERS` SHALL give `/openspec/` and `/AGENTS.md` to `@fputs`. No other owner SHALL be set on those paths. CODEOWNERS SHALL take effect only once Evan enables code-owner review and makes the `spec-approved` check required. Both are admin steps. This change SHALL NOT edit GitHub branch protection or rulesets.
+`.github/CODEOWNERS` SHALL give `/openspec/`, `/AGENTS.md`, `/.github/`, and `/scripts/` to `@fputs`. No other owner SHALL be set on those paths. The workflow file runs from the pull request merge ref, so a pull request can rewrite it. Those owner rules hold only once Evan enables required code-owner review, an admin step through Chief of Staff, and makes `spec-approved` required. This change SHALL NOT edit branch protection or a ruleset.
 
 #### Scenario: The two paths are owned by fputs
 
@@ -155,6 +161,15 @@ The `tasks` rule in `openspec/config.yaml` SHALL end with archiving the change r
 - **THEN** `/openspec/` is owned by `@fputs`
 - **AND** `/AGENTS.md` is owned by `@fputs`
 - **AND** neither path has another owner
+
+#### Scenario: Workflow and script paths are owned by fputs
+
+- **GIVEN** `.github/CODEOWNERS` after this change
+- **WHEN** the owner rules are read
+- **THEN** `/.github/` is owned by `@fputs`
+- **AND** `/scripts/` is owned by `@fputs`
+- **AND** the decisions note says the workflow file runs from the merge ref
+- **AND** the code-owner guarantee waits on Evan's required review, through Chief of Staff
 
 #### Scenario: Branch protection is not in the repository change
 
