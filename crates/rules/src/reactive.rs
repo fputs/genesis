@@ -103,6 +103,12 @@ pub enum ReactiveError {
     TargetNotConscious,
     /// The reactor's reaction is not ready. Player Core, "Reactions in Encounters".
     NoReaction,
+    /// The reactor has Delayed and cannot use a reaction yet.
+    ///
+    /// Checked after [`ReactiveError::NotConscious`] and before a reaction is spent.
+    ///
+    /// Player Core, Delay.
+    Delayed,
     /// The attack bonus, the caller modifiers, and 20 do not fit in `i32`.
     ///
     /// Player Core, Penalties.

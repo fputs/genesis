@@ -10,11 +10,12 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Delay, return, and Ready. A stored action and a Reactive Strike on the same trigger resolve in initiative order. ([#70](https://github.com/fputs/genesis/pull/70))
 - Aid preparation on your turn and the Aid reaction against DC 15. ([#68](https://github.com/fputs/genesis/pull/68))
 - Reactive Strike: the in-reach trigger, one reaction, and disruption. ([#66](https://github.com/fputs/genesis/pull/66))
-- Raise a Shield and Shield Block. ([#61](https://github.com/fputs/genesis/pull/61))
-- Seek, Hide, targeting flat checks, and off-guard while hidden or undetected. ([#60](https://github.com/fputs/genesis/pull/60))
-- Dying, recovery checks, temporary Hit Points, and which side has won. ([#57](https://github.com/fputs/genesis/pull/57))
+- Raise a Shield and Shield Block. ([#63](https://github.com/fputs/genesis/pull/63))
+- Seek, Hide, targeting flat checks, and off-guard while hidden or undetected. ([#62](https://github.com/fputs/genesis/pull/62))
+- Dying, recovery checks, temporary Hit Points, and which side has won. ([#59](https://github.com/fputs/genesis/pull/59))
 - Prone, flanking, off-guard, and Take Cover. ([#50](https://github.com/fputs/genesis/pull/50))
 - Initiative, the three-action turn, and Strike. ([#52](https://github.com/fputs/genesis/pull/52))
 - Modifier stacking for circumstance, item, status, and untyped penalties, and a damage minimum of 1 before critical doubling. ([#25](https://github.com/fputs/genesis/pull/25))
@@ -28,7 +29,7 @@ v1 history lives on the `v1-reference` branch.
 
 - A failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither. ([#69](https://github.com/fputs/genesis/pull/69))
 - A readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved. ([#64](https://github.com/fputs/genesis/pull/64))
-- **BREAKING:** `Vital::EnterDying` is replaced by Alive, Unconscious, Dying of 1, 2, or 3, and Dead. ([#57](https://github.com/fputs/genesis/pull/57))
+- **BREAKING:** `Vital::EnterDying` is replaced by Alive, Unconscious, Dying of 1, 2, or 3, and Dead. ([#59](https://github.com/fputs/genesis/pull/59))
 - **BREAKING:** pr-hygiene skips archive-last while a pull request is a draft and fails a ready implementation pull request whose own OpenSpec change is still active. ([#43](https://github.com/fputs/genesis/pull/43))
 - **BREAKING:** A frightened or sickened bonus is rejected at construction. ([#40](https://github.com/fputs/genesis/pull/40))
 - **BREAKING:** Frightened and sickened modifiers with no rank or a non-status type are rejected at construction, and the attack check total's internal terms use reserved sources. ([#37](https://github.com/fputs/genesis/pull/37))
