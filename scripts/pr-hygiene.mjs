@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { changeReferences } from "./spec-drift-check.mjs";
@@ -91,7 +91,7 @@ function nonExemptImplementation(paths) {
   return paths.some(isCodePath) && needsBullet(paths);
 }
 
-function unfencedBody(body) {
+export function unfencedBody(body) {
   // Own-change lines sit outside CommonMark fenced code blocks. An info string
   // opens a block, and a shorter closer leaves the rest fenced. The changelog
   // bullet parser keeps isFence and fails closed.
@@ -610,4 +610,19 @@ function isAllowedArchivePath(filePath, ids) {
   });
 }
 
-main();
+function runningAsScript() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    // spec-approved imports unfencedBody. Loading this file must not read the diff.
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (runningAsScript()) {
+  main();
+}
