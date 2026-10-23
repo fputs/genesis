@@ -916,6 +916,47 @@ const cases = [
       },
     },
   ),
+  failing("A tests helper file is not tests-only", [MISSING], {
+    base: withLog({ "crates/x/tests_helper.rs": "old\n" }),
+    head: { "crates/x/tests_helper.rs": "new\n" },
+  }),
+  failing("A tests path outside crates is not tests-only", [MISSING], {
+    base: withLog({ "scripts/tests/note.mjs": "old\n" }),
+    head: { "scripts/tests/note.mjs": "new\n" },
+  }),
+  failing("A mixed tests and src diff needs a bullet", [MISSING], {
+    base: withLog({
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "old\n",
+      "crates/rules/src/lib.rs": "old\n",
+    }),
+    head: {
+      "crates/rules/src/encounter/tests/delay_ready_tests.rs": "new\n",
+      "crates/rules/src/lib.rs": "new\n",
+    },
+  }),
+  failing("An http link fails", [MISSING], {
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate ([#7](http://github.com/fputs/genesis/pull/7))\n`,
+    },
+  }),
+  failing("A non-integer pull request number fails closed", [MISSING], {
+    number: 7.5,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate ([#7](https://github.com/fputs/genesis/pull/7.5))\n`,
+    },
+  }),
+  passing("A bullet linking pull 80 then pull 8 passes", {
+    number: 8,
+    base: withLog({ "crates/rules/src/lib.rs": "old\n" }),
+    head: {
+      "crates/rules/src/lib.rs": "new\n",
+      "CHANGELOG.md": `## [Unreleased]\n\n### Added\n${linkedBullet("old")}\n- Record the gate (https://github.com/fputs/genesis/pull/80) (https://github.com/fputs/genesis/pull/8)\n`,
+    },
+  }),
   failing("A missing path uses C-locale git text", [MISSING], {
     gitStub: "locale",
     excludes: [ARCHIVE, "chemin inexistant"],
