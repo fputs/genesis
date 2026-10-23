@@ -863,6 +863,7 @@ mod tests {
             aid_modifier: None,
             aid_rank: None,
             uses_dying_rules: None,
+            saves: None,
         };
         let creature = derive(&CharacterBuild::try_new(parts).expect("valid build"));
         let mut state = new_combatant_state(CombatantId(1), &creature);

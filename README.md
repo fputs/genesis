@@ -1,6 +1,6 @@
 # Genesis
 
-Genesis is a game built on a rules engine, with a basic map editor planned for Phase 2. Phase 1 is the rules crate, `crates/rules`. The books those mechanics are derived from are named in the Attribution section of [`NOTICE-ORC.md`](NOTICE-ORC.md).
+Genesis is a game built on a rules engine, with a basic map editor planned for Phase 2. Phase 1 is the rules crate, `crates/rules`. The books those mechanics are derived from are named in the Attribution section of [`LICENSES/ORC-NOTICE`](LICENSES/ORC-NOTICE).
 
 ## Status
 
@@ -66,11 +66,11 @@ npx @fission-ai/openspec@1.14.3 validate --all --strict
 
 ## How changes flow
 
-Work is OpenSpec-first. One change is one procedure family and one pull request.
+Work is OpenSpec-first. One change is one procedure family and one draft pull request.
 
-A spec is its own pull request: proposal, design, tasks, and spec deltas. Designer and QA settle edge cases and tie rulings before coding is dispatched. The spec PR links [`docs/designer/rules-rulings.md`](docs/designer/rules-rulings.md) and does not copy that log. Evan reviews and merges spec pull requests. He reviews specs only.
+The first commit is only the change directory: proposal, design, tasks, and spec deltas. Designer and QA settle edge cases and tie rulings on that pull request before tests or code. The pull request links [`docs/designer/rules-rulings.md`](docs/designer/rules-rulings.md) and does not copy that log. Evan approves the spec only by a pull request review whose body line is `spec-approved: <sha>`. He does not review implementation code.
 
-An implementation pull request follows that approved spec. The body includes `OpenSpec-Change: <id>`. The router wakes Architect once per head SHA after CI finishes. Architect and QA review that head in parallel and post one combined numbered fix list. A red CI check is the send-back. They do not re-check format, the changelog bullet, archive order, or spec drift. Coding agents apply the whole list in one push. After two send-back rounds the PR escalates to Chief of Staff.
+Tests, then the code they cover, are later commits on the same branch. The body includes `OpenSpec-Change: <id>`. There is no second pull request. The router wakes Architect once per head SHA after CI finishes. Architect and QA review that head in parallel and post one combined numbered fix list. A red CI check is the send-back. They do not re-check format, the changelog bullet, archive order, or spec drift. Coding agents apply the whole list in one push. After two send-back rounds the PR escalates to Chief of Staff.
 
 Archive once, as the last commit, only after Architect and QA have both passed the current head:
 
@@ -78,12 +78,18 @@ Archive once, as the last commit, only after Architect and QA have both passed t
 openspec archive <id> --yes
 ```
 
-That commit moves the change under `openspec/changes/archive/` and updates `openspec/specs/`. There is no separate archive pull request. Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff. Architect merges when CI is green after that archive commit. Architect and QA have both passed the head that was archived. Chief of Staff spot-checks merged PRs daily. A small spec clarification is fixed in the implementation PR with a Designer citation. A behavior or scope change goes to Chief of Staff for Evan.
+That commit moves the change under `openspec/changes/archive/` and updates `openspec/specs/`. There is no separate archive pull request. Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff. Architect merges when CI is green after that archive commit. Architect and QA have both passed the head that was archived. Chief of Staff spot-checks merged PRs daily. A small spec clarification is fixed in that pull request, cites Designer, and needs a new `spec-approved: <sha>` review. A behavior or scope change goes to Chief of Staff for Evan.
 
 ## License
 
 Code in this repository is under the MIT License. See [`LICENSE`](LICENSE). Copyright (c) 2026 Evan Burkey.
 
-The mechanics derived from the books listed in the Attribution section of [`NOTICE-ORC.md`](NOTICE-ORC.md), and any new mechanics this product adds, are Licensed Material under the ORC License.
+The mechanics derived from the books listed in the Attribution section of [`LICENSES/ORC-NOTICE`](LICENSES/ORC-NOTICE), and any new mechanics this product adds, are Licensed Material under the ORC License.
 
 Contributors follow the licensing requirements in [`docs/architect/licensing.md`](docs/architect/licensing.md).
+
+## ORC notice
+
+The ORC notice is [`LICENSES/ORC-NOTICE`](LICENSES/ORC-NOTICE).
+
+Genesis does not host player-made campaigns. Creators handle their own distribution and ORC attribution. The bundled campaign follows ORC rules.

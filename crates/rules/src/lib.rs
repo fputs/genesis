@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, Aid, Delay, and Ready.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, Aid, Delay, Ready, and saving throws.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -17,6 +17,7 @@ mod modifiers;
 mod positioning;
 mod reactive;
 mod ready;
+mod save;
 mod shield;
 
 pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank, aid_circumstance_bonus};
@@ -44,8 +45,8 @@ pub use dying::{
     grant_temporary_hit_points, start_of_turn, take_initiative_move,
 };
 pub use encounter::{
-    Agility, Encounter, EncounterError, Participant, Side, StrikeOutcome, StrikeProfile, TurnSlot,
-    begin_encounter,
+    Agility, Encounter, EncounterError, LostStrike, Participant, Side, StrikeDelivery,
+    StrikeOutcome, StrikeProfile, TurnSlot, begin_encounter,
 };
 pub use modifiers::{
     BonusType, ConditionId, Cover, Modifier, ModifierError, ModifierTotal, PenaltyType, SourceId,
@@ -71,6 +72,10 @@ pub use ready::{
     ObservedAction, ReactionField, ReactionPlace, ReactiveStrikeInput, ReadyActivity,
     ReadyEncounter, ReadyError, ReadyStrike, ReadySuccess, ReadyTrigger, ResolvedReaction,
     StoredReady, StrikeRange, ready_cost,
+};
+pub use save::{
+    LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveError, SaveRoll, SavingThrows,
+    basic_save_amount, proficiency_bonus, save_dc, save_modifier,
 };
 pub use shield::{
     AttackBlowError, ShieldBlock, ShieldError, apply_attack_blow, lower_raised_shield,

@@ -1,14 +1,17 @@
 use super::{
     actions, aided, begin, creature, enemy, hit_points, id, initiative, order_of, participant, pc,
-    profile, reaction, set_prepared, take_report, temp_hp, vital,
+    profile, reaction, rolled, set_prepared, take_report, temp_hp, vital,
 };
 use crate::aid::{AidPreparation, AidRank};
 use crate::check::DegreeOfSuccess;
 use crate::combatant::{BuildParts, CharacterBuild, DieCount, MeleeStrike, ReachFeet, derive};
 use crate::combatant::{DyingValue, ShieldTemplate, Vital};
+use crate::detection::{Concealment, Detection, Detections, Relation, note_strike};
 use crate::dice::Faces;
 use crate::dice::ScriptedDice;
-use crate::encounter::{Agility, Encounter, EncounterError, Side, TurnSlot};
+use crate::encounter::{
+    Agility, Encounter, EncounterError, LostStrike, Side, StrikeDelivery, TurnSlot,
+};
 use crate::grid::{
     DiagonalCounter, FactionId, GridError, MapBounds, MoveInput, Size, Square,
     stride as grid_stride,
@@ -170,6 +173,7 @@ fn offer(
         path,
         &field,
         &[],
+        &Detections::new(),
         dice,
     )
 }
@@ -199,6 +203,7 @@ fn offer_cover(
         path,
         &field,
         &[],
+        &Detections::new(),
         dice,
     )
 }
@@ -222,6 +227,7 @@ fn slow(value: u32) -> crate::encounter::Participant {
         aid_modifier: None,
         aid_rank: None,
         uses_dying_rules: Some(false),
+        saves: None,
     };
     participant(
         value,
@@ -242,6 +248,56 @@ fn strike_numbers(resolved: &[ResolvedReaction]) -> ReadyStrike {
         Ok(ReadySuccess::Strike(strike)) => *strike,
         other => panic!("expected a strike, got {other:?}"),
     }
+}
+
+fn lost_ready(resolved: &[ResolvedReaction]) -> LostStrike {
+    match one(resolved) {
+        Ok(ReadySuccess::Lost(lost)) => *lost,
+        other => panic!("expected a lost strike, got {other:?}"),
+    }
+}
+
+fn relate(
+    detections: Detections,
+    observer: u32,
+    subject: u32,
+    detection: Detection,
+    concealment: Concealment,
+    stealth_dc: Option<i32>,
+) -> Detections {
+    detections
+        .store(
+            id(observer),
+            id(subject),
+            Relation {
+                detection,
+                concealment,
+            },
+            stealth_dc,
+        )
+        .expect("relation")
+}
+
+fn fire_seen(
+    encounter: &mut Encounter,
+    actor: u32,
+    detections: &Detections,
+    dice: &mut ScriptedDice,
+) -> Vec<ResolvedReaction> {
+    let laid = places(actor, sq(0, 1), None);
+    let field = grid(&laid);
+    encounter.resolve_reactions(
+        id(actor),
+        ObservedAction::Strike,
+        cost(1),
+        sq(0, 1),
+        sq(0, 1),
+        &[],
+        &field,
+        &[],
+        detections,
+        dice,
+    )
 }
 
 fn dying_at(value: i32) -> Vital {
@@ -841,10 +897,26 @@ fn the_first_strike_after_return_has_no_penalty() {
     open(&mut encounter, 1);
     let swing = profile(8, Agility::NotAgile, 0, 8, 0);
     encounter
-        .strike(id(1), id(2), &swing, &[], ShieldBlock::Declined, &mut dice)
+        .strike(
+            id(1),
+            id(2),
+            &swing,
+            &[],
+            ShieldBlock::Declined,
+            &Detections::new(),
+            &mut dice,
+        )
         .expect("first");
     encounter
-        .strike(id(1), id(2), &swing, &[], ShieldBlock::Declined, &mut dice)
+        .strike(
+            id(1),
+            id(2),
+            &swing,
+            &[],
+            ShieldBlock::Declined,
+            &Detections::new(),
+            &mut dice,
+        )
         .expect("second");
     close(&mut encounter);
     open(&mut encounter, 2);
@@ -854,9 +926,19 @@ fn the_first_strike_after_return_has_no_penalty() {
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
-    let outcome = encounter
-        .strike(id(1), id(2), &swing, &[], ShieldBlock::Declined, &mut dice)
-        .expect("return strike");
+    let outcome = rolled(
+        encounter
+            .strike(
+                id(1),
+                id(2),
+                &swing,
+                &[],
+                ShieldBlock::Declined,
+                &Detections::new(),
+                &mut dice,
+            )
+            .expect("return strike"),
+    );
     assert_eq!(outcome.map, 0);
     assert_eq!(outcome.total, 18);
     assert_eq!(outcome.degree, DegreeOfSuccess::Success);
@@ -927,6 +1009,7 @@ fn a_delayed_creature_knocked_out_moves_before_that_turn() {
             &profile(8, Agility::NotAgile, 1, 8, 1),
             &[],
             ShieldBlock::Declined,
+            &Detections::new(),
             &mut dice,
         )
         .expect("strike");
@@ -1131,6 +1214,7 @@ fn a_shield_block_while_delayed_spends_nothing() {
                 &profile(8, Agility::NotAgile, 1, 8, 4),
                 &[],
                 ShieldBlock::Requested,
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("block"),
@@ -1163,6 +1247,7 @@ fn a_reactive_strike_while_delayed_spends_nothing() {
             Size::Medium,
             &profile(8, Agility::NotAgile, 0, 8, 0),
             &[],
+            &Detections::new(),
             &mut dice,
         )
         .expect_err("reactive");
@@ -1217,6 +1302,7 @@ fn a_delayed_creature_is_rejected_before_the_shield_is_read() {
                 &profile(8, Agility::NotAgile, 1, 8, 0),
                 &[],
                 ShieldBlock::Requested,
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("no shield"),
@@ -1268,6 +1354,7 @@ fn one_strike_then_ready_stores_count_1() {
             &profile(8, Agility::NotAgile, 0, 8, 0),
             &[],
             ShieldBlock::Declined,
+            &Detections::new(),
             &mut dice,
         )
         .expect("strike");
@@ -1556,6 +1643,7 @@ fn a_readied_non_agile_strike_after_one_strike_takes_minus_5() {
             &profile(8, Agility::NotAgile, 0, 8, 0),
             &[],
             ShieldBlock::Declined,
+            &Detections::new(),
             &mut dice,
         )
         .expect("strike");
@@ -1812,6 +1900,7 @@ fn a_delay_does_not_rewrite_a_stored_count() {
             &profile(8, Agility::NotAgile, 0, 8, 0),
             &[],
             ShieldBlock::Declined,
+            &Detections::new(),
             &mut dice,
         )
         .expect("strike");
@@ -1831,9 +1920,9 @@ fn a_delay_does_not_rewrite_a_stored_count() {
     assert_eq!(dice.remaining(), 1);
 }
 
-/// Player Core, "Ready". Player Core, "Hidden and Undetected".
+/// Player Core pg. 417, Ready. Player Core pg. 442, Concealed. Player Core pg. 400, "Checks (Flat Checks)".
 #[test]
-fn a_readied_strike_draws_no_flat_check() {
+fn an_observed_readied_strike_draws_the_attack_die_first() {
     let (mut encounter, mut dice) =
         begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10, 5]);
     open(&mut encounter, 1);
@@ -1846,6 +1935,256 @@ fn a_readied_strike_draws_no_flat_check() {
     let strike = strike_numbers(&fire_begins(&mut encounter, 2, &mut dice));
     assert_eq!(strike.total, 18);
     assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(strike.map, 0);
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 444, Hidden.
+#[test]
+fn a_natural_11_at_dc_11_then_the_readied_attack() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Hidden,
+        Concealment::NotConcealed,
+        Some(17),
+    );
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 11, 10]);
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let strike = strike_numbers(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(strike.map, 0);
+    assert_eq!(strike.total, 18);
+    assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(
+        detections.get(id(1), id(2)),
+        Relation {
+            detection: Detection::Hidden,
+            concealment: Concealment::NotConcealed,
+        }
+    );
+    assert!(!reaction(&encounter, 1));
+    assert_eq!(encounter.stored_ready(id(1)).expect("ready"), None);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 444, Hidden.
+#[test]
+fn a_natural_10_at_dc_11_loses_the_readied_strike() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Hidden,
+        Concealment::NotConcealed,
+        Some(17),
+    );
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10, 15]);
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let lost = lost_ready(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(lost.natural, 10);
+    assert_eq!(lost.dc, 11);
+    assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+    assert!(!reaction(&encounter, 1));
+    assert_eq!(encounter.stored_ready(id(1)).expect("ready"), None);
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 244, Hide. Player Core pg. 442, Concealed.
+#[test]
+fn a_lost_readied_strike_still_reveals_the_striker() {
+    let detections = relate(
+        relate(
+            relate(
+                Detections::new(),
+                2,
+                1,
+                Detection::Hidden,
+                Concealment::NotConcealed,
+                Some(17),
+            ),
+            3,
+            1,
+            Detection::Hidden,
+            Concealment::NotConcealed,
+            Some(17),
+        ),
+        1,
+        2,
+        Detection::Observed,
+        Concealment::Concealed,
+        None,
+    );
+    let (mut encounter, mut dice) = begin(
+        vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+        &[15, 10, 5, 4, 10],
+    );
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let lost = lost_ready(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(lost.natural, 4);
+    assert_eq!(lost.dc, 5);
+    assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+    assert_eq!(dice.remaining(), 1);
+    assert_eq!(detections.get(id(2), id(1)).detection, Detection::Hidden);
+    let notice = note_strike(detections, id(1), id(2));
+    assert_eq!(
+        notice.detections.get(id(2), id(1)).detection,
+        Detection::Observed
+    );
+    assert_eq!(
+        notice.detections.get(id(3), id(1)).detection,
+        Detection::Observed
+    );
+    assert_eq!(
+        notice.detections.get(id(1), id(2)).concealment,
+        Concealment::Concealed
+    );
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 442, Concealed. Player Core pg. 402, "Multiple Attack Penalty".
+#[test]
+fn a_natural_5_at_dc_5_keeps_the_frozen_penalty() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Observed,
+        Concealment::Concealed,
+        None,
+    );
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 5, 15]);
+    open(&mut encounter, 1);
+    encounter.set_attack_count_for_test(id(1), 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let strike = strike_numbers(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(strike.map, -5);
+    assert_eq!(strike.total, 18);
+    assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 442, Concealed. Player Core pg. 402, "Multiple Attack Penalty".
+#[test]
+fn a_natural_4_at_dc_5_loses_the_readied_strike() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Observed,
+        Concealment::Concealed,
+        None,
+    );
+    let (mut encounter, mut dice) = begin(
+        vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)],
+        &[15, 10, 4, 15, 1],
+    );
+    open(&mut encounter, 1);
+    encounter.set_attack_count_for_test(id(1), 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 1, 0),
+    );
+    assert_eq!(actions(&encounter, 1), 0);
+    assert!(reaction(&encounter, 1));
+    let lost = lost_ready(&fire_seen(&mut encounter, 2, &detections, &mut dice));
+    assert_eq!(lost.natural, 4);
+    assert_eq!(lost.dc, 5);
+    assert_eq!(lost.degree, DegreeOfSuccess::Failure);
+    assert!(!reaction(&encounter, 1));
+    assert_eq!(encounter.stored_ready(id(1)).expect("ready"), None);
+    assert_eq!(encounter.attack_count(id(1)).expect("count"), 1);
+    assert_eq!(actions(&encounter, 1), 0);
+    assert_eq!(hit_points(&encounter, 2), 20);
+    assert_eq!(dice.remaining(), 2);
+    open(&mut encounter, 2);
+    close(&mut encounter);
+    open(&mut encounter, 1);
+    assert_eq!(
+        encounter
+            .attack_trait_penalty(id(1), Agility::NotAgile)
+            .expect("penalty"),
+        0
+    );
+}
+
+/// Player Core pg. 447, Undetected. Player Core pg. 417, Ready.
+#[test]
+fn an_undetected_readied_strike_spends_nothing() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Undetected,
+        Concealment::NotConcealed,
+        Some(17),
+    );
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 11]);
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    let resolved = fire_seen(&mut encounter, 2, &detections, &mut dice);
+    assert_eq!(one(&resolved), &Err(ReadyError::CannotTarget));
+    assert!(reaction(&encounter, 1));
+    assert!(encounter.stored_ready(id(1)).expect("ready").is_some());
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 447, Undetected.
+#[test]
+fn a_dead_undetected_readied_target_is_target_dead() {
+    let detections = relate(
+        Detections::new(),
+        1,
+        2,
+        Detection::Undetected,
+        Concealment::NotConcealed,
+        Some(17),
+    );
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 11]);
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 0, 0),
+    );
+    lay(&mut encounter, 2, Vital::Dead, 0);
+    let resolved = fire_seen(&mut encounter, 2, &detections, &mut dice);
+    assert_eq!(one(&resolved), &Err(ReadyError::TargetDead));
+    assert_ne!(one(&resolved), &Err(ReadyError::CannotTarget));
+    assert!(reaction(&encounter, 1));
+    assert!(encounter.stored_ready(id(1)).expect("ready").is_some());
     assert_eq!(dice.remaining(), 1);
 }
 
@@ -1880,6 +2219,7 @@ fn a_knockout_abandons_the_triggering_strike() {
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
                 ShieldBlock::Declined,
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("abandoned"),
@@ -2131,6 +2471,7 @@ fn a_reactive_strike_and_a_ready_resolve_in_one_call() {
         &[],
         &grid(&places(3, sq(0, 1), None)),
         &[input],
+        &Detections::new(),
         &mut dice,
     );
     assert_eq!(hit_points(&encounter, 3), 18);
@@ -2151,6 +2492,109 @@ fn a_reactive_strike_and_a_ready_resolve_in_one_call() {
         resolved.iter().filter(|step| matches!(step, ResolvedReaction::ReactiveStrike { id: reactor, .. } if *reactor == id(2))).count(),
         0
     );
+}
+
+/// Player Core pg. 138, "Reactive Strike". Player Core pg. 417, Ready. Player Core pg. 442, Concealed.
+#[test]
+fn each_reaction_draws_its_own_flat_check() {
+    let detections = relate(
+        relate(
+            Detections::new(),
+            1,
+            3,
+            Detection::Observed,
+            Concealment::Concealed,
+            None,
+        ),
+        2,
+        3,
+        Detection::Observed,
+        Concealment::Concealed,
+        None,
+    );
+    let (mut encounter, mut dice) = begin(
+        vec![enemy(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
+        &[15, 10, 5, 4, 5, 10, 1],
+    );
+    open(&mut encounter, 1);
+    close(&mut encounter);
+    open(&mut encounter, 2);
+    ready_on(
+        &mut encounter,
+        2,
+        begins(3, ObservedAction::Stride),
+        melee(3, Agility::NotAgile, 1, 0),
+    );
+    open(&mut encounter, 3);
+    let input = crate::ready::ReactiveStrikeInput {
+        id: id(1),
+        availability: ReactiveStrike::Available,
+        profile: profile(8, Agility::NotAgile, 0, 8, 0),
+        modifiers: &[],
+        reactor_size: Size::Medium,
+        actor_size: Size::Medium,
+        square: sq(0, 0),
+    };
+    let laid = vec![
+        spot(1, 0, 0, None),
+        spot(2, 1, 0, None),
+        spot(3, 0, 1, None),
+    ];
+    let resolved = encounter.resolve_reactions(
+        id(3),
+        ObservedAction::Stride,
+        moving(),
+        sq(0, 1),
+        sq(0, 1),
+        &[],
+        &grid(&laid),
+        &[input],
+        &detections,
+        &mut dice,
+    );
+    assert_eq!(
+        resolved
+            .iter()
+            .map(|step| match step {
+                ResolvedReaction::ReactiveStrike { id, .. } => *id,
+                ResolvedReaction::Ready { id, .. } => *id,
+            })
+            .collect::<Vec<_>>(),
+        order_of(&[1, 2])
+    );
+    match resolved.first() {
+        Some(ResolvedReaction::ReactiveStrike {
+            id: reactor,
+            result: Ok(outcome),
+        }) => {
+            assert_eq!(*reactor, id(1));
+            assert_eq!(
+                outcome.strike,
+                StrikeDelivery::Lost(LostStrike {
+                    natural: 4,
+                    dc: 5,
+                    degree: DegreeOfSuccess::Failure,
+                })
+            );
+        }
+        other => panic!("expected the reactive loss, got {other:?}"),
+    }
+    match resolved.get(1) {
+        Some(ResolvedReaction::Ready {
+            id: readier,
+            result: Ok(ReadySuccess::Strike(strike)),
+        }) => {
+            assert_eq!(*readier, id(2));
+            assert_eq!(strike.map, 0);
+            assert_eq!(strike.total, 18);
+            assert_eq!(strike.degree, DegreeOfSuccess::Success);
+        }
+        other => panic!("expected the readied strike, got {other:?}"),
+    }
+    assert_eq!(hit_points(&encounter, 3), 19);
+    assert_eq!(actions(&encounter, 3), 3);
+    assert!(!reaction(&encounter, 1));
+    assert!(!reaction(&encounter, 2));
 }
 
 /// Player Core, "Ready".
@@ -2691,6 +3135,7 @@ fn a_dying_defender_is_targetnotconscious_on_both_block_paths() {
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
                 ShieldBlock::Requested,
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("strike"),
@@ -2842,15 +3287,16 @@ fn a_reactive_strike_measures_reach_at_the_square_left() {
         &[],
         &grid(&places(3, sq(0, 4), None)),
         &[input],
+        &Detections::new(),
         &mut dice,
     );
-    assert_eq!(
-        resolved,
-        vec![ResolvedReaction::ReactiveStrike {
-            id: id(1),
-            result: Ok(()),
-        }]
-    );
+    assert!(matches!(
+        resolved.as_slice(),
+        [ResolvedReaction::ReactiveStrike {
+            id: reactor,
+            result: Ok(_),
+        }] if *reactor == id(1)
+    ));
     assert!(!reaction(&encounter, 1));
     assert_eq!(dice.remaining(), 0);
 }
@@ -2920,6 +3366,7 @@ fn reactive_strike_checks_delayed_before_reach() {
                 Size::Medium,
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("dying"),
@@ -2944,6 +3391,7 @@ fn reactive_strike_checks_delayed_before_reach() {
                 Size::Medium,
                 &profile(8, Agility::NotAgile, 0, 8, 0),
                 &[],
+                &Detections::new(),
                 &mut dice,
             )
             .expect_err("far"),
@@ -3023,56 +3471,6 @@ fn later_returners_get_skipstarthook() {
     assert_eq!(slot(&encounter, 2), TurnSlot::SkipStartHook);
     assert_eq!(encounter.turn_open(), Some(id(1)));
     assert_eq!(dice.remaining(), 0);
-}
-
-/// Player Core, Delay. Player Core, "Getting Knocked Out".
-///
-/// `TargetDelay` follows the slot. `TurnState` is only the round's wrap, so a
-/// pending wrap and a delayed target can both be true.
-#[test]
-fn target_delay_follows_the_slot_apart_from_the_wrap() {
-    let (mut encounter, _) = begin(
-        vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
-        &[15, 10, 5],
-    );
-    assert_eq!(
-        encounter.delayed_target(id(1)).expect("ordinary"),
-        super::super::TargetDelay::NotDelayed
-    );
-    open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay 1");
-    open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay 2");
-    open(&mut encounter, 3);
-    close(&mut encounter);
-    assert_eq!(encounter.round(), 1);
-    assert_eq!(encounter.turn_state, super::super::TurnState::PendingWrap);
-    assert_eq!(
-        encounter.delayed_target(id(1)).expect("delayed"),
-        super::super::TargetDelay::Delayed
-    );
-    assert_eq!(
-        encounter.delayed_target(id(2)).expect("delayed"),
-        super::super::TargetDelay::Delayed
-    );
-    assert_eq!(
-        encounter.delayed_target(id(3)).expect("acted"),
-        super::super::TargetDelay::NotDelayed
-    );
-    encounter
-        .return_from_delay(&[id(2), id(1)])
-        .expect("return");
-    assert_eq!(slot(&encounter, 1), TurnSlot::Returned);
-    assert_eq!(slot(&encounter, 2), TurnSlot::SkipStartHook);
-    assert_eq!(
-        encounter.delayed_target(id(1)).expect("returned"),
-        super::super::TargetDelay::NotDelayed
-    );
-    assert_eq!(
-        encounter.delayed_target(id(2)).expect("later"),
-        super::super::TargetDelay::NotDelayed
-    );
-    assert_eq!(encounter.turn_state, super::super::TurnState::Continuing);
 }
 
 /// Player Core, Delay.

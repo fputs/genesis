@@ -7,7 +7,7 @@
 
 use crate::check::{ArithmeticOverflow, DegreeOfSuccess};
 use crate::combatant::{CombatantId, HpError};
-use crate::encounter::{Agility, StrikeProfile};
+use crate::encounter::{Agility, LostStrike, StrikeProfile};
 use crate::grid::{GridError, MapBounds, Occupant, Size, Square, Terrain, in_reach};
 use crate::modifiers::Modifier;
 use crate::positioning::{ActionCost, ActionTrait, CoverBenefit, PositioningError};
@@ -162,6 +162,10 @@ pub enum ReadySuccess {
         /// Cover after dismiss. This is none. Player Core, "Take Cover".
         benefit: Option<CoverBenefit>,
     },
+    /// The flat check did not affect the target. The reaction was spent and the ready was cleared.
+    ///
+    /// Player Core, "Ready". Player Core pg. 442, Concealed.
+    Lost(LostStrike),
 }
 
 /// Where one creature stands for a single [`crate::encounter::Encounter::resolve_reactions`] call.
@@ -217,8 +221,10 @@ pub enum ResolvedReaction {
     ReactiveStrike {
         /// The reactor. Player Core, "Reactive Strike".
         id: CombatantId,
-        /// Why the reaction was rejected, or that it resolved. Player Core, "Reactive Strike".
-        result: Result<(), ReactiveError>,
+        /// The Reactive Strike, including a lost flat check, or why it was rejected.
+        ///
+        /// Player Core, "Reactive Strike". Player Core pg. 442, Concealed.
+        result: Result<crate::reactive::ReactiveOutcome, ReactiveError>,
     },
 }
 
@@ -282,6 +288,10 @@ pub enum ReadyError {
     TargetDead,
     /// The reaction is not ready. Player Core, "Reactions in Encounters".
     NoReaction,
+    /// The target is undetected, so it cannot be chosen. The reaction stays ready and the ready stays stored.
+    ///
+    /// Player Core pg. 447, Undetected. Player Core, "Ready".
+    CannotTarget,
     /// The path or the range measurement was rejected. Player Core, "Grid Movement".
     Grid(GridError),
     /// Dismiss returned a positioning error. Player Core, "Take Cover".
@@ -351,6 +361,10 @@ pub enum ReadyEncounter {
     NotDelayed,
     /// Delay or Return was not at its trigger. Player Core, Delay.
     TriggerNotMet,
+    /// The creature has no save training. Player Core pg. 404, Saving Throws.
+    NoSavingThrows,
+    /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
+    SaveOverflow(ArithmeticOverflow),
 }
 
 /// Which stored action a fire check is comparing.

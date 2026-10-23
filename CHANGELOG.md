@@ -10,6 +10,9 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- ORC notice in `LICENSES/ORC-NOTICE` for the license reference, Licensed Material, Reserved Material, and Attribution, and the note that Genesis does not host player-made campaigns. ([#85](https://github.com/fputs/genesis/pull/85))
+- One draft pull request carries a change from the spec commit through tests, code, and archive. Spec approval is a review line `spec-approved: <sha>`. One `OpenSpec-Refactor` kebab line can cover a crates-only refactor, and the Unreleased bullet is still required. ([#84](https://github.com/fputs/genesis/pull/84))
+- Fortitude, Reflex, and Will saves, including the basic-save damage multiplier. ([#81](https://github.com/fputs/genesis/pull/81))
 - Behavior tests for Hide on both sides of the degree boundary and the rejected side of the +20 modifier gate, Raise a Shield off-turn with no shield, and an unconscious creature's shield state. ([#72](https://github.com/fputs/genesis/pull/72))
 - Delay, return, and Ready. A stored action and a Reactive Strike on the same trigger resolve in initiative order. ([#70](https://github.com/fputs/genesis/pull/70))
 - Aid preparation on your turn and the Aid reaction against DC 15. ([#68](https://github.com/fputs/genesis/pull/68))
@@ -24,11 +27,14 @@ v1 history lives on the `v1-reference` branch.
 - Pull-request hygiene job `pr-hygiene` (`scripts/pr-hygiene.mjs`, `.github/workflows/pr-hygiene.yml`). An implementation pull request must add a bullet under `## [Unreleased]`, and when a named OpenSpec change is removed the archive commit must be last. ([#23](https://github.com/fputs/genesis/pull/23))
 - Dice, checks, and creature templates: injected dice, degree of success, flat checks, the multiple attack penalty, and a character build that derives a creature from its validated base. Folding a later contribution returns an error when the list is empty, the damage die cannot be stored, or a sum overflows. ([#7](https://github.com/fputs/genesis/pull/7))
 - Spec-drift CI check (`scripts/spec-drift-check.mjs`), now run in `ci.yml` with its tests. It gates OpenSpec validation and flags completed changes that haven't been archived. Any PR that touches code or `.github/workflows/**` must also reference an OpenSpec change id with `OpenSpec-Change:`. ([#10](https://github.com/fputs/genesis/pull/10))
-- `openspec/specs/spec-drift-check` spec, archived from the add-spec-drift-check change.
+- `openspec/specs/spec-drift-check` spec, archived from the add-spec-drift-check change. ([#10](https://github.com/fputs/genesis/pull/10))
 
 ### Changed
 
 - The encounter's round wrap and a blow's delayed target are separate types, with no change to fight behavior. ([#78](https://github.com/fputs/genesis/pull/78))
+- **BREAKING:** A creature build carries optional `saves` training, and `Statistic` adds Fortitude and Will. ([#81](https://github.com/fputs/genesis/pull/81))
+- **BREAKING:** Strike, Reactive Strike, and a readied Strike roll the targeting flat check before the attack roll. A lost Strike returns `StrikeDelivery::Lost` and does not roll the attack d20. ([#83](https://github.com/fputs/genesis/pull/83))
+- pr-hygiene accepts a new Unreleased bullet only when it sits under Added, Changed, Deprecated, Removed, Fixed, or Security and links that pull request, and it skips the bullet when every other changed path is a crate test. ([#76](https://github.com/fputs/genesis/pull/76))
 - **BREAKING:** Preparing Aid accepts an unconscious or dying ally and rejects a dead ally. The reaction against a dead ally is rejected and does not spend the reaction. The reaction is spent only when the ally attempts the check. ([#75](https://github.com/fputs/genesis/pull/75))
 - A failed or critically failed concealed targeting flat check reports the action spent and the attack counting for MAP, and a success reports neither. ([#69](https://github.com/fputs/genesis/pull/69))
 - A readied attack uses the multiple attack penalty for the attack count frozen when Ready resolved. ([#64](https://github.com/fputs/genesis/pull/64))
@@ -39,6 +45,9 @@ v1 history lives on the `v1-reference` branch.
 - The equal-value condition-id tie uses condition id 4. ([#37](https://github.com/fputs/genesis/pull/37))
 - **BREAKING:** An `OpenSpec-Change` line fails unless it is the prefix, one space, and one kebab id. A dated archive folder name is not an id. Invalid ids log the whole remainder with non-printable characters and backslashes escaped as `\uXXXX`, and both spec-drift jobs share one pull request concurrency group. ([#33](https://github.com/fputs/genesis/pull/33))
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
+
+### Removed
+- `NOTICE-ORC.md`. The ORC notice is `LICENSES/ORC-NOTICE`. ([#85](https://github.com/fputs/genesis/pull/85))
 
 ### Fixed
 - The condition group key is (condition, statistic, bonus or penalty, type) after the status rewrite, so different types stack. ([#30](https://github.com/fputs/genesis/pull/30))

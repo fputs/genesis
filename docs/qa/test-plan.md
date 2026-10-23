@@ -3,14 +3,14 @@
 Repo: https://github.com/fputs/genesis (OpenSpec-first). Phase 1: PF2e Remaster rules crate (`crates/rules`). Phase 2: basic map editor.
 
 ## Roles
-- **Evan** reviews spec PRs only. He does not review implementation code.
-- **Designer and QA** settle edge cases and tie rulings on the spec before coding is dispatched. The spec PR links `docs/designer/rules-rulings.md` and does not copy that log.
+- **Evan** approves the spec by a pull request review whose body line is `spec-approved: <sha>`. He does not review implementation code.
+- **Designer and QA** settle edge cases and tie rulings on the spec before coding is dispatched. The pull request links `docs/designer/rules-rulings.md` and does not copy that log.
 - The router wakes **Architect** once per head SHA after CI finishes. **Architect** and **QA** review that same head in parallel and post one combined numbered fix list. A red CI check is the send-back. Neither re-checks format, the changelog bullet, archive order, or spec drift.
 - **QA** tests behavior: adversarial repros, edge cases, boundary values, demos, and regressions of earlier findings. **FAIL blocks merge.**
 - **Architect** reviews spec conformance and the constitution. Archive once, as the last commit, only after Architect and QA have both passed the current head. Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff. Architect merges when CI is green after that archive commit. Architect and QA have both passed the head that was archived. No per-PR Chief of Staff acceptance.
 
 ## Per-PR workflow
-1. Identify the spec(s) the PR implements: the OpenSpec change named in the PR, `openspec/changes/<change>/specs/**/spec.md` (or `openspec/specs/**` once archived). Only specs merged to `main` count. If no approved spec exists, QA stops and flags it to Architect.
+1. Identify the spec(s) the pull request implements: the OpenSpec change named in the pull request, read on that head at `openspec/changes/<change>/specs/**/spec.md` (or `openspec/specs/**` once that head has archived it). QA reads the change on the pull request head. If no approved spec exists, QA stops and flags it to Architect.
 2. Check out and build (read-only; QA never pushes):
    ```
    git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>

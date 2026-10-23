@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { changeReferences } from "./spec-drift-check.mjs";
 
 const UNRELEASED = "## [Unreleased]";
+const CATEGORIES = new Set(["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]);
 const DATED_ARCHIVE = /^(\d{4})-(\d{2})-(\d{2})-(.+)$/;
 
 // Failure lines are the spec's whole contract for a red log. Keep them stable.
@@ -49,7 +50,7 @@ function evaluate() {
   const paths = changedPaths(root, mergeBaseSha, headSha);
 
   const failures = [];
-  if (missingBullet(root, mergeBaseSha, headSha, paths)) {
+  if (missingBullet(root, mergeBaseSha, headSha, paths, payload)) {
     failures.push(MISSING_BULLET);
   }
   // A draft is still being fixed, so archive-last waits until the pull request
@@ -90,7 +91,7 @@ function nonExemptImplementation(paths) {
   return paths.some(isCodePath) && needsBullet(paths);
 }
 
-function unfencedBody(body) {
+export function unfencedBody(body) {
   // Own-change lines sit outside CommonMark fenced code blocks. An info string
   // opens a block, and a shorter closer leaves the rest fenced. The changelog
   // bullet parser keeps isFence and fails closed.
@@ -320,8 +321,22 @@ function needsBullet(paths) {
   return paths.some(isCodePath) || paths.some((path) => path.startsWith("scripts/"));
 }
 
-function missingBullet(root, mergeBaseSha, headSha, paths) {
+// The optional bullet is a CHANGELOG.md diff, so that path does not end the
+// skip. Every other path must be a crate test. needsBullet is unchanged, so
+// archive-last still sees a tests-only pull request as an implementation.
+function isTestsOnly(paths) {
+  const rest = paths.filter((path) => path !== "CHANGELOG.md");
+  return (
+    rest.length > 0 &&
+    rest.every((path) => path.startsWith("crates/") && path.includes("/tests/"))
+  );
+}
+
+function missingBullet(root, mergeBaseSha, headSha, paths, payload) {
   if (!needsBullet(paths)) {
+    return false;
+  }
+  if (isTestsOnly(paths)) {
     return false;
   }
   const headLog = readChangelog(root, headSha);
@@ -335,7 +350,41 @@ function missingBullet(root, mergeBaseSha, headSha, paths) {
   if (headLog.unreleased.length <= baseCount) {
     return true;
   }
-  return !headLog.unreleased.some((text) => !baseTexts.has(text));
+  const number = pullRequestNumber(payload);
+  if (number === null) {
+    return true;
+  }
+  return !headLog.unreleased.some(
+    (bullet) =>
+      !baseTexts.has(bullet.text) &&
+      CATEGORIES.has(bullet.category) &&
+      linksPullRequest(bullet.text, number),
+  );
+}
+
+function pullRequestNumber(payload) {
+  const number = payload.pull_request?.number;
+  if (typeof number !== "number" || !Number.isInteger(number)) {
+    return null;
+  }
+  return number;
+}
+
+function linksPullRequest(text, number) {
+  const url = `https://github.com/fputs/genesis/pull/${number}`;
+  let from = 0;
+  while (from < text.length) {
+    const at = text.indexOf(url, from);
+    if (at === -1) {
+      return false;
+    }
+    const next = text.charAt(at + url.length);
+    if (!/^[0-9]$/.test(next)) {
+      return true;
+    }
+    from = at + url.length;
+  }
+  return false;
 }
 
 function readChangelog(root, sha) {
@@ -362,6 +411,7 @@ function parseChangelog(text) {
   let fenced = false;
   let inUnreleased = false;
   let sawHeading = false;
+  let category = null;
   const unreleased = [];
   const all = [];
   for (const raw of text.split("\n")) {
@@ -377,11 +427,19 @@ function parseChangelog(text) {
     if (!sawHeading && trimmed === UNRELEASED) {
       inUnreleased = true;
       sawHeading = true;
+      category = null;
       continue;
     }
     if (inUnreleased && trimmed.startsWith("## ")) {
       inUnreleased = false;
       continue;
+    }
+    if (inUnreleased) {
+      const heading = categoryHeading(trimmed);
+      if (heading !== null) {
+        category = heading;
+        continue;
+      }
     }
     const item = bulletText(trimmed);
     if (item === null) {
@@ -389,10 +447,19 @@ function parseChangelog(text) {
     }
     all.push(item);
     if (inUnreleased) {
-      unreleased.push(item);
+      unreleased.push({ text: item, category });
     }
   }
   return { sawHeading, unreleased, all };
+}
+
+// A level-four heading shares the three-hash prefix, so the space is what
+// keeps `####` from setting or clearing the category.
+function categoryHeading(trimmed) {
+  if (!trimmed.startsWith("### ")) {
+    return null;
+  }
+  return trimmed.slice(4).trim();
 }
 
 // The bullet parser fails closed on a line of only backticks. Own-change lines do not use this.
@@ -543,4 +610,19 @@ function isAllowedArchivePath(filePath, ids) {
   });
 }
 
-main();
+function runningAsScript() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  try {
+    // spec-approved imports unfencedBody. Loading this file must not read the diff.
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (runningAsScript()) {
+  main();
+}
