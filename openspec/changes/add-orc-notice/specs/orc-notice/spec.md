@@ -32,19 +32,31 @@ The repository ships an ORC License notice. The notice names the license, the Li
 
 ### Requirement: Reserved Material names this product
 
-`LICENSES/ORC-NOTICE` SHALL contain a Reserved Material part. That part SHALL list the setting, the characters, the story, the art, the music, and the title and logo of Project Genesis.
+Designer review of pull request 85. `LICENSES/ORC-NOTICE` SHALL contain a Reserved Material part that lists the setting, characters, story, art, music, and the title and logo of Project Genesis, says the list may not be limited to those elements, and says Licensed Material from Paizo Inc. is not Reserved Material.
 
-**Source**: ORC License Art. III.c (https://paizo.com/orclicense).
+**Source**: ORC License Art. III.c (https://paizo.com/orclicense). Designer review of pull request 85.
 
 #### Scenario: Reserved Material names the Genesis setting and title
 
 - **GIVEN** `LICENSES/ORC-NOTICE`
 - **WHEN** the Reserved Material part is read
-- **THEN** it contains `Reserved Material in this product includes the setting, characters, story, art, music, and the title and logo of Project Genesis.`
+- **THEN** it contains `Reserved Material elements in this product include, but may not be limited to: the setting, characters, story, art, music, and the title and logo of Project Genesis, and all elements designated as Reserved Material under the ORC License. Licensed Material from Paizo Inc. is not Reserved Material.`
+
+### Requirement: Expressly Designated Licensed Material is none
+
+Designer review of pull request 85. The section in `LICENSES/ORC-NOTICE` immediately after Reserved Material SHALL be Expressly Designated Licensed Material, and it SHALL state that no Reserved Material in this product is designated as Licensed Material.
+
+**Source**: ORC License Art. III.d (https://paizo.com/orclicense). Designer review of pull request 85.
+
+#### Scenario: Expressly Designated Licensed Material follows Reserved Material
+
+- **GIVEN** `LICENSES/ORC-NOTICE`
+- **WHEN** the section after Reserved Material is read
+- **THEN** that section is `Expressly Designated Licensed Material` followed by `None. No Reserved Material in this product is designated as Licensed Material.`
 
 ### Requirement: Attribution copies the three book lines
 
-`LICENSES/ORC-NOTICE` SHALL contain an Attribution part. That part SHALL include the Player Core, GM Core, and Monster Core attribution lines verbatim, each Designed by list and each Authors list included, and SHALL include the line `Project Genesis © 2026 Evan Burkey.`
+`LICENSES/ORC-NOTICE` SHALL contain an Attribution part. That part SHALL include the Player Core, GM Core, and Monster Core attribution lines verbatim, each Designed by list and each Authors list included, and SHALL include the line `Project Genesis © 2026 Evan Burkey.` Designer review of pull request 85: the credit request SHALL say `Genesis Licensed Material`.
 
 **Source**: Archives of Nethys licenses page, fetched 2026-10-23 (https://2e.aonprd.com/Licenses.aspx). ORC License Art. III.b (https://paizo.com/orclicense).
 
@@ -71,6 +83,7 @@ The repository ships an ORC License notice. The notice names the license, the Li
 - **GIVEN** `LICENSES/ORC-NOTICE`
 - **WHEN** the Attribution part is read
 - **THEN** it contains `Project Genesis © 2026 Evan Burkey.`
+- **AND** the credit request is `If you use Genesis Licensed Material in your own published work, please credit us as follows:`
 
 ### Requirement: The notice states the player-campaign note
 
@@ -123,6 +136,21 @@ The repository ships an ORC License notice. The notice names the license, the Li
 - **GIVEN** `LICENSES/ORC-NOTICE` and the new README section
 - **WHEN** they are read
 - **THEN** neither one includes a lawyer review
+
+### Requirement: The repository has one notice file
+
+Designer review of pull request 85. The file `NOTICE-ORC.md` SHALL be absent. `README.md` and `docs/architect/licensing.md` SHALL name `LICENSES/ORC-NOTICE` and SHALL NOT name `NOTICE-ORC.md`.
+
+**Source**: Designer review of pull request 85.
+
+#### Scenario: The old notice file is gone
+
+- **GIVEN** the repository
+- **WHEN** `NOTICE-ORC.md` is looked up
+- **THEN** that file is absent
+- **AND** `README.md` does not contain `NOTICE-ORC.md`
+- **AND** `docs/architect/licensing.md` does not contain `NOTICE-ORC.md`
+- **AND** both of those files name `LICENSES/ORC-NOTICE`
 
 ### Requirement: The changelog records the notice
 

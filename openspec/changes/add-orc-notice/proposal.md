@@ -7,11 +7,11 @@ Genesis needs an ORC License Art. III notice that a reader can find in the repos
 ## What Changes
 
 - Add the `orc-notice` capability. Its scenarios are the acceptance check for `LICENSES/ORC-NOTICE`, the README section, and the changelog bullet.
-- `LICENSES/ORC-NOTICE` carries the four Art. III parts from the ORC research (license reference, attribution, Reserved Material, and Licensed Material), the line `Project Genesis © 2026 Evan Burkey.`, and the player-campaign note.
+- `LICENSES/ORC-NOTICE` carries the Art. III parts: the license reference, attribution, Reserved Material, Expressly Designated Licensed Material, and Licensed Material. It includes the line `Project Genesis © 2026 Evan Burkey.` and the player-campaign note.
 - Attribution copies the three book lines verbatim from the Archives of Nethys licenses page fetched on 2026-10-23: https://2e.aonprd.com/Licenses.aspx
 - `README.md` gains a short section that links to `LICENSES/ORC-NOTICE` and repeats the player-campaign note.
 - `CHANGELOG.md` gains one `### Added` bullet under `## [Unreleased]`. `LICENSES/ORC-NOTICE` is not an exempt path under the changelog spec, so this pull request is not docs-only.
-- This change does not edit `NOTICE-ORC.md`, `docs/architect/licensing.md`, `crates/`, or `scripts/`. It does not add a lawyer review. It does not archive. The merger archives right before merge.
+- Designer review of pull request 85 removes `NOTICE-ORC.md` and points `README.md` and `docs/architect/licensing.md` at `LICENSES/ORC-NOTICE`. The repository has one notice. This change does not edit `crates/` or `scripts/`. It does not add a lawyer review. It does not archive. The merger archives right before merge.
 
 ## Capabilities
 
@@ -25,7 +25,7 @@ None.
 
 ## Impact
 
-- Later commits on this branch add `LICENSES/ORC-NOTICE`, a section in `README.md`, and one Unreleased bullet in `CHANGELOG.md`.
+- This branch adds `LICENSES/ORC-NOTICE`, removes `NOTICE-ORC.md`, updates `README.md` and `docs/architect/licensing.md`, and adds Unreleased bullets in `CHANGELOG.md`.
 - No Rust code, no new crate, and no new dependency.
 - The notice names the three books only as attribution. It does not add Pathfinder branding, a logo, or a compatibility claim.
 - This pull request is one draft. The body includes `OpenSpec-Change: add-orc-notice`.

@@ -45,6 +45,9 @@ v1 history lives on the `v1-reference` branch.
 - **BREAKING:** An `OpenSpec-Change` line fails unless it is the prefix, one space, and one kebab id. A dated archive folder name is not an id. Invalid ids log the whole remainder with non-printable characters and backslashes escaped as `\uXXXX`, and both spec-drift jobs share one pull request concurrency group. ([#33](https://github.com/fputs/genesis/pull/33))
 - Genesis v2 restart. v1 is preserved on branch `v1-reference`.
 
+### Removed
+- `NOTICE-ORC.md`. The ORC notice is `LICENSES/ORC-NOTICE`. ([#85](https://github.com/fputs/genesis/pull/85))
+
 ### Fixed
 - The condition group key is (condition, statistic, bonus or penalty, type) after the status rewrite, so different types stack. ([#30](https://github.com/fputs/genesis/pull/30))
 - Condition grouping is by (condition, statistic), the source key leaves different conditions apart, and a tie keeps the lower source id. ([#30](https://github.com/fputs/genesis/pull/30))
