@@ -18,15 +18,15 @@ DevOps does sections 1 and 2 on this branch after user id `239839957` submits a 
 
 - [ ] 2.4 Triggers include pull_request_review `dismissed`, and ignore `DISMISSED` and `PENDING` when choosing the latest review. Permissions are `contents: read` and `pull-requests: read`, with no secrets. Bootstrap only when the base lacks both the script and the workflow file. Add `.github/CODEOWNERS` giving `/openspec/`, `/AGENTS.md`, `/.github/`, and `/scripts/` to `@fputs`. Verify those settings.
 
-- [ ] 2.5 In a commit before archive, add an Unreleased bullet for this change under `### Added`, linking this pull request's number. Verify the new bullet contains `https://github.com/fputs/genesis/pull/` plus that number.
+- [x] 2.5 In a commit before archive, add an Unreleased bullet for this change under `### Added`, linking this pull request's number. Verify the new bullet contains `https://github.com/fputs/genesis/pull/` plus that number.
 
 ## 3. Constitution and workflow docs
 
-- [ ] 3.1 Update `AGENTS.md` section 1 to the single-pull-request flow in `specs/single-pr-flow/spec.md`, including the Designer citation and the `spec-approved` re-trigger. Verify section 1 no longer says Architect opens an implementation pull request, and that the review, git, and port rules remain.
+- [x] 3.1 Update `AGENTS.md` section 1 to the single-pull-request flow in `specs/single-pr-flow/spec.md`, including the Designer citation and the `spec-approved` re-trigger. Verify section 1 no longer says Architect opens an implementation pull request, and that the review, git, and port rules remain.
 
-- [ ] 3.2 Set the `tasks` rule in `openspec/config.yaml` to `Every implementation task list ends with the AGENTS.md proof commands and archiving the change right before merge in the same pull request.` Verify that sentence is the rule.
+- [x] 3.2 Set the `tasks` rule in `openspec/config.yaml` to `Every implementation task list ends with the AGENTS.md proof commands and archiving the change right before merge in the same pull request.` Verify that sentence is the rule.
 
-- [ ] 3.3 Update `docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` as `specs/single-pr-flow/spec.md` requires, including the 2026-10-23 revision. List required code-owner review through Chief of Staff, the required `spec-approved` check, and that older-base pull requests keep bootstrap until an event refreshes their base. Verify the test plan no longer says that only specs merged to `main` count. Do not edit GitHub branch protection.
+- [x] 3.3 Update `docs/architect/decisions.md`, `docs/producer/process.md`, and `docs/qa/test-plan.md` as `specs/single-pr-flow/spec.md` requires, including the 2026-10-23 revision. List required code-owner review through Chief of Staff, the required `spec-approved` check, and that older-base pull requests keep bootstrap until an event refreshes their base. Verify the test plan no longer says that only specs merged to `main` count. Do not edit GitHub branch protection.
 
 ## 4. Proof and archive
 

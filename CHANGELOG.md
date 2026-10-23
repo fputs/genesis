@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- One draft pull request carries a change from the spec commit through tests, code, and archive. Spec approval is a review line `spec-approved: <sha>`. One `OpenSpec-Refactor` kebab line can cover a crates-only refactor, and the Unreleased bullet is still required. ([#82](https://github.com/fputs/genesis/pull/82))
 - Behavior tests for Hide on both sides of the degree boundary and the rejected side of the +20 modifier gate, Raise a Shield off-turn with no shield, and an unconscious creature's shield state. ([#72](https://github.com/fputs/genesis/pull/72))
 - Delay, return, and Ready. A stored action and a Reactive Strike on the same trigger resolve in initiative order. ([#70](https://github.com/fputs/genesis/pull/70))
 - Aid preparation on your turn and the Aid reaction against DC 15. ([#68](https://github.com/fputs/genesis/pull/68))

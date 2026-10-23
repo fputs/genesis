@@ -8,4 +8,4 @@ rules:
   specs:
     - Specs use Given/When/Then scenarios.
   tasks:
-    - Every implementation task list ends with the AGENTS.md proof commands and archiving the change.
+    - Every implementation task list ends with the AGENTS.md proof commands and archiving the change right before merge in the same pull request.
