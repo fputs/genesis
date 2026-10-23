@@ -29,7 +29,7 @@ Genesis DevOps agent implements this change. The spec pull request already remov
 
 ## 3. Proof and archive
 
-- [ ] 3.1 Run the AGENTS.md proof commands and verify each exits 0:
+- [x] 3.1 Run the AGENTS.md proof commands and verify each exits 0:
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
   - `cargo build --workspace`
