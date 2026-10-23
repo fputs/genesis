@@ -25,4 +25,4 @@
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
 
-- [ ] 4.2 As the last commit, right before merge, the merger runs `openspec archive add-orc-notice --yes` and checks this box in that commit. Verify the change is absent under `openspec/changes/` and present under `openspec/changes/archive/`.
+- [x] 4.2 As the last commit, right before merge, the merger runs `openspec archive add-orc-notice --yes` and checks this box in that commit. Verify the change is absent under `openspec/changes/` and present under `openspec/changes/archive/`.
