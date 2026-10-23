@@ -247,6 +247,7 @@ mod tests {
         ShieldTemplate, Vital, derive, new_combatant_state,
     };
     use crate::dice::{Faces, ScriptedDice};
+    use crate::dying::start_of_turn;
     use crate::encounter::{Agility, Encounter, EncounterError, Participant, Side, StrikeProfile};
     use crate::modifiers::{BonusType, Cover, ModifierTotal, Statistic};
     use crate::positioning::{AttackKind, CoverBenefit, OffGuard, armor_class};
@@ -1726,5 +1727,49 @@ mod tests {
             2
         );
         assert_eq!(dice.remaining(), 2);
+    }
+
+    /// Covers dying-and-victory scenarios "A non-critical blow to 0 sets dying 1"
+    /// and "Recovery to 0 stays unconscious at 0 Hit Points".
+    /// The raised shield stays on the combatant's state until that creature's next turn starts.
+    /// Player Core pg. 410, "Getting Knocked Out". Player Core pg. 446, Unconscious.
+    /// Player Core pg. 419, "Raise a Shield".
+    #[test]
+    fn falling_unconscious_keeps_the_held_strike_and_the_shield() {
+        let creature = creature(9, 11, 0, true, Some(steel()));
+        let mut state = state_for(&creature);
+        raise_shield(&mut state, &creature).expect("raise");
+        apply_resolved_blow(&mut state, &creature, 9, DegreeOfSuccess::Success).expect("knockout");
+        assert_eq!(state.hit_points, 0);
+        assert_eq!(
+            state.vital,
+            Vital::Dying(DyingValue::new(1).expect("dying 1"))
+        );
+        assert!(state.shield_raised);
+        assert_eq!(state.shield_hit_points, Some(20));
+        assert_eq!(
+            shield_ac_modifier(&state, &creature)
+                .expect("raised shield")
+                .value(),
+            2
+        );
+
+        let mut dice = ScriptedDice::new([11]);
+        let roll = start_of_turn(&mut state, &creature, &mut dice)
+            .expect("recovery")
+            .expect("rolled");
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
+        assert_eq!(state.vital, Vital::Unconscious);
+        assert_eq!(state.hit_points, 0);
+        assert_eq!(state.wounded, 1);
+        assert!(state.shield_raised);
+        assert_eq!(state.shield_hit_points, Some(20));
+        assert_eq!(
+            shield_ac_modifier(&state, &creature)
+                .expect("shield still raised")
+                .value(),
+            2
+        );
+        assert_eq!(dice.remaining(), 0);
     }
 }

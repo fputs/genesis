@@ -4638,6 +4638,32 @@ mod tests {
         assert_eq!(dice.remaining(), 0);
     }
 
+    /// Covers shields scenario "Another combatant cannot raise on this turn".
+    /// CombatantId(2) has no shield, so the shield check would be NoShield if the
+    /// turn guard did not return first. Player Core, "Raise a Shield".
+    /// Player Core, "Step 2: Act".
+    #[test]
+    fn raise_shield_off_turn_returns_notyourturn_and_spends_nothing() {
+        let (mut encounter, dice) = begin(
+            vec![
+                pc(1, 0, 20, 11),
+                participant(2, Side::Pc, creature(20, 11, 0, false, None)),
+            ],
+            &[10, 8],
+        );
+        assert_eq!(encounter.start_turn().expect("start"), id(1));
+        let before = encounter.state(id(2)).expect("state").clone();
+        assert_eq!(before.actions_remaining, 0);
+        assert!(!before.shield_raised);
+        assert_eq!(encounter.creature(id(2)).expect("creature").shield, None);
+        let error = encounter.raise_shield(id(2)).expect_err("off turn");
+        assert_eq!(error, EncounterError::NotYourTurn);
+        assert_eq!(encounter.state(id(2)).expect("state"), &before);
+        assert_eq!(encounter.turn_open(), Some(id(1)));
+        assert_eq!(actions(&encounter, 1), 3);
+        assert_eq!(dice.remaining(), 0);
+    }
+
     /// Player Core, Strike. Player Core, "Shield Block".
     #[test]
     fn a_legal_shield_block_changes_shield_hit_points() {
