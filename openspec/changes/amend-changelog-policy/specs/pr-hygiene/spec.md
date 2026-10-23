@@ -115,6 +115,114 @@ Fenced lines SHALL be ignored when finding `## [Unreleased]` and when collecting
 - **WHEN** the `pr-hygiene` job runs
 - **THEN** the job passes
 
+### Requirement: Bullet exemptions
+
+The bullet check SHALL pass with no new bullet when every changed path is exempt. Exempt paths are those under `docs/`, `openspec/`, or `.cursor/`, plus exactly `AGENTS.md`, `CHANGELOG.md`, `README.md`, `Cargo.lock`, and `rust-toolchain.toml`. Categories SHALL combine. Any other path SHALL remove the exemption, except the tests-only skip in Tests-only pull request.
+
+#### Scenario: Docs-only passes without a bullet
+
+- **GIVEN** a pull_request whose diff is `docs/architect/decisions.md`, `AGENTS.md`, and `CHANGELOG.md`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: Openspec-only passes without a bullet
+
+- **GIVEN** a pull_request whose diff is only under `openspec/`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: A cursor-only pull request passes without a bullet
+
+- **GIVEN** a pull_request whose only diff is `.cursor/rules/example.md`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: A README-only pull request passes without a bullet
+
+- **GIVEN** a pull_request whose only diff is `README.md`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: A Cargo.lock-only pull request passes without a bullet
+
+- **GIVEN** a pull_request whose only diff is `Cargo.lock`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: A rust-toolchain-only pull request passes without a bullet
+
+- **GIVEN** a pull_request whose only diff is `rust-toolchain.toml`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: The exempt path set together passes without a bullet
+
+- **GIVEN** a pull_request whose diff is `.cursor/rules/example.md`, `README.md`, `Cargo.lock`, and `rust-toolchain.toml`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: Exempt categories together pass without a bullet
+
+- **GIVEN** a pull_request whose diff is `docs/architect/decisions.md`, `openspec/specs/changelog/spec.md`, `.cursor/rules/example.md`, `README.md`, `Cargo.lock`, and `rust-toolchain.toml`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job passes
+
+#### Scenario: Docs plus a crate still needs a bullet
+
+- **GIVEN** a pull_request whose diff changes `docs/architect/decisions.md` and `crates/rules/src/lib.rs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: Openspec plus a workflow file still needs a bullet
+
+- **GIVEN** a pull_request whose diff changes `openspec/specs/changelog/spec.md` and `.github/workflows/ci.yml`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: Cursor plus a crate still needs a bullet
+
+- **GIVEN** a pull_request whose diff changes `.cursor/rules/example.md` and `crates/rules/src/lib.rs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: README plus root Cargo.toml still needs a bullet
+
+- **GIVEN** a pull_request whose diff changes `README.md` and `Cargo.toml`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: Cargo.lock plus a crate still needs a bullet
+
+- **GIVEN** a pull_request whose diff changes `Cargo.lock` and `crates/rules/src/lib.rs`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
+#### Scenario: rust-toolchain.toml plus a workflow file still needs a bullet
+
+- **GIVEN** a pull_request whose diff changes `rust-toolchain.toml` and `.github/workflows/ci.yml`
+- **AND** no Unreleased bullet is added
+- **WHEN** the `pr-hygiene` job runs
+- **THEN** the job fails
+- **AND** the log includes `implementation PR missing CHANGELOG bullet`
+
 ## RENAMED Requirements
 
 - FROM: `### Requirement: Unreleased changelog bullet`

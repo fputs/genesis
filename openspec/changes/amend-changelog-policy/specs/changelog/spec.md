@@ -190,7 +190,7 @@ DevOps cuts a release by adding one heading `## [x.y.z] - YYYY-MM-DD` and moving
 
 ### Requirement: Mixed pull request category
 
-A pull request with no behavior path needs no bullet. A behavior path is any changed path the skip requirement does not exempt. A pull request with a behavior path MUST add a bullet in each fitting section: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`. It needs no bullet for an exempt path.
+A pull request with no behavior path needs no bullet. A behavior path is any changed path that neither the skip requirement nor the tests-only rule exempts. A pull request with a behavior path MUST add a bullet in each fitting section: `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, or `### Security`. It needs no bullet for an exempt path.
 
 #### Scenario: A mixed spec and docs pull request skips the bullet
 

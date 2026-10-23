@@ -55,7 +55,7 @@ Alternative considered: a GitHub release workflow that rewrites the changelog. R
 
 ### 4. Mixed pull requests use the behavior sections
 
-A behavior path is any changed path the skip requirement does not exempt. No behavior path means the pull request needs no bullet, including a pull request that touches both `openspec/` and `docs/`. A behavior path means one bullet in each fitting section, listed in Keep a Changelog order, and it needs no bullet for an exempt path. That order is not a priority ranking. The scenarios in `specs/changelog/spec.md` are the fit rules. An addition plus a security tightening is still two bullets, so the scenario "Two kinds of change use two sections" stays.
+A behavior path is any changed path that neither the skip requirement nor the tests-only rule exempts. No behavior path means the pull request needs no bullet, including a pull request that touches both `openspec/` and `docs/`. A behavior path means one bullet in each fitting section, listed in Keep a Changelog order, and it needs no bullet for an exempt path. That order is not a priority ranking. The scenarios in `specs/changelog/spec.md` are the fit rules. An addition plus a security tightening is still two bullets, so the scenario "Two kinds of change use two sections" stays.
 
 Alternative considered: one precedence winner and a single bullet. Rejected. An addition and a security tightening are two changes, so they stay two bullets.
 
@@ -79,6 +79,8 @@ Alternative considered: call the GitHub API for the pull request number. Rejecte
 ## Migration Plan
 
 No stored data. The script change and the #10 link land in the implementation pull request. Rollback is reverting that pull request. Version sections do not exist yet, so nothing moves out of Unreleased in this change.
+
+`Unreleased changelog bullet` was removed and re-added under the same name, because OpenSpec 1.14.3 won't drop a scenario from a MODIFIED requirement, so after archive it sits at the end of `pr-hygiene/spec.md`. This is intended; don't move it back.
 
 ## Open Questions
 
