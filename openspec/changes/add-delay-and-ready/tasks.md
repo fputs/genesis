@@ -39,4 +39,4 @@ Each scenario under this change has one test. The test name is the scenario titl
   - `cargo build --workspace`
   - `cargo test --workspace`
   - `npx @fission-ai/openspec@1.14.3 validate --all --strict`
-- [x] 7.3 Archive this change as the last commit of the implementation pull request, after the changelog bullet. Do not archive the spec-only pull request. The commit subject is exactly `openspec archive add-delay-and-ready --yes`. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`
+- [ ] 7.3 Archive this change as the last commit of the implementation pull request, after the changelog bullet. Do not archive the spec-only pull request. The commit subject is exactly `openspec archive add-delay-and-ready --yes`. Verify the change is no longer active under `openspec/changes/` and sits under `openspec/changes/archive/`

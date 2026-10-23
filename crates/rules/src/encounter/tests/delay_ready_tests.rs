@@ -497,9 +497,19 @@ fn next_start_during_a_returned_turn_is_turninprogress() {
 }
 
 /// Player Core, Encounter Mode.
+///
+/// `begin_encounter` rejects this roster, and design.md allows no constructor for it.
 #[test]
 fn next_start_on_an_empty_roster_is_nocreature() {
-    let encounter = Encounter::empty_for_test();
+    let encounter = Encounter {
+        members: Vec::new(),
+        order: Vec::new(),
+        cursor: 0,
+        round: 1,
+        open: None,
+        last_ended: None,
+        turn_state: super::super::TurnState::Continuing,
+    };
     let dice = ScriptedDice::new([10]);
     assert_eq!(
         encounter.next_start().expect_err("empty"),
@@ -928,6 +938,41 @@ fn a_delayed_creature_knocked_out_moves_before_that_turn() {
     assert_eq!(take_report(&mut encounter, 1), None);
     assert!(reaction(&encounter, 1));
     assert_eq!(actions(&encounter, 2), 2);
+}
+
+/// Player Core, "Getting Knocked Out". Player Core, "Ready". Player Core, Delay.
+#[test]
+fn a_readied_strike_knocks_a_delayed_creature_out_before_the_readier() {
+    let (mut encounter, mut dice) = begin(
+        vec![
+            pc(1, 0, 20, 18),
+            participant(2, Side::Pc, creature(9, 18, 0, true, None)),
+        ],
+        &[15, 10, 10, 8],
+    );
+    open(&mut encounter, 1);
+    ready_on(
+        &mut encounter,
+        1,
+        begins(2, ObservedAction::Strike),
+        melee(2, Agility::NotAgile, 1, 1),
+    );
+    open(&mut encounter, 2);
+    encounter.delay(id(2)).expect("delay");
+    assert_eq!(slot(&encounter, 2), TurnSlot::Delayed);
+    assert_eq!(encounter.order(), order_of(&[1, 2]).as_slice());
+    let strike = strike_numbers(&fire_begins(&mut encounter, 2, &mut dice));
+    assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(strike.damage, 9);
+    assert_eq!(vital(&encounter, 2), dying_at(1));
+    assert_eq!(hit_points(&encounter, 2), 0);
+    assert_eq!(encounter.order(), order_of(&[2, 1]).as_slice());
+    assert_eq!(slot(&encounter, 2), TurnSlot::Normal);
+    assert_eq!(take_report(&mut encounter, 2), None);
+    assert_eq!(encounter.turn_open(), None);
+    assert!(!reaction(&encounter, 1));
+    assert_eq!(encounter.stored_ready(id(1)).expect("ready"), None);
+    assert_eq!(dice.remaining(), 0);
 }
 
 /// Player Core, Delay. Player Core, "Ready".
@@ -2622,6 +2667,40 @@ fn a_readied_attack_keeps_the_stored_count_off_the_open_turn() {
     assert_eq!(actions(&encounter, 1), 0);
 }
 
+/// Player Core, "Shield Block".
+#[test]
+fn a_dying_defender_is_targetnotconscious_on_both_block_paths() {
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10, 5]);
+    open(&mut encounter, 1);
+    close(&mut encounter);
+    open(&mut encounter, 2);
+    lay(&mut encounter, 1, dying_at(1), 0);
+    let before = encounter.clone();
+    assert_eq!(
+        encounter
+            .shield_block(id(1), 5, DegreeOfSuccess::Success)
+            .expect_err("direct"),
+        EncounterError::TargetNotConscious
+    );
+    assert_eq!(
+        encounter
+            .strike(
+                id(2),
+                id(1),
+                &profile(8, Agility::NotAgile, 0, 8, 0),
+                &[],
+                ShieldBlock::Requested,
+                &mut dice,
+            )
+            .expect_err("strike"),
+        EncounterError::TargetNotConscious
+    );
+    assert_eq!(encounter, before);
+    assert_eq!(actions(&encounter, 2), 3);
+    assert_eq!(dice.remaining(), 2);
+}
+
 /// Player Core, "Shield Block". Player Core, Delay.
 #[test]
 fn shield_block_on_a_delayed_creature_with_no_shield_is_delayed() {
@@ -2951,12 +3030,16 @@ fn later_returners_get_skipstarthook() {
 fn return_right_after_delay_writes_nothing() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    close(&mut encounter);
+    open(&mut encounter, 2);
+    encounter.delay(id(2)).expect("delay");
+    let before = encounter.clone();
     assert_eq!(
-        encounter.return_from_delay(&[id(1)]).expect_err("return"),
+        encounter.return_from_delay(&[id(2)]).expect_err("return"),
         EncounterError::TriggerNotMet
     );
-    assert_eq!(slot(&encounter, 1), TurnSlot::Delayed);
+    assert_eq!(encounter, before);
+    assert_eq!(slot(&encounter, 2), TurnSlot::Delayed);
     assert_eq!(encounter.turn_open(), None);
     assert_eq!(encounter.round(), 1);
     assert_eq!(dice.remaining(), 0);

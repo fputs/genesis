@@ -735,9 +735,13 @@ impl Encounter {
 
     /// Resolves a requested Shield Block for `defender`.
     ///
-    /// The reaction is spent only through [`Self::spend_reaction`], and only after the block
-    /// is legal. This does not call [`crate::shield::apply_attack_blow`]. A blow that fails
-    /// restores the state, so the reaction spend is not kept.
+    /// The defender is checked in this order: [`EncounterError::TargetNotConscious`],
+    /// [`EncounterError::Delayed`], [`EncounterError::NoShield`], [`EncounterError::NotRaised`],
+    /// [`EncounterError::Broken`], [`EncounterError::NoReaction`]. [`Self::strike`] with
+    /// [`ShieldBlock::Requested`] uses that same order. The reaction is spent only through
+    /// [`Self::spend_reaction`], and only after the block is legal. This does not call
+    /// [`crate::shield::apply_attack_blow`]. A blow that fails restores the state, so the
+    /// reaction spend is not kept.
     ///
     /// Player Core, "Shield Block".
     pub fn shield_block(
@@ -753,7 +757,7 @@ impl Encounter {
                 .get(index)
                 .ok_or(EncounterError::UnknownCombatant)?;
             if member.participant.state.vital != Vital::Alive {
-                return Err(EncounterError::NotConscious);
+                return Err(EncounterError::TargetNotConscious);
             }
         }
         self.reject_delayed(defender)?;
@@ -1653,20 +1657,6 @@ impl Encounter {
     ) -> Result<(), ReadyError> {
         self.fire_checks(readier, subject, observed, from, to, path, field, offered)?;
         Ok(())
-    }
-
-    /// An encounter with nobody in it. `begin_encounter` rejects that roster.
-    #[cfg(test)]
-    pub(crate) fn empty_for_test() -> Self {
-        Self {
-            members: Vec::new(),
-            order: Vec::new(),
-            cursor: 0,
-            round: 1,
-            open: None,
-            last_ended: None,
-            turn_state: TurnState::Continuing,
-        }
     }
 
     /// Stores a ready on `id`, including a creature who is already Delayed.
