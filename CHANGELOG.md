@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Fortitude, Reflex, and Will saves, including the basic-save damage multiplier. ([#81](https://github.com/fputs/genesis/pull/81))
 - Behavior tests for Hide on both sides of the degree boundary and the rejected side of the +20 modifier gate, Raise a Shield off-turn with no shield, and an unconscious creature's shield state. ([#72](https://github.com/fputs/genesis/pull/72))
 - Delay, return, and Ready. A stored action and a Reactive Strike on the same trigger resolve in initiative order. ([#70](https://github.com/fputs/genesis/pull/70))
 - Aid preparation on your turn and the Aid reaction against DC 15. ([#68](https://github.com/fputs/genesis/pull/68))
@@ -28,6 +29,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** A creature build carries optional `saves` training, and `Statistic` adds Fortitude and Will. ([#81](https://github.com/fputs/genesis/pull/81))
 - **BREAKING:** Strike, Reactive Strike, and a readied Strike roll the targeting flat check before the attack roll. A lost Strike returns `StrikeDelivery::Lost` and does not roll the attack d20. ([#83](https://github.com/fputs/genesis/pull/83))
 - pr-hygiene accepts a new Unreleased bullet only when it sits under Added, Changed, Deprecated, Removed, Fixed, or Security and links that pull request, and it skips the bullet when every other changed path is a crate test. ([#76](https://github.com/fputs/genesis/pull/76))
 - **BREAKING:** Preparing Aid accepts an unconscious or dying ally and rejects a dead ally. The reaction against a dead ally is rejected and does not spend the reaction. The reaction is spent only when the ally attempts the check. ([#75](https://github.com/fputs/genesis/pull/75))

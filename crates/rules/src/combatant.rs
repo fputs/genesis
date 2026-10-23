@@ -161,6 +161,10 @@ pub struct BuildParts {
     pub aid_rank: Option<AidRank>,
     /// None stores false. Player Core, "Getting Knocked Out".
     pub uses_dying_rules: Option<bool>,
+    /// Optional Fortitude, Reflex, and Will training. `None` cannot attempt a save.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    pub saves: Option<crate::save::SavingThrows>,
 }
 
 /// Immutable inputs for one character. No setters, and no combatant id.
@@ -268,6 +272,8 @@ pub struct Contribution {
     pub aid_rank: Option<AidRank>,
     /// Replaces the dying-rules flag when `Some`. Player Core, "Getting Knocked Out".
     pub uses_dying_rules: Option<bool>,
+    /// Replaces save training when `Some`. Player Core pg. 404, Saving Throws.
+    pub saves: Option<crate::save::SavingThrows>,
 }
 
 /// Copies the authored numbers as the first layer.
@@ -291,6 +297,7 @@ pub fn base_contribution(build: &CharacterBuild) -> Contribution {
         aid_modifier: parts.aid_modifier,
         aid_rank: parts.aid_rank,
         uses_dying_rules: parts.uses_dying_rules,
+        saves: parts.saves,
     }
 }
 
@@ -330,6 +337,7 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
     let mut aid_modifier = None;
     let mut aid_rank = AidRank::BelowMaster;
     let mut uses_dying_rules = None;
+    let mut saves = None;
 
     for layer in ordered {
         hit_points = hit_points
@@ -377,6 +385,9 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
         if let Some(value) = layer.uses_dying_rules {
             uses_dying_rules = Some(value);
         }
+        if let Some(value) = layer.saves {
+            saves = Some(value);
+        }
     }
 
     let damage_dice = DieCount::new(damage_dice).map_err(|_| FoldError::DamageDie)?;
@@ -403,6 +414,7 @@ pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldErro
         aid_modifier,
         aid_rank,
         uses_dying_rules: uses_dying_rules.unwrap_or(false),
+        saves,
     })
 }
 
@@ -419,6 +431,7 @@ fn creature_from_validated(build: &CharacterBuild) -> Creature {
         aid_modifier: parts.aid_modifier,
         aid_rank: parts.aid_rank.unwrap_or(AidRank::BelowMaster),
         uses_dying_rules: parts.uses_dying_rules.unwrap_or(false),
+        saves: parts.saves,
     }
 }
 
@@ -454,6 +467,10 @@ pub struct Creature {
     pub aid_rank: AidRank,
     /// False when the build omitted it. Player Core, "Getting Knocked Out".
     pub uses_dying_rules: bool,
+    /// Save training copied from the build. `None` cannot attempt a save.
+    ///
+    /// Player Core pg. 404, Saving Throws.
+    pub saves: Option<crate::save::SavingThrows>,
 }
 
 /// A dying value of 1, 2, or 3. Dying 4 or higher is death and is not stored.
@@ -797,6 +814,7 @@ mod tests {
             aid_modifier: None,
             aid_rank: None,
             uses_dying_rules: None,
+            saves: None,
         }
     }
 
@@ -2398,5 +2416,108 @@ mod tests {
         assert_eq!(shield.hit_points, 8);
         assert_eq!(shield.broken_threshold, 4);
         assert_eq!(shield.shield_ac_bonus, 1);
+    }
+
+    fn save_training(
+        level_value: i32,
+        constitution: i32,
+        dexterity: i32,
+        wisdom: i32,
+        fortitude: crate::save::Proficiency,
+        reflex: crate::save::Proficiency,
+        will: crate::save::Proficiency,
+    ) -> crate::save::SavingThrows {
+        crate::save::SavingThrows {
+            level: crate::save::Level::new(level_value).expect("level"),
+            constitution,
+            dexterity,
+            wisdom,
+            fortitude,
+            reflex,
+            will,
+        }
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn authored_armor_class_stays_authored() {
+        let mut parts = fighter_parts();
+        parts.saves = Some(save_training(
+            1,
+            2,
+            0,
+            0,
+            crate::save::Proficiency::Trained,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Untrained,
+        ));
+        let creature = derive(&build(parts));
+        assert_eq!(creature.armor_class, 18);
+        assert_eq!(creature.perception, 5);
+        assert_eq!(creature.strike.attack_bonus, 7);
+        let saves = creature.saves.expect("saves");
+        assert_eq!(saves.level.get(), 1);
+        assert_eq!(saves.constitution, 2);
+        assert_eq!(saves.fortitude, crate::save::Proficiency::Trained);
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn omitted_training_stays_omitted() {
+        let dice = ScriptedDice::new([10]);
+        let creature = derive(&build(fighter_parts()));
+        assert!(creature.saves.is_none());
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn the_same_build_twice_matches() {
+        let mut parts = fighter_parts();
+        parts.saves = Some(save_training(
+            5,
+            0,
+            -1,
+            0,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Expert,
+            crate::save::Proficiency::Untrained,
+        ));
+        let first = derive(&build(parts.clone()));
+        let second = derive(&build(parts));
+        assert_eq!(first.saves, second.saves);
+    }
+
+    /// Player Core pg. 404, Saving Throws.
+    #[test]
+    fn a_later_contribution_replaces_training() {
+        let mut parts = fighter_parts();
+        parts.saves = Some(save_training(
+            1,
+            0,
+            0,
+            0,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Untrained,
+            crate::save::Proficiency::Untrained,
+        ));
+        let mut ordered = contributions(&build(parts));
+        ordered.push(Contribution {
+            saves: Some(save_training(
+                1,
+                2,
+                0,
+                0,
+                crate::save::Proficiency::Trained,
+                crate::save::Proficiency::Untrained,
+                crate::save::Proficiency::Untrained,
+            )),
+            ..Contribution::default()
+        });
+        let creature = fold_contributions(&ordered).expect("fold");
+        let saves = creature.saves.expect("saves");
+        assert_eq!(saves.fortitude, crate::save::Proficiency::Trained);
+        assert_eq!(saves.level.get(), 1);
+        assert_eq!(saves.constitution, 2);
     }
 }
