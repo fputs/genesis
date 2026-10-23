@@ -26,6 +26,8 @@
 
 - Evasion, Juggernaut, and Resolve. Monster Core listed saves.
 
+- Creatures below level 1 are out of scope. Monster Core level -1 and level 0 are not supported yet. `Level`'s valid range is one constant, pending a Designer ruling.
+
 - A fourth bonus type. Proficiency stays an addend. No `fortitude_modifiers` or `will_modifiers` producer.
 
 ## Decisions
@@ -34,7 +36,7 @@
 
 `Proficiency` is `Untrained`, `Trained`, `Expert`, `Master`, or `Legendary`. Untrained is +0 (DEV-56). The other ranks are `level` plus 2, 4, 6, or 8.
 
-`Level` is a validated newtype. `Level::new` accepts `1` through `2147483639` (`i32::MAX - 8`). Every other integer is `LevelError::OutOfRange`, so a level whose legendary bonus does not fit in `i32` cannot be represented. `proficiency_bonus` then returns `i32` and does not fail.
+`Level` is a validated newtype. `Level::new` accepts the integers in one constant, currently `1` through `2147483639` (`i32::MAX - 8`). Every other integer is `LevelError::OutOfRange`. A Designer ruling will name the final span. `proficiency_bonus` then returns `i32` and does not fail.
 
 `SavingThrows` fields are `level: Level`, `constitution: i32`, `dexterity: i32`, `wisdom: i32`, `fortitude: Proficiency`, `reflex: Proficiency`, and `will: Proficiency`. Those are attribute modifiers, not scores.
 
@@ -158,9 +160,6 @@ A positive amount uses this translation. `Failure` must not be passed through. T
 |---|---|---|
 | Critical success | 0 | skipped |
 | Success | half | Success, or skipped at 0 |
-
-| Save degree | Amount | Blow |
-|---|---|---|
 | Failure | listed amount | Success, or skipped at 0 |
 | Critical failure | double | CriticalSuccess, or skipped at 0 |
 
@@ -196,7 +195,7 @@ Add `Statistic::Fortitude` and `Statistic::Will` after Reflex. Their sort keys a
 |---|---|---|---|---|---|
 | DEV-57 | Shield Block on a basic save | https://2e.aonprd.com/Feats.aspx?ID=5212 (PC 262) | `basic_save` never calls the shield path | See the note under this table | add-saving-throws |
 
-Shield Block (Feats 5212) only matters for an attack that calls for a save. A basic save is not that attack. Strike owns the block.
+Shield Block triggers only on physical damage from an attack (Feats 5212, PC 262). Most basic-save damage is not from an attack; DEV-57 matters only for an attack that calls for a basic save.
 
 | ID | Rule | RAW citation | Our behavior | Reason | Owning change |
 |---|---|---|---|---|---|

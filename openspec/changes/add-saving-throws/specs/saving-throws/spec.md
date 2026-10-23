@@ -339,7 +339,7 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 ### Requirement: A level outside the validated range cannot be built
 
-`Level::new` SHALL accept only 1 through 2147483639. Every other integer SHALL be `LevelError::OutOfRange`. No die SHALL be drawn.
+`Level::new` SHALL accept only the integers in one constant, currently 1 through 2147483639. Every other integer SHALL be `LevelError::OutOfRange`. That constant is pending a Designer ruling. Creatures below level 1, including Monster Core level -1 and level 0, are not supported yet.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2296 (Player Core pg. 404, Saving Throws)
 
@@ -349,7 +349,7 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 - **WHEN** a level is built
 
-- **THEN** the error is OutOfRange and no die is drawn
+- **THEN** the error is OutOfRange
 
 #### Scenario: A level past the legendary bonus cannot be built
 
@@ -357,7 +357,7 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 - **WHEN** a level is built
 
-- **THEN** the error is OutOfRange and no die is drawn
+- **THEN** the error is OutOfRange
 
 ### Requirement: A modifier that does not fit rolls nothing
 

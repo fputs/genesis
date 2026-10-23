@@ -6,9 +6,9 @@ Write section 2 before filling the production bodies. The tests call the items i
 
 ## 1. Spec
 
-- [ ] 1.1 These files are the behavior. The spec commit adds no Rust, no test, and no changelog bullet. Verify `npx @fission-ai/openspec@1.14.3 validate --all --strict` exits 0
+- [x] 1.1 These files are the behavior. The spec commit adds no Rust, no test, and no changelog bullet. Verify `npx @fission-ai/openspec@1.14.3 validate --all --strict` exits 0
 
-- [ ] 1.2 Do not start section 2 until this pull request has Evan's comment `spec-approved: <sha>` and that sha is an ancestor of HEAD. Designer rules on the spec in this pull request
+- [x] 1.2 Do not start section 2 until this pull request has Evan's comment `spec-approved: <sha>` and that sha is an ancestor of HEAD. Designer rules on the spec in this pull request
 
 ## 2. Tests
 
