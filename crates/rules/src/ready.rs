@@ -341,6 +341,8 @@ pub enum ReadyEncounter {
     NotAnAlly,
     /// Preparation names a different ally. Player Core, Aid.
     NotThePreparedAlly,
+    /// The named ally is dead. Player Core, Aid. Player Core, "Getting Knocked Out".
+    AllyDead,
     /// The Aid modifier plus 20 does not fit in `i32`. Player Core, Aid.
     AidOverflow(ArithmeticOverflow),
     /// The roster has no creature. Player Core, Encounter Mode.
