@@ -26,7 +26,9 @@
 
 - Evasion, Juggernaut, and Resolve. Monster Core listed saves.
 
-- Creatures below level 1 are out of scope. Monster Core level -1 and level 0 are not supported yet. Levels above 24 are out of scope. Designer set that maximum, and it is provisional pending a GM Core cite check.
+- Creatures below level 1 are out of scope. Level -1 and level 0 are not supported. GM Core creature-building tables start at -1 (GM Core pg. 112).
+
+- Levels above 25 are out of scope. Player characters are 1 through 20 (Player Core pg. 91). Those tables top out at 24. The maximum is 25 because Treerazer is the highest published creature (Monster Core pg. 328).
 
 - A fourth bonus type. Proficiency stays an addend. No `fortitude_modifiers` or `will_modifiers` producer.
 
@@ -36,7 +38,9 @@
 
 `Proficiency` is `Untrained`, `Trained`, `Expert`, `Master`, or `Legendary`. Untrained is +0 (DEV-56). The other ranks are `level` plus 2, 4, 6, or 8.
 
-`Level` is a validated newtype. `Level::new` accepts the integers in one constant, `LEVEL_RANGE`, currently `1` through `24`. Designer set the minimum at 1 because player characters start at level 1. Designer set the maximum at 24 from the creature-building tables in GM Core. That 24 is provisional pending a cite check. Every other integer is `LevelError::OutOfRange`. `proficiency_bonus` then returns `i32` and does not fail.
+`Level` is a validated newtype. `Level::new` accepts the integers in one constant, `LEVEL_RANGE`, currently `1` through `25`. 25 is accepted. Every other integer is `LevelError::OutOfRange`. `proficiency_bonus` then returns `i32` and does not fail.
+
+The minimum is 1. Player characters are levels 1 through 20 (Player Core pg. 91). Level -1 and level 0 are out of scope. GM Core creature-building tables start at -1 and top out at 24 (GM Core pg. 112). The maximum is 25 because Treerazer is the highest published creature (Monster Core pg. 328).
 
 `SavingThrows` fields are `level: Level`, `constitution: i32`, `dexterity: i32`, `wisdom: i32`, `fortitude: Proficiency`, `reflex: Proficiency`, and `will: Proficiency`. Those are attribute modifiers, not scores.
 
@@ -144,7 +148,7 @@ Alternative considered: pass `Statistic` into `basic_save`. Rejected. Attack, Ar
 
 `save_modifier` adds the attribute modifier, `proficiency_bonus`, and `total` of caller modifiers on `save.statistic()`. `unconscious` is true for `Dying` and `Unconscious`. Only Reflex then includes `reflex_modifiers(true)`. Fortitude and Will do not. A caller modifier on another statistic is ignored. Proficiency is not a `Modifier`.
 
-The sum must fit `CheckModifier`. That failure is `SaveError::ModifierOverflow`, and the encounter reports `SaveOverflow` before the die. A fitting `CheckModifier` always fits `DcModifier`, so `save_dc` returns `dc_from_modifier` of that value and does not fail. A level in `LEVEL_RANGE` cannot produce that failure by itself. An attribute modifier or a stacked caller modifier still can.
+The sum must fit `CheckModifier`. That failure is `SaveError::ModifierOverflow`, and the encounter reports `SaveOverflow` before the die. A fitting `CheckModifier` always fits `DcModifier`, so `save_dc` returns `dc_from_modifier` of that value and does not fail. A level in `LEVEL_RANGE` cannot produce that failure by itself.
 
 ### Basic-save amount and the blow
 

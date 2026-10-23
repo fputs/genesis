@@ -182,13 +182,13 @@ Fortitude SHALL add Constitution, Reflex Dexterity, and Will Wisdom, then that p
 
 - **THEN** the modifier is +4 and the total is 14
 
-#### Scenario: Legendary at level 24 is plus 32 before ability
+#### Scenario: Legendary at level 25 is plus 33 before ability
 
-- **GIVEN** level 24 and legendary proficiency
+- **GIVEN** level 25 and legendary proficiency
 
 - **WHEN** the proficiency bonus is taken
 
-- **THEN** the bonus is +32 and no ability modifier is included
+- **THEN** the bonus is +33 and no ability modifier is included
 
 #### Scenario: An item bonus adds beside proficiency
 
@@ -347,12 +347,13 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 ### Requirement: A level outside the validated range cannot be built
 
-`Level::new` SHALL accept only the integers in one constant, `LEVEL_RANGE`, currently 1 through 24. Every other integer SHALL be `LevelError::OutOfRange`.
+`Level::new` SHALL accept only the integers in one constant, `LEVEL_RANGE`, currently 1 through 25. 25 SHALL be accepted. Every other integer SHALL be `LevelError::OutOfRange`.
 
-Designer set the minimum at 1 because player characters start at level 1. Monster Core level -1 and level 0 stay out of scope. Designer set the maximum at 24 from the creature-building tables in GM Core. That 24 is provisional pending a cite check.
+Player characters are levels 1 through 20. The minimum is 1. Level -1 and level 0 are out of scope, including where the GM Core creature-building tables start at -1. Those tables top out at 24. The maximum is 25 because Treerazer is the highest published creature.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2296 (Player Core pg. 404, Saving Throws)
-**Source**: GM Core, creature-building tables (page pending a cite check)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2098 (Player Core pg. 91)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2874 (GM Core pg. 112, Building Creatures)
+**Source**: https://2e.aonprd.com/Monsters.aspx?ID=3218 (Monster Core pg. 328, Treerazer)
 
 #### Scenario: A level of 0 cannot be built
 
@@ -362,27 +363,21 @@ Designer set the minimum at 1 because player characters start at level 1. Monste
 
 - **THEN** the error is OutOfRange
 
-#### Scenario: A level of 25 cannot be built
+#### Scenario: A level of 26 cannot be built
 
-- **GIVEN** the integer 25
+- **GIVEN** the integer 26
 
 - **WHEN** a level is built
 
 - **THEN** the error is OutOfRange
 
-### Requirement: A modifier that does not fit rolls nothing
+#### Scenario: A level of 25 can be built
 
-A save modifier that does not fit the existing check modifier SHALL be rejected before a die is drawn. The error SHALL be SaveOverflow. A level inside `LEVEL_RANGE` SHALL NOT, by itself, produce that error. An attribute modifier still can.
+- **GIVEN** the integer 25
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2296 (Player Core pg. 404, Saving Throws)
+- **WHEN** a level is built
 
-#### Scenario: A Constitution modifier at the maximum rolls nothing
-
-- **GIVEN** Fortitude, level 1, Constitution modifier 2147483647, untrained, and a scripted natural 10
-
-- **WHEN** the save is attempted
-
-- **THEN** the error is SaveOverflow and the scripted 10 is unused
+- **THEN** the level is 25
 
 ### Requirement: Doubling that does not fit writes nothing
 
