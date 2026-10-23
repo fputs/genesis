@@ -42,4 +42,4 @@ New module `crates/rules/src/save.rs`, re-exported from the crate root. The enco
 
 This pull request is the spec commit of the single-PR pilot. It adds no code, no tests, and no changelog bullet, and it does not archive. Designer rules on the spec here. Code waits for a `spec-approved: <sha>` comment from Evan.
 
-The archive commit is last, right before merge, and only after Architect and QA have both passed that head. Proposed DEV-56, DEV-57, and DEV-58 are in design.md. DEV-52 through DEV-55 belong to add-delay-and-ready. The ruling log is [docs/designer/rules-rulings.md](../../../docs/designer/rules-rulings.md). This change does not edit `docs/designer/`.
+The archive commit is last, right before merge, and only after Architect and QA have both passed that head. Proposed DEV-56, DEV-57, and DEV-58 are in design.md. DEV-52 through DEV-55 belong to add-delay-and-ready. The ruling log is [docs/designer/rules-rulings.md](../../../docs/designer/rules-rulings.md). The code phase records the R-02 closure there and adds DEV-52 through DEV-58 to `docs/designer/rules-deviations.md`.

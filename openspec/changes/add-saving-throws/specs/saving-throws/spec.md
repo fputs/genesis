@@ -182,6 +182,14 @@ Fortitude SHALL add Constitution, Reflex Dexterity, and Will Wisdom, then that p
 
 - **THEN** the modifier is +4 and the total is 14
 
+#### Scenario: Legendary at level 24 is plus 32 before ability
+
+- **GIVEN** level 24 and legendary proficiency
+
+- **WHEN** the proficiency bonus is taken
+
+- **THEN** the bonus is +32 and no ability modifier is included
+
 #### Scenario: An item bonus adds beside proficiency
 
 - **GIVEN** Fortitude, level 1, Constitution modifier +2, trained, an item bonus of +1 on Fortitude, a scripted natural 10, and DC 16
@@ -339,9 +347,12 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 ### Requirement: A level outside the validated range cannot be built
 
-`Level::new` SHALL accept only the integers in one constant, currently 1 through 2147483639. Every other integer SHALL be `LevelError::OutOfRange`. That constant is pending a Designer ruling. Creatures below level 1, including Monster Core level -1 and level 0, are not supported yet.
+`Level::new` SHALL accept only the integers in one constant, `LEVEL_RANGE`, currently 1 through 24. Every other integer SHALL be `LevelError::OutOfRange`.
+
+Designer set the minimum at 1 because player characters start at level 1. Monster Core level -1 and level 0 stay out of scope. Designer set the maximum at 24 from the creature-building tables in GM Core. That 24 is provisional pending a cite check.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2296 (Player Core pg. 404, Saving Throws)
+**Source**: GM Core, creature-building tables (page pending a cite check)
 
 #### Scenario: A level of 0 cannot be built
 
@@ -351,9 +362,9 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 - **THEN** the error is OutOfRange
 
-#### Scenario: A level past the legendary bonus cannot be built
+#### Scenario: A level of 25 cannot be built
 
-- **GIVEN** the integer 2147483640
+- **GIVEN** the integer 25
 
 - **WHEN** a level is built
 
@@ -361,17 +372,9 @@ A saving throw DC SHALL be 10 plus that save's modifier. This SHALL use the exis
 
 ### Requirement: A modifier that does not fit rolls nothing
 
-A save modifier that does not fit the existing check modifier SHALL be rejected before a die is drawn. The error SHALL be SaveOverflow.
+A save modifier that does not fit the existing check modifier SHALL be rejected before a die is drawn. The error SHALL be SaveOverflow. A level inside `LEVEL_RANGE` SHALL NOT, by itself, produce that error. An attribute modifier still can.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2296 (Player Core pg. 404, Saving Throws)
-
-#### Scenario: Trained at the highest legal level rolls nothing
-
-- **GIVEN** Fortitude, level 2147483639, Constitution modifier +0, trained, and a scripted natural 10
-
-- **WHEN** the save is attempted
-
-- **THEN** the error is SaveOverflow and the scripted 10 is unused
 
 #### Scenario: A Constitution modifier at the maximum rolls nothing
 

@@ -26,9 +26,9 @@ Write section 2 before filling the production bodies. The tests call the items i
 
 - [x] 2.7 Add `unconscious_reflex_includes_minus_4`, `alive_reflex_does_not_include_minus_4`, `a_dying_creature_s_reflex_includes_minus_4`, `unconscious_fortitude_does_not_include_minus_4`, and `unconscious_will_does_not_include_minus_4`. Verify `cargo test -p rules -- unconscious_reflex_includes_minus_4 alive_reflex_does_not_include_minus_4 a_dying_creature_s_reflex_includes_minus_4 unconscious_fortitude_does_not_include_minus_4 unconscious_will_does_not_include_minus_4` passes
 
-- [x] 2.8 Add `a_modifier_of_plus_7_has_dc_17`, `a_level_of_0_cannot_be_built`, and `a_level_past_the_legendary_bonus_cannot_be_built`. Verify `cargo test -p rules -- a_modifier_of_plus_7_has_dc_17 a_level_of_0_cannot_be_built a_level_past_the_legendary_bonus_cannot_be_built` passes
+- [x] 2.8 Add `a_modifier_of_plus_7_has_dc_17`, `a_level_of_0_cannot_be_built`, `a_level_of_25_cannot_be_built`, and `legendary_at_level_24_is_plus_32_before_ability`. Verify `cargo test -p rules -- a_modifier_of_plus_7_has_dc_17 a_level_of_0_cannot_be_built a_level_of_25_cannot_be_built legendary_at_level_24_is_plus_32_before_ability` passes
 
-- [x] 2.9 Add `trained_at_the_highest_legal_level_rolls_nothing`, `a_constitution_modifier_at_the_maximum_rolls_nothing`, and `doubling_the_maximum_damage_writes_nothing`. Verify `cargo test -p rules -- trained_at_the_highest_legal_level_rolls_nothing a_constitution_modifier_at_the_maximum_rolls_nothing doubling_the_maximum_damage_writes_nothing` passes
+- [x] 2.9 Add `a_constitution_modifier_at_the_maximum_rolls_nothing` and `doubling_the_maximum_damage_writes_nothing`. Verify `cargo test -p rules -- a_constitution_modifier_at_the_maximum_rolls_nothing doubling_the_maximum_damage_writes_nothing` passes
 
 - [x] 2.10 Add `failure_to_0_sets_dying_1`, `critical_failure_to_0_sets_dying_2`, `failure_while_dying_1_increases_to_dying_2`, `critical_failure_while_dying_1_increases_by_2`, and `without_dying_rules_0_hit_points_is_death`. Verify `cargo test -p rules -- failure_to_0_sets_dying_1 critical_failure_to_0_sets_dying_2 failure_while_dying_1_increases_to_dying_2 critical_failure_while_dying_1_increases_by_2 without_dying_rules_0_hit_points_is_death` passes
 
