@@ -3104,4 +3104,95 @@ mod tests {
         assert_eq!(off_guard_against(relation, OffGuard::Yes), OffGuard::Yes);
         assert_eq!(relation.detection, Detection::Observed);
     }
+
+    /// Standard cover makes the Stealth modifier `i32::MAX - 20`, the last value
+    /// Hide's `checked_add(20)` gate accepts. Player Core pg. 244, Hide.
+    fn hide_at_plus_20_boundary(perception: i32, natural: u8) -> (HideResult, ScriptedDice) {
+        let modifier = i32::MAX - 20;
+        let stealth_dc = modifier + 8;
+        let detections = remember(
+            Detections::new(),
+            1,
+            2,
+            Detection::Observed,
+            Concealment::NotConcealed,
+            None,
+        );
+        let (result, dice) = run_hide(
+            detections,
+            cid(2),
+            Vital::Alive,
+            Some(stealth_dc),
+            &[watcher(1, perception, Some(Cover::Standard))],
+            &[natural],
+        );
+        (result.expect("hide at the plus 20 boundary"), dice)
+    }
+
+    /// Covers dice-and-checks scenario "Beating the DC by 10 is a critical success"
+    /// and seek-and-hidden scenario "A critical success on Hide hides".
+    /// Player Core, "Step 4: Degree of Success". Player Core pg. 244, Hide.
+    #[test]
+    fn hide_at_the_plus_20_boundary_beats_the_dc_by_10() {
+        let natural = 10;
+        let total = (i32::MAX - 20) + i32::from(natural);
+        let dc = total - 10;
+        let (result, dice) = hide_at_plus_20_boundary(dc - 10, natural);
+        let roll = result.roll.expect("roll");
+        assert_eq!(roll.natural, natural);
+        assert_eq!(roll.total, total);
+        assert_eq!(roll.total - i32::from(roll.natural), i32::MAX - 20);
+        assert_eq!(roll.degree, DegreeOfSuccess::CriticalSuccess);
+        assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Covers dice-and-checks scenario "Beating the DC by 9 is a success".
+    /// Player Core, "Step 4: Degree of Success". Player Core pg. 244, Hide.
+    #[test]
+    fn hide_at_the_plus_20_boundary_beats_the_dc_by_9() {
+        let natural = 10;
+        let total = (i32::MAX - 20) + i32::from(natural);
+        let dc = total - 9;
+        let (result, dice) = hide_at_plus_20_boundary(dc - 10, natural);
+        let roll = result.roll.expect("roll");
+        assert_eq!(roll.natural, natural);
+        assert_eq!(roll.total, total);
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
+        assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Covers dice-and-checks scenario "Total equal to the DC is a success"
+    /// and seek-and-hidden scenario "Standard cover and a natural 6 hides".
+    /// Player Core, "Step 4: Degree of Success". Player Core pg. 244, Hide.
+    #[test]
+    fn hide_at_the_plus_20_boundary_meets_the_dc() {
+        let natural = 10;
+        let total = (i32::MAX - 20) + i32::from(natural);
+        let (result, dice) = hide_at_plus_20_boundary(total - 10, natural);
+        let roll = result.roll.expect("roll");
+        assert_eq!(roll.natural, natural);
+        assert_eq!(roll.total, total);
+        assert_eq!(roll.degree, DegreeOfSuccess::Success);
+        assert_eq!(seen(&result.detections, 1, 2), Detection::Hidden);
+        assert_eq!(dice.remaining(), 0);
+    }
+
+    /// Covers seek-and-hidden scenario "Standard cover and a natural 5 stays observed".
+    /// The Perception DC is one above the total, where `dc + 10` does not fit in `i32`.
+    /// Player Core, "Step 4: Degree of Success". Player Core pg. 244, Hide.
+    #[test]
+    fn hide_at_the_plus_20_boundary_misses_the_dc_by_1() {
+        let natural = 10;
+        let total = (i32::MAX - 20) + i32::from(natural);
+        let dc = total + 1;
+        let (result, dice) = hide_at_plus_20_boundary(dc - 10, natural);
+        let roll = result.roll.expect("roll");
+        assert_eq!(roll.natural, natural);
+        assert_eq!(roll.total, total);
+        assert_eq!(roll.degree, DegreeOfSuccess::Failure);
+        assert_eq!(seen(&result.detections, 1, 2), Detection::Observed);
+        assert_eq!(dice.remaining(), 0);
+    }
 }
