@@ -9,13 +9,17 @@ use crate::check::{
 };
 use crate::modifiers::{Modifier, Statistic, reflex_modifiers, total};
 
-/// Inclusive levels a save may use. Currently `1` through `2147483639` (`i32::MAX - 8`).
+/// Inclusive levels a save may use. Currently `1` through `24`.
 ///
-/// A Designer ruling will name the final span. Creatures below level 1, including Monster Core
-/// level −1 and level 0, are not supported yet.
+/// The minimum is 1 because player characters start at level 1. Monster Core level −1 and
+/// level 0 are out of scope. The maximum is 24 from the creature-building tables in GM Core,
+/// provisional pending a cite check. This is the only span `Level::new` reads.
 ///
-/// Player Core pg. 404, Saving Throws.
-pub const LEVEL_RANGE: RangeInclusive<i32> = 1..=2_147_483_639;
+/// Player Core pg. 404, Saving Throws. GM Core, creature-building tables.
+pub const LEVEL_RANGE: RangeInclusive<i32> = 1..=24;
+
+/// `level + 8` fits in `i32` for every value in [`LEVEL_RANGE`].
+const _: () = assert!(*LEVEL_RANGE.end() <= i32::MAX - 8);
 
 /// How much training a creature has in one save.
 ///
@@ -152,7 +156,7 @@ pub struct SaveRoll {
 
 /// Proficiency bonus for `rank` at `level`. Untrained is 0.
 ///
-/// `level + 8` fits in `i32` because [`Level::new`] rejects every wider level.
+/// [`LEVEL_RANGE`]'s maximum plus 8 fits in `i32`, so the missing sum is not a rules result.
 ///
 /// Player Core pg. 404, Saving Throws.
 pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
@@ -165,7 +169,7 @@ pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
     };
     match level.get().checked_add(added) {
         Some(bonus) => bonus,
-        // `Level::new` already rejected every level for which `level + 8` does not fit.
+        // The const assert on `LEVEL_RANGE` keeps `level + 8` inside `i32`.
         None => level.get(),
     }
 }
