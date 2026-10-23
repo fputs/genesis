@@ -4,7 +4,7 @@
 
 ### Requirement: Errors have one order
 
-Checks SHALL run in this order: UnknownCombatant for the reactor, then the actor, NotConscious, SelfTarget, Unavailable, NotATrigger, UnsupportedSize, Overflow, InvalidReach, OutOfReach, TargetNotConscious, NoReaction, AttackOverflow, then CannotTarget. A failure before the d20 SHALL draw no die and leave the reaction unchanged. DamageOverflow SHALL consume both dice and leave the reaction ready and Hit Points unchanged. AttackOverflow SHALL reject bonus + modifiers + 20 over i32 before the d20.
+Order: reactor UnknownCombatant, actor UnknownCombatant, NotConscious, SelfTarget, Unavailable, NotATrigger, UnsupportedSize, Overflow, InvalidReach, OutOfReach, TargetNotConscious, NoReaction, AttackOverflow, CannotTarget. Pre-die failures SHALL draw nothing and leave the reaction unchanged. DamageOverflow SHALL count the flat-check die too, not just both dice. The reaction stays ready and Hit Points stay. AttackOverflow SHALL be bonus + modifiers + 20 over i32.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2256 (Player Core pg. 138, Reactive Strike)
 
@@ -88,15 +88,6 @@ After every check in Errors have one order through AttackOverflow, a Reactive St
 - **AND** the reaction is not ready and the attack count stays 0
 - **AND** the relation is still observed and concealed
 
-#### Scenario: Hidden and concealed use one DC 11 roll
-
-- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and a ready reaction, Alive CombatantId(2) at (0, 1) with 20 Hit Points, both Medium, CombatantId(2) hidden and concealed from CombatantId(1) with Stealth DC 17, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, and scripted naturals 10, then 8, then 10, then 20
-- **WHEN** CombatantId(1) makes the Reactive Strike
-- **THEN** one flat check of 10 is compared with DC 11 and the result is LostStrike
-- **AND** the scripted 20 is still unused
-- **AND** the reaction is not ready
-- **AND** Hit Points stay 20
-
 #### Scenario: Each reaction draws its own flat check
 
 - **GIVEN** the order is Side::Enemy CombatantId(1) at (0, 0) then Side::Pc CombatantId(2) at (1, 0) then Alive CombatantId(3) at (0, 1), all Medium, reach 5, CombatantId(3) has 20 Hit Points, Armor Class 18, and 3 actions, and is observed and concealed from both, CombatantId(1) has attack bonus +8, and CombatantId(2) has a stored non-agile Strike, snapshot 0, attack bonus +8, on CombatantId(3) beginning a Stride
@@ -133,6 +124,15 @@ When the actor is not affected, the result SHALL be Ok with LostStrike and Disru
 - **THEN** the result is LostStrike, the flat natural is 10, the DC is 11, and the degree is failure
 - **AND** the reaction is not ready and the attack count stays 0
 - **AND** the scripted 12 is still unused
+- **AND** Hit Points stay 20
+
+#### Scenario: Hidden and concealed use one DC 11 roll
+
+- **GIVEN** Alive CombatantId(1) at (0, 0) with melee reach 5 and a ready reaction, Alive CombatantId(2) at (0, 1) with 20 Hit Points, both Medium, CombatantId(2) hidden and concealed from CombatantId(1) with Stealth DC 17, an ActionCost of 1 action with Manipulate, ReactiveStrike::Available, and scripted naturals 10, then 8, then 10, then 20
+- **WHEN** CombatantId(1) makes the Reactive Strike
+- **THEN** one flat check of 10 is compared with DC 11 and the result is LostStrike
+- **AND** the scripted 20 is still unused
+- **AND** the reaction is not ready
 - **AND** Hit Points stay 20
 
 #### Scenario: A lost Reactive Strike does not count toward MAP

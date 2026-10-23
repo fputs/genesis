@@ -61,7 +61,7 @@ pub struct ReactiveOutcome {
     /// The melee Strike. The multiple attack penalty on it is 0.
     ///
     /// Player Core, "Reactive Strike". Player Core, Strike.
-    pub strike: crate::encounter::StrikeOutcome,
+    pub strike: crate::encounter::StrikeDelivery,
     /// Whether the triggering manipulate action is disrupted.
     ///
     /// Player Core, "Disrupting Actions".
@@ -113,10 +113,15 @@ pub enum ReactiveError {
     ///
     /// Player Core, Penalties.
     AttackOverflow(ModifierError),
-    /// The damage total did not fit. The attack die and the damage die were both consumed.
+    /// The damage total did not fit. The flat-check die, when one was drawn, the attack die,
+    /// and the damage die were consumed. The reaction stays ready.
     ///
-    /// Player Core, "Damage Rolls".
+    /// Player Core, "Damage Rolls". Player Core pg. 442, Concealed.
     DamageOverflow(ModifierError),
+    /// The actor is undetected, so it cannot be chosen. The reaction stays ready and no die is drawn.
+    ///
+    /// Player Core pg. 447, Undetected. Player Core, "Reactive Strike".
+    CannotTarget,
     /// Applying the blow failed. Player Core, Hit Points.
     HitPoints(crate::combatant::HpError),
 }
