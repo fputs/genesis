@@ -34,4 +34,4 @@ Each new scenario has exactly one test. The test name is the scenario title in s
 
 ## 7. Archive
 
-- [ ] 7.1 The final commit of the implementation pull request is `openspec archive wire-targeting-into-strike --yes`. There is no separate archive pull request. That commit touches only `openspec/changes/archive/**`, `openspec/specs/**`, and the removed `openspec/changes/wire-targeting-into-strike/**`, and its message contains `openspec archive wire-targeting-into-strike`. The changelog bullet is already in an earlier commit. Do not archive the spec-only pull request
+- [x] 7.1 The final commit of the implementation pull request is `openspec archive wire-targeting-into-strike --yes`. There is no separate archive pull request. That commit touches only `openspec/changes/archive/**`, `openspec/specs/**`, and the removed `openspec/changes/wire-targeting-into-strike/**`, and its message contains `openspec archive wire-targeting-into-strike`. The changelog bullet is already in an earlier commit. Do not archive the spec-only pull request
