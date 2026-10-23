@@ -72,13 +72,13 @@ A spec is its own pull request: proposal, design, tasks, and spec deltas. Design
 
 An implementation pull request follows that approved spec. The body includes `OpenSpec-Change: <id>`. The router wakes Architect once per head SHA after CI finishes. Architect and QA review that head in parallel and post one combined numbered fix list. A red CI check is the send-back. They do not re-check format, the changelog bullet, archive order, or spec drift. Coding agents apply the whole list in one push. After two send-back rounds the PR escalates to Chief of Staff.
 
-Archive happens once, as the last commit right before merge:
+Archive once, as the last commit, only after Architect and QA have both passed the current head:
 
 ```
 openspec archive <id> --yes
 ```
 
-That commit moves the change under `openspec/changes/archive/` and updates `openspec/specs/`. There is no separate archive pull request and no un-archive for a fix. Architect merges when CI is green and Architect and QA both pass at that same head. Chief of Staff spot-checks merged PRs daily. A small spec clarification is fixed in the implementation PR with a Designer citation. A behavior or scope change goes to Chief of Staff for Evan.
+That commit moves the change under `openspec/changes/archive/` and updates `openspec/specs/`. There is no separate archive pull request. Never un-archive. If a fix is needed after the archive, Architect escalates to Chief of Staff. Architect merges when CI is green after that archive commit. Architect and QA have both passed the head that was archived. Chief of Staff spot-checks merged PRs daily. A small spec clarification is fixed in the implementation PR with a Designer citation. A behavior or scope change goes to Chief of Staff for Evan.
 
 ## License
 
