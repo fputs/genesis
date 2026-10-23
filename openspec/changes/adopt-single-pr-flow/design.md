@@ -10,7 +10,7 @@ See proposal.md for why. `AGENTS.md` section 1 and `docs/architect/decisions.md`
 
 - Compare a spec digest, not the head sha, so tests, code, and archive do not by themselves revoke approval.
 - Fail closed when the allow-list or the comment thread cannot be read in full.
-- Let a crates-only refactor satisfy spec-drift without `OpenSpec-Change`.
+- Let one kebab refactor line satisfy spec-drift without `OpenSpec-Change`, including the `CHANGELOG.md` path the bullet needs.
 - Keep the constitution and the workflow docs on the same flow.
 
 **Non-Goals:**
@@ -53,19 +53,27 @@ Alternative considered: add those events to `ci.yml`. Rejected. That file's Carg
 
 ### 5. Spec-approved reuses spec-drift's path rules
 
-`spec-approved.mjs` imports `changeReferences` and `isCodePath`. This change exports `isCodePath`. It does not make `pr-hygiene.mjs` switch its private copy. Changed paths are spec-drift's tree diff from the pull request base sha to the head sha, including both sides of a rename. No code path, or a holding refactor exemption, passes with no comment.
+`spec-approved.mjs` imports `changeReferences` and `isCodePath`. This change exports `isCodePath`. It does not make `pr-hygiene.mjs` switch its private copy. Changed paths are spec-drift's tree diff from the pull request base sha to the head sha, including both sides of a rename. No code path, or a pull request that meets the qualifying refactor paths, passes with no comment. A conflicting, malformed, or repeated refactor line does not.
 
 Every returned id is hashed. An invalid token fails with `spec-approved: invalid change id`. An unknown id fails with `spec-approved: unknown change <id>`. Zero ids on a non-exempt code path fail with `spec-approved: missing OpenSpec-Change`. No allowed approval fails with `spec-approved: approval missing`. A sha that is not a commit fails with `spec-approved: approved sha unavailable`. A hash difference fails with `spec-approved: spec hash mismatch`.
 
-### 6. The refactor line is not a change id
+### 6. The refactor exemption follows pull request 79
 
-The line is `OpenSpec-Refactor:`, one U+0020, and a non-empty roadmap item. The item may contain spaces. It is not a kebab id. More than one well-formed line, or a prefix that is not that shape, fails with `spec-drift: invalid refactor line` on every pull request, including docs-only. A valid `OpenSpec-Change` line does not hide a malformed refactor line.
+The delta in `specs/spec-drift-check/spec.md` is the text and scenarios from the draft on pull request 79. This change does not edit that pull request. Where the draft is stricter than the original brief, the draft wins.
 
-The exemption holds only when every changed path is under `crates/`, none is under `openspec/`, no existing test file is modified or deleted, the item is non-empty, and the body has no `OpenSpec-Change` line. Adding a test file is allowed. A well-formed line that fails a condition logs `spec-drift: refactor exemption refused` and does not also log a missing `OpenSpec-Change`. Validation and the completed-change check still run.
+The roadmap item is one kebab token, `^[a-z0-9]+(?:-[a-z0-9]+)*$`, after exactly one U+0020. The brief allowed any non-empty item, including spaces. The draft is stricter. Extra words, uppercase, a slash, and a double hyphen log `spec-drift: invalid refactor item` plus the escaped remainder. The item is not looked up.
 
-A test file is under `crates/` and is named `tests.rs`, ends with `_test.rs` or `_tests.rs`, or has a `/tests/` segment. A `#[cfg(test)]` module does not make its source file a test file. Existing means present on the pull request base commit spec-drift already diffs. A rename away from that file is a deletion.
+A test file is a `crates/` path containing `/tests/`. Status `M`, `D`, or `T` on that path, and a rename whose old path is a test file, log `spec-drift: refactor changes existing tests`. Status `A` is allowed. `crates/rules/src/tests.rs` is not a test file. A filename rule ending in `tests.rs` would have classified it. The draft does not. The script does not parse Rust.
 
-Alternative considered: treat any file containing `#[cfg(test)]` as a test file. Rejected. Most tests live in the source file, so a refactor could not touch them. The human gate covers behavior.
+Both an `OpenSpec-Refactor` line and an `OpenSpec-Change` line fail with `spec-drift: refactor line conflicts with OpenSpec-Change`, including on a docs-only pull request. The brief would have kept the change id and ignored the refactor line. The draft is stricter. A repeated refactor line counts again and logs `spec-drift: multiple OpenSpec-Refactor lines`.
+
+The brief required every path under `crates/`. The draft also keeps the Unreleased bullet the current changelog and pr-hygiene specs already require for a `crates/` diff. Those two cannot both hold unless exactly `CHANGELOG.md` may sit in the same diff. This change follows the draft.
+
+Any other path outside `crates/` logs `spec-drift: refactor is not crates-only`. An `openspec/` path also logs `spec-drift: refactor changes openspec`. Spec-drift does not read the bullet. `OpenSpec-Refactor` is not an own-change line. Those two specs are not edited. If `amend-changelog-policy` later exempts a tests-only diff, that conflict is sent back rather than silently widening this exemption.
+
+Path lines are logged only for one valid refactor line, no change line, and a code path. Their order is crates-only, then openspec, then existing tests, after the token-order lines. Push still skips the reference check. Fenced lines count. The spec-drift workflows and their concurrency group stay as they are. `spec-approved` skips only when the qualifying paths hold.
+
+Alternative considered: a free-text item and one `refactor exemption refused` log. Rejected. Pull request 79 already closed the holes the change-id rule closed, and it named the failure lines.
 
 ### 7. Docs say the same thing as the spec
 
@@ -81,7 +89,7 @@ Alternative considered: treat any file containing `#[cfg(test)]` as a test file.
 
 - [The API login casing differs from the file] → Ship `fputs` as the API spells it, and compare case-sensitively.
 
-- [A refactor edits a source file that contains tests] → That file is not a test file. Architect and QA still confirm behavior before merge.
+- [A refactor edits a source file that contains tests] → A `/tests/` path is the only test file. Inline modules stay with Architect and QA.
 
 - [Strict validation fails a requirement past 500 characters] → Each new requirement description stays at or under 500. Detail lives in scenarios.
 

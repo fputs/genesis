@@ -20,9 +20,9 @@ A change is split across a spec pull request and a later implementation pull req
 
 - `.github/CODEOWNERS` gives `/openspec/` and `/AGENTS.md` to `@fputs`. Branch protection stays out of scope and is an admin step for Evan.
 
-- **BREAKING** for the reference check: `OpenSpec-Refactor: <roadmap item>` stands in for `OpenSpec-Change` only when the pull request is crates-only, does not touch `openspec/`, does not modify or delete an existing test file, names a non-empty item, and has no `OpenSpec-Change` line.
+- **BREAKING** for the reference check: one `OpenSpec-Refactor:` line plus a kebab roadmap item stands in for `OpenSpec-Change` only when every path starts with `crates/` or is exactly `CHANGELOG.md`, no path is under `openspec/`, and no existing `/tests/` file is modified or removed. Adding a test file is allowed.
 
-- `spec-approved` does not apply to that refactor pull request. Unchanged behavior stays a human merge gate.
+- A second refactor line, or any `OpenSpec-Change` line beside it, fails. The item is not free text. A qualifying refactor still needs an Unreleased bullet. `spec-approved` does not apply to that pull request. Unchanged behavior stays a human merge gate.
 
 - `AGENTS.md` section 1 drops the separate-spec-PR wording. A small spec clarification stays in the pull request, cites Designer, and re-triggers `spec-approved`. `openspec/config.yaml` and the workflow docs under `docs/` match this flow.
 
@@ -35,7 +35,7 @@ A change is split across a spec pull request and a later implementation pull req
 
 ### Modified Capabilities
 
-- `spec-drift-check`: a crates-only refactor line can satisfy the reference check in place of `OpenSpec-Change`.
+- `spec-drift-check`: one kebab `OpenSpec-Refactor` line can satisfy the reference check, using the path, test-file, and bullet rules drafted on pull request 79.
 
 ## Impact
 

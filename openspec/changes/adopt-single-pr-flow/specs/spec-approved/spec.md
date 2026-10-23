@@ -57,7 +57,7 @@ The job SHALL run on pull_request `opened`, `synchronize`, `reopened`, `edited`,
 
 ### Requirement: Change id and exemptions
 
-The job SHALL take change ids from spec-drift's `changeReferences`. It SHALL import `isCodePath` from `scripts/spec-drift-check.mjs` and SHALL NOT reimplement it. Changed paths SHALL be spec-drift's tree diff from the pull request base sha to the head sha, including both sides of a rename. When no path is a code path, or the refactor exemption holds, the job SHALL pass with no approval comment. Zero ids otherwise SHALL fail with `spec-approved: missing OpenSpec-Change`.
+The job SHALL take change ids from spec-drift's `changeReferences`. It SHALL import `isCodePath` from `scripts/spec-drift-check.mjs` and SHALL NOT reimplement it. Changed paths SHALL be that script's diff from the base sha to the head, including renames. When no path is a code path, or the qualifying refactor paths hold, the job SHALL pass with no approval comment. No other refactor line SHALL skip this job. Zero ids otherwise SHALL fail with `spec-approved: missing OpenSpec-Change`.
 
 #### Scenario: A docs-only pull request passes without a comment
 
@@ -73,19 +73,30 @@ The job SHALL take change ids from spec-drift's `changeReferences`. It SHALL imp
 - **WHEN** the job runs
 - **THEN** the job passes
 
-#### Scenario: A refactor pull request skips spec-approved
+#### Scenario: A qualifying refactor skips spec-approved
 
-- **GIVEN** a pull request whose spec-drift refactor exemption holds
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs` and `CHANGELOG.md`
+- **AND** the only reference line is `OpenSpec-Refactor: dice-and-checks`
 - **AND** there is no `spec-approved` comment
 - **WHEN** the job runs
 - **THEN** the job passes
 - **AND** the log does not include `spec-approved: missing OpenSpec-Change`
 
+#### Scenario: A conflicting refactor line does not skip spec-approved
+
+- **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
+- **AND** the body contains `OpenSpec-Refactor: dice-and-checks` and `OpenSpec-Change: add-foo`
+- **AND** `add-foo` exists and has `proposal.md`
+- **AND** there is no allowed `spec-approved` comment
+- **WHEN** the job runs
+- **THEN** the job fails
+- **AND** the log includes `spec-approved: approval missing`
+
 #### Scenario: A code path with no change line fails
 
 - **GIVEN** a pull_request whose diff changes `crates/rules/src/lib.rs`
 - **AND** the body has no `OpenSpec-Change` line
-- **AND** the refactor exemption does not hold
+- **AND** the qualifying refactor paths do not hold
 - **WHEN** the job runs
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: missing OpenSpec-Change`

@@ -6,7 +6,7 @@ DevOps does sections 1 and 2 on this branch after an allowed login comments `spe
 
 - [ ] 1.1 In `scripts/spec-drift-check.test.mjs`, add a fixture test for each refactor scenario in `specs/spec-drift-check/spec.md`, before changing the check. Verify `node --test scripts/spec-drift-check.test.mjs` lists those test names.
 
-- [ ] 1.2 Export `isCodePath` from `scripts/spec-drift-check.mjs`. Implement the refactor exemption, the test-file rule, and the `spec-drift: refactor exemption refused` and `spec-drift: invalid refactor line` logs. Verify `node --test scripts/spec-drift-check.test.mjs` exits 0.
+- [ ] 1.2 Implement those rules in `scripts/spec-drift-check.mjs` and export `isCodePath`. Use the kebab item, the `/tests/` path rule, and the failure lines in that spec. Do not edit `scripts/pr-hygiene.mjs`, the spec-drift workflows, or the synced changelog specs. Keep `changeReferences` as the `OpenSpec-Change` parser. A status `T` fixture replaces the test file with a symlink. Verify `node --test scripts/spec-drift-check.test.mjs` exits 0.
 
 ## 2. spec-approved job
 
