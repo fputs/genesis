@@ -69,11 +69,11 @@ On an OpenSpec-Refactor pull request, an in-file `#[cfg(test)]` block in a non-t
 
 #### Scenario: Review allows a verbatim move
 
-- **GIVEN** an `OpenSpec-Refactor` pull request
+- **GIVEN** the only differences are use lines, path lines, a uniform leading-indentation change, and the dropped or added `mod` lines
+- **AND** this is an `OpenSpec-Refactor` pull request
 - **AND** `crates/rules/src/check.rs` loses a `#[cfg(test)]` block
 - **AND** the diff adds `crates/rules/src/encounter/tests/check_tests.rs`
 - **AND** that added path is a new test file
-- **AND** the added block matches the removed block except a use line or a path line
 - **AND** a use line, after leading whitespace is removed, starts with `use ` or `pub use `
 - **AND** a path line differs only by a module path written with `crate::`, `super::`, or `self::`
 - **AND** moving the block out of `mod tests` re-indents it

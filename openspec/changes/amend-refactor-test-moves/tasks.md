@@ -11,12 +11,12 @@ Genesis DevOps agent implements this change after `spec-approved`. Do not edit `
 
 ## 2. Constitution text
 
-- [ ] 2.2 In `AGENTS.md` section 1, keep the refactor bullet. After the existing sentence that forbids modifying a crates/ path containing `/tests/`, and before `The Unreleased bullet is still required.`, insert the section 1 sentences in the block below. In section 8, append the section 8 sentence to the same-file bullet. In `docs/architect/decisions.md`, after the existing sentence that says a crates/ path containing `/tests/` is not modified, insert the decisions sentence. Change no other sentence in those files. Verify those sentences are present and that `node --test scripts/spec-drift-check.test.mjs` exits 0.
+- [ ] 2.1 In `AGENTS.md` section 1, keep the refactor bullet. After the existing sentence that forbids modifying a crates/ path containing `/tests/`, and before `The Unreleased bullet is still required.`, insert the section 1 sentences in the block below. In section 8, append the section 8 sentence to the same-file bullet. In `docs/architect/decisions.md`, after the existing sentence that says a crates/ path containing `/tests/` is not modified, insert the decisions sentence. Change no other sentence in those files. Verify those sentences are present and that `node --test scripts/spec-drift-check.test.mjs` exits 0.
 
 Section 1 sentences:
 
 ```
-An in-file #[cfg(test)] block may be moved verbatim into a new test file. A use line or a path line may change, as the inline test block move requirement defines them. A uniform change in the moved block's leading indentation is not a change. Any other whitespace change is. Asserting logic may not change, in place or in the move. That includes an assertion, an expected value, control flow, or a comment. A dropped block that no new test file contains is a change. A new test that was not in the removed block is not a change to the moved block. Review enforces the verbatim move and the unchanged asserting logic. The spec-drift job does not distinguish a verbatim move from an edit and does not reject a non-test crates/ file that loses a #[cfg(test)] block when a new test file is added.
+An in-file #[cfg(test)] block may be moved verbatim into a new test file. A use line or a path line may change, as the inline test block move requirement defines them. A uniform change in the moved block's leading indentation is not a change. Any other whitespace change is. The dropped `#[cfg(test)] mod tests {` and `}` lines, and an added `#[cfg(test)] mod …;` declaration, are not changes. A move into `crates/<crate>/tests/` is allowed only if the block compiles unchanged apart from use and path lines. Asserting logic may not change, in place or in the move. That includes an assertion, an expected value, control flow, or a comment. A dropped block that no new test file contains is a change. A new test that was not in the removed block is not a change to the moved block. Review enforces the verbatim move and the unchanged asserting logic. The spec-drift job does not distinguish a verbatim move from an edit and does not reject a non-test crates/ file that loses a #[cfg(test)] block when a new test file is added.
 ```
 
 Section 8 sentence:
@@ -28,9 +28,9 @@ An OpenSpec-Refactor pull request may move that block verbatim into a new test f
 Decisions sentence:
 
 ```
-An in-file #[cfg(test)] block may be moved verbatim into a new test file. A use line or a path line may change. A uniform change in the moved block's leading indentation is not a change. Any other whitespace change is. Asserting logic may not change. Review enforces that move. The spec-drift job does not reject it.
+An in-file #[cfg(test)] block may be moved verbatim into a new test file. Only a use line or a path line may change, as the inline test block move requirement defines them. A uniform change in the moved block's leading indentation is not a change. Any other whitespace change is. Asserting logic may not change. Review enforces that move. The spec-drift job does not reject it.
 ```
-- [ ] 2.3 Add a `### Changed` bullet under `## [Unreleased]` in a commit before the archive commit. The bullet states that an `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file, and that the spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. The bullet links `https://github.com/fputs/genesis/pull/` plus this pull request's number. Verify the new bullet is under `### Changed` and contains that URL.
+- [ ] 2.2 Add a `### Changed` bullet under `## [Unreleased]` in a commit before the archive commit. The bullet states that an `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file, and that the spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. The bullet links `https://github.com/fputs/genesis/pull/` plus this pull request's number. Verify the new bullet is under `### Changed` and contains that URL.
 
 ## 3. Proof and archive
 
