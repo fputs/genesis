@@ -1,4 +1,8 @@
+use super::super::delay_ready::ready_from_encounter;
 use super::*;
+use crate::dice::Dice;
+use crate::ready::{ReadyEncounter, ReadyError};
+use crate::shield::raise_shield as raise_combatant_shield;
 
 /// Player Core, "Raise a Shield". Player Core, "Step 2: Act".
 ///
@@ -477,7 +481,8 @@ fn notanally_wins_over_allydead() {
 /// Player Core, "Getting Knocked Out".
 #[test]
 fn allydead_wins_over_noaidmodifier_when_preparing() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 11), dead(pc(2, 0, 20, 11))], &[10, 8, 10]);
+    let (mut encounter, dice) =
+        begin(vec![pc(1, 0, 20, 11), dead(pc(2, 0, 20, 11))], &[10, 8, 10]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     let error = encounter.prepare_to_aid(id(1), id(2)).expect_err("dead");
     assert_eq!(error, EncounterError::AllyDead);
@@ -1309,7 +1314,8 @@ fn a_different_side_is_notanally() {
 /// Player Core, Unconscious.
 #[test]
 fn an_unprepared_aider_does_not_roll() {
-    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 11), pc(2, 0, 20, 11)], &[10, 8, 10]);
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 11), pc(2, 0, 20, 11)], &[10, 8, 10]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.spend_reaction(id(1)).expect("spend reaction");
     assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
@@ -1325,7 +1331,8 @@ fn an_unprepared_aider_does_not_roll() {
 /// Player Core, Unconscious.
 #[test]
 fn no_aid_modifier_does_not_spend_the_reaction() {
-    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 11), pc(2, 0, 20, 11)], &[10, 8, 10]);
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 20, 11), pc(2, 0, 20, 11)], &[10, 8, 10]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     set_prepared(&mut encounter, 1, 2);
     encounter.spend_reaction(id(1)).expect("spend reaction");
@@ -1476,7 +1483,8 @@ fn a_natural_5_at_dc_5_then_the_reactive_attack() {
         Concealment::Concealed,
         None,
     );
-    let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 5, 10, 3]);
+    let (mut encounter, mut dice) =
+        begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 5, 10, 3]);
     assert_eq!(encounter.turn_open(), None);
     let outcome = react_seen(
         &mut encounter,
@@ -1516,7 +1524,8 @@ fn a_natural_4_at_dc_5_loses_the_reactive_strike() {
         Concealment::Concealed,
         None,
     );
-    let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 4, 10, 3]);
+    let (mut encounter, mut dice) =
+        begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 4, 10, 3]);
     assert_eq!(actions(&encounter, 1), 0);
     assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
     assert!(reaction(&encounter, 1));
@@ -1705,7 +1714,8 @@ fn no_reaction_beats_an_undetected_actor() {
 #[test]
 fn the_same_reactive_strike_twice_matches() {
     let run = || {
-        let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
+        let (mut encounter, mut dice) =
+            begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3]);
         react(
             &mut encounter,
             &mut dice,
@@ -1740,7 +1750,8 @@ fn the_same_reactive_strike_twice_matches() {
 /// Interact is one action with manipulate. Point Out is manipulate when the caller passes it.
 #[test]
 fn a_manipulate_action_in_reach_triggers() {
-    let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Enemy), &[10, 8, 10, 3]);
+    let (mut encounter, mut dice) =
+        begin(standard_pair(5, 20, 18, Side::Enemy), &[10, 8, 10, 3]);
     assert_eq!(encounter.turn_open(), None);
     let outcome = react(
         &mut encounter,
@@ -2316,7 +2327,8 @@ fn a_move_that_starts_outside_reach_does_not_trigger() {
 /// Player Core, "Reactions in Encounters".
 #[test]
 fn a_second_reactive_strike_is_noreaction() {
-    let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3, 4]);
+    let (mut encounter, mut dice) =
+        begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 3, 4]);
     let first = react(
         &mut encounter,
         &mut dice,
@@ -3463,7 +3475,8 @@ fn an_attack_bonus_of_2147483627_and_a_natural_20_fit() {
 /// Player Core, "Reactive Strike". Player Core, "Damage Rolls".
 #[test]
 fn a_damage_total_that_does_not_fit_spends_nothing() {
-    let (mut encounter, mut dice) = begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 1, 4]);
+    let (mut encounter, mut dice) =
+        begin(standard_pair(5, 20, 18, Side::Pc), &[10, 8, 10, 1, 4]);
     let error = react(
         &mut encounter,
         &mut dice,

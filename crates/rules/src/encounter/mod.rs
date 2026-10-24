@@ -305,5 +305,8 @@ mod vitals;
 
 pub use turns::begin_encounter;
 
+// A uniform dedent out of `mod tests` lets rustfmt join lines. The inline test
+// block move counts that join as a change, so this module stays unformatted.
 #[cfg(test)]
+#[rustfmt::skip]
 mod tests;
