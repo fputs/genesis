@@ -2,8 +2,8 @@ use super::*;
 use crate::aid::{AidCircumstance, AidPreparation, AidRank};
 use crate::check::{ArithmeticOverflow, DegreeOfSuccess};
 use crate::combatant::{
-    BuildParts, CharacterBuild, CombatantId, DieCount, DyingValue, HpError, MeleeStrike,
-    ReachFeet, ShieldTemplate, Vital, derive, new_combatant_state,
+    BuildParts, CharacterBuild, CombatantId, DieCount, DyingValue, HpError, MeleeStrike, ReachFeet,
+    ShieldTemplate, Vital, derive, new_combatant_state,
 };
 use crate::detection::{Concealment, Detection, Detections, Relation, note_strike};
 use crate::dice::{Faces, ScriptedDice};
@@ -11,9 +11,7 @@ use crate::dying::{InitiativeMove, apply_resolved_blow, take_initiative_move};
 use crate::grid::{Size, Square};
 use crate::modifiers::{BonusType, Modifier, ModifierError, PenaltyType, SourceId, Statistic};
 use crate::positioning::{ActionCost, ActionTrait, MoveAction};
-use crate::reactive::{
-    ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike,
-};
+use crate::reactive::{ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike};
 use crate::shield::{self, ShieldBlock};
 
 fn id(value: u32) -> CombatantId {
@@ -395,12 +393,7 @@ fn react_seen(
     )
 }
 
-fn standard_pair(
-    reach: i32,
-    actor_hp: i32,
-    actor_ac: i32,
-    actor_side: Side,
-) -> Vec<Participant> {
+fn standard_pair(reach: i32, actor_hp: i32, actor_ac: i32, actor_side: Side) -> Vec<Participant> {
     vec![
         with_reach(pc(1, 0, 20, actor_ac), reach),
         combatant(2, actor_side, 0, actor_hp, actor_ac, false),
@@ -408,9 +401,9 @@ fn standard_pair(
 }
 
 mod delay_ready_tests;
-mod save_tests;
-mod target_delay_tests;
 mod reactions_tests;
+mod save_tests;
 mod strike_tests;
+mod target_delay_tests;
 mod turns_tests;
 mod vitals_tests;

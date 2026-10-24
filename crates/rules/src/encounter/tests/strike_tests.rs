@@ -7,8 +7,7 @@ use super::*;
 /// names the target and this module stores no squares; intent, Strike is testable without the grid.
 #[test]
 fn the_first_strike_totals_the_d20_plus_the_attack_bonus() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     let outcome = rolled(
         encounter
@@ -80,8 +79,7 @@ fn a_not_alive_target_keeps_baked_armor_class() {
 /// Player Core, Strike.
 #[test]
 fn strike_before_the_turn_starts_rolls_nothing() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     assert_eq!(
         encounter
             .strike(
@@ -102,8 +100,7 @@ fn strike_before_the_turn_starts_rolls_nothing() {
 /// Player Core, Strike.
 #[test]
 fn a_strike_off_the_active_turn_rolls_nothing() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     assert_eq!(
         encounter
@@ -125,8 +122,7 @@ fn a_strike_off_the_active_turn_rolls_nothing() {
 /// Player Core, Strike.
 #[test]
 fn an_unknown_target_rolls_nothing() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     assert_eq!(
         encounter
@@ -149,8 +145,7 @@ fn an_unknown_target_rolls_nothing() {
 /// Player Core, Strike.
 #[test]
 fn striking_oneself_rolls_nothing() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     assert_eq!(
         encounter
@@ -199,8 +194,7 @@ fn a_strike_on_a_dead_target_spends_nothing() {
 /// Player Core, Strike.
 #[test]
 fn a_strike_with_no_actions_rolls_nothing() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     encounter.spend_actions(id(1), 3).expect("spend");
     assert_eq!(
@@ -224,8 +218,7 @@ fn a_strike_with_no_actions_rolls_nothing() {
 /// Player Core, Strike.
 #[test]
 fn armor_class_in_the_caller_list_does_not_change_the_result() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 12)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 12)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     let modifier = penalty(PenaltyType::Circumstance, -2, 1, Statistic::ArmorClass);
     let outcome = rolled(
@@ -848,8 +841,7 @@ fn an_undetected_target_cannot_be_struck() {
         Concealment::NotConcealed,
         Some(17),
     );
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 11]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 11]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     assert_eq!(
         encounter
@@ -916,8 +908,7 @@ fn no_actions_beats_a_concealed_flat_check() {
         Concealment::Concealed,
         None,
     );
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.spend_actions(id(1), 3).expect("spend");
     assert_eq!(
@@ -949,8 +940,7 @@ fn an_attack_count_at_the_maximum_draws_no_flat_check() {
         Concealment::Concealed,
         None,
     );
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[10, 8, 4]);
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.set_attack_count_for_test(id(1), 255);
     assert_eq!(
@@ -1157,8 +1147,7 @@ fn the_second_strike_includes_map_and_a_caller_circumstance_penalty() {
 /// Player Core, Penalties.
 #[test]
 fn two_caller_circumstance_bonuses_keep_the_higher_on_a_strike() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     let modifiers = [
         bonus(BonusType::Circumstance, 4, 1, Statistic::Attack),
@@ -1184,8 +1173,7 @@ fn two_caller_circumstance_bonuses_keep_the_higher_on_a_strike() {
 /// Player Core, Penalties. Player Core, "Step 4: Degree of Success".
 #[test]
 fn a_circumstance_bonus_and_penalty_on_the_attack_both_apply() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     let modifiers = [
         bonus(BonusType::Circumstance, 2, 1, Statistic::Attack),
@@ -1213,8 +1201,7 @@ fn a_circumstance_bonus_and_penalty_on_the_attack_both_apply() {
 /// Player Core, Penalties.
 #[test]
 fn a_damage_penalty_does_not_change_the_attack_total() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 12]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 12]);
     encounter.start_turn().expect("start");
     let modifiers = [
         penalty(PenaltyType::Circumstance, -2, 1, Statistic::Attack),
@@ -1363,8 +1350,7 @@ fn the_third_non_agile_strike_takes_minus_10() {
 /// Player Core, "Multiple Attack Penalty".
 #[test]
 fn a_rejected_strike_does_not_count() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[12, 8, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[12, 8, 10]);
     assert_eq!(
         encounter
             .strike(
@@ -1401,8 +1387,7 @@ fn a_rejected_strike_does_not_count() {
 /// Player Core, "Multiple Attack Penalty".
 #[test]
 fn an_attack_count_at_the_u8_maximum_does_not_increment() {
-    let (mut encounter, mut dice) =
-        begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[14, 10, 10]);
     encounter.start_turn().expect("start");
     encounter.set_attack_count_for_test(id(1), 255);
     assert_eq!(

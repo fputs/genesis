@@ -111,8 +111,7 @@ fn perception_2147483627_and_a_natural_20_fit() {
 #[test]
 fn perception_2147483628_rolls_nothing() {
     let mut dice = ScriptedDice::new([20]);
-    let error =
-        begin_encounter(vec![pc(1, 2_147_483_628, 20, 10)], &mut dice).expect_err("range");
+    let error = begin_encounter(vec![pc(1, 2_147_483_628, 20, 10)], &mut dice).expect_err("range");
     assert_eq!(error, EncounterError::PerceptionOutOfRange);
     assert_eq!(dice.remaining(), 1);
 }
@@ -294,8 +293,7 @@ fn an_unused_reaction_is_still_one_reaction() {
 /// combatant's reaction is available at encounter start; intent, one fixed answer.
 #[test]
 fn a_reaction_before_the_first_turn_spends_once() {
-    let (mut encounter, dice) =
-        begin(vec![pc(1, 0, 20, 10), dead(pc(2, 0, 20, 10))], &[10, 8, 8]);
+    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 10), dead(pc(2, 0, 20, 10))], &[10, 8, 8]);
     assert_eq!(actions(&encounter, 1), 0);
     assert!(reaction(&encounter, 1));
     assert!(!reaction(&encounter, 2));
