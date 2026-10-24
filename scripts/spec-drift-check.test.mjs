@@ -313,6 +313,43 @@ function refactorCases() {
       }),
       assertNoRustParse: true,
     }),
+    passing("A source file losing a cfg test block plus a new test file passes", {
+      ...crateChange(REFACTOR, {
+        base: { [LIB]: "fn demo() {}\n#[cfg(test)]\nmod tests {}\n" },
+        head: {
+          [LIB]: "fn demo() {}\n",
+          "crates/rules/src/encounter/tests/new_tests.rs": "fn moved() {}\n",
+        },
+      }),
+      assertNoRustParse: true,
+    }),
+    passing("The job leaves the move to review", {
+      ...crateChange(REFACTOR, {
+        base: { [LIB]: "fn demo() {}\n#[cfg(test)]\nmod tests {}\n" },
+        head: {
+          [LIB]: "fn demo() {}\n",
+          "crates/rules/tests/moved_tests.rs": "fn moved() {}\n",
+        },
+      }),
+      assertNoRustParse: true,
+    }),
+    failing(
+      "A moved block does not excuse an existing tests file",
+      ["spec-drift: refactor changes existing tests"],
+      {
+        event: "pull_request",
+        body: REFACTOR,
+        base: {
+          [LIB]: "fn demo() {}\n#[cfg(test)]\nmod tests {}\n",
+          "crates/rules/src/encounter/tests/delay_ready_tests.rs": "fn old() {}\n",
+        },
+        head: {
+          [LIB]: "fn demo() {}\n",
+          "crates/rules/src/encounter/tests/new_tests.rs": "fn moved() {}\n",
+          "crates/rules/src/encounter/tests/delay_ready_tests.rs": "fn new() {}\n",
+        },
+      },
+    ),
     failing("Modifying a test file fails", ["spec-drift: refactor changes existing tests"], {
       event: "pull_request",
       body: REFACTOR,
