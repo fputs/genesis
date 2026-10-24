@@ -4,6 +4,14 @@
 //!
 //! Player Core, Bonuses and Penalties.
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 /// A bonus type. Proficiency is not a modifier: those numbers are already baked (DEV-01).
 ///
 /// Player Core, Bonuses.
@@ -393,7 +401,7 @@ impl Modifier {
 ///
 /// Each statistic has its own total. Player Core, Bonuses, Penalties, and Duplicate Effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModifierTotal {
+pub(crate) struct ModifierTotal {
     totals: StatisticTotals,
     applied: Vec<Modifier>,
 }
@@ -428,7 +436,7 @@ impl ModifierTotal {
 /// checked addition. Overflow is [`ModifierError::Overflow`] and is not a saturated `i32`.
 ///
 /// Player Core, Bonuses, Penalties, and Duplicate Effects.
-pub fn total(modifiers: &[Modifier]) -> Result<ModifierTotal, ModifierError> {
+pub(crate) fn total(modifiers: &[Modifier]) -> Result<ModifierTotal, ModifierError> {
     let mut bonuses = Vec::new();
     let mut penalties = Vec::new();
     for modifier in modifiers.iter().copied() {
@@ -446,7 +454,7 @@ pub fn total(modifiers: &[Modifier]) -> Result<ModifierTotal, ModifierError> {
 /// DC equal to 10 plus `total`. The result is not clamped. The add is checked.
 ///
 /// Player Core, "Getting a DC from a Modifier".
-pub fn dc_from_total(total: i32) -> Result<i32, ModifierError> {
+pub(crate) fn dc_from_total(total: i32) -> Result<i32, ModifierError> {
     10i32.checked_add(total).ok_or(ModifierError::Overflow)
 }
 
@@ -1019,7 +1027,7 @@ const OFF_GUARD: ConditionId = ConditionId(1);
 ///
 /// Player Core, Cover.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Cover {
+pub(crate) enum Cover {
     /// Lesser cover, +1 circumstance. Player Core, Cover.
     Lesser,
     /// Standard cover, +2 circumstance. Player Core, Cover.
@@ -1048,7 +1056,7 @@ impl Cover {
 /// result is one circumstance modifier. This does not prepare, roll, or resolve Aid.
 ///
 /// Player Core, "Multiple Attack Penalty", Prone, and Aid.
-pub fn attack_modifiers(
+pub(crate) fn attack_modifiers(
     multiple_attack_penalty: i32,
     prone: bool,
     aid_circumstance: i32,
@@ -1077,7 +1085,7 @@ pub fn attack_modifiers(
 /// Modifiers on Armor Class from this change. The shield bonus is not an argument.
 ///
 /// Player Core, Cover, Off-Guard, and Unconscious.
-pub fn ac_modifiers(
+pub(crate) fn ac_modifiers(
     cover: Option<Cover>,
     off_guard: bool,
     unconscious: bool,
@@ -1142,7 +1150,7 @@ pub(crate) fn raised_shield_modifier(bonus: i32) -> Result<Modifier, ModifierErr
 /// Modifiers on Perception from this change. Unconscious is a status −4.
 ///
 /// The slice is separate from Armor Class. Player Core, Unconscious.
-pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
+pub(crate) fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if unconscious {
         modifiers.push(
@@ -1163,7 +1171,7 @@ pub fn perception_modifiers(unconscious: bool) -> Result<Vec<Modifier>, Modifier
 /// Modifiers on Reflex from this change. Unconscious is a status −4.
 ///
 /// The slice is separate from Armor Class and Perception. Player Core pg. 446, Unconscious.
-pub fn reflex_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
+pub(crate) fn reflex_modifiers(unconscious: bool) -> Result<Vec<Modifier>, ModifierError> {
     let mut modifiers = Vec::new();
     if unconscious {
         modifiers.push(

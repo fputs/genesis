@@ -22,19 +22,19 @@ If a public signature names a type section 3 made `pub(crate)`, stop. Do not add
 
 ## 3. Visibility
 
-- [ ] 3.1 Replace the crate root `pub use` list with the public names. Keep the cfg-gated `ScriptedDice` re-export. Do not add `pub mod`. Verify `root_exports_match_the_facade` passes
+- [x] 3.1 Replace the crate root `pub use` list with the public names. Keep the cfg-gated `ScriptedDice` re-export. Do not add `pub mod`. Verify `root_exports_match_the_facade` passes
 
-- [ ] 3.2 Change each column-0 definition of a private-list name from `pub` to `pub(crate)`. Leave `Encounter::stride`, `Encounter::step`, `Encounter::drop_prone`, `Encounter::stand`, and `Encounter::raise_shield` public. Leave public fields and methods of public-list types public. Verify `removed_names_are_pub_crate` passes and `cargo test --doc --package rules` passes, including `use rules::Encounter` and the failure of `use rules::stride`
+- [x] 3.2 Change each column-0 definition of a private-list name from `pub` to `pub(crate)`. Leave `Encounter::stride`, `Encounter::step`, `Encounter::drop_prone`, `Encounter::stand`, and `Encounter::raise_shield` public. Leave public fields and methods of public-list types public. Verify `removed_names_are_pub_crate` passes and `cargo test --doc --package rules` passes, including `use rules::Encounter` and the failure of `use rules::stride`
 
-- [ ] 3.3 Point any in-crate path that used a removed root name at its defining module. Add no `#[deprecated]` and no alias. Verify `rg deprecated crates/rules` finds none, and `rg "pub use" crates/rules/src/lib.rs` lists only the facade
+- [x] 3.3 Point any in-crate path that used a removed root name at its defining module. Add no `#[deprecated]` and no alias. Verify `rg deprecated crates/rules` finds none, and `rg "pub use" crates/rules/src/lib.rs` lists only the facade
 
-- [ ] 3.4 Where a public doc link names a now-private item and the build fails on it, replace the link with plain text. Leave the Player Core citation. Verify `cargo test --workspace` still passes and no existing assertion was deleted or weakened
+- [x] 3.4 Where a public doc link names a now-private item and the build fails on it, replace the link with plain text. Leave the Player Core citation. Verify `cargo test --workspace` still passes and no existing assertion was deleted or weakened
 
-- [ ] 3.5 Add one `### Changed` bullet under `## [Unreleased]`, marked **BREAKING**, stating that the rules crate root exports the encounter commands and the types those commands need, that the helper names are crate-private, and that fight results are unchanged. Link this pull request. Verify the bullet is new, under `### Changed`, and links this pull request
+- [x] 3.5 Add one `### Changed` bullet under `## [Unreleased]`, marked **BREAKING**, stating that the rules crate root exports the encounter commands and the types those commands need, that the helper names are crate-private, and that fight results are unchanged. Link this pull request. Verify the bullet is new, under `### Changed`, and links this pull request
 
 ## 4. Proof
 
-- [ ] 4.1 Run these commands and keep the output. All exit 0
+- [x] 4.1 Run these commands and keep the output. All exit 0
 
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`

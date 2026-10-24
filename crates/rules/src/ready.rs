@@ -5,6 +5,14 @@
 //!
 //! Player Core, "Ready".
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use crate::check::{ArithmeticOverflow, DegreeOfSuccess};
 use crate::combatant::{CombatantId, HpError};
 use crate::encounter::{Agility, LostStrike, StrikeProfile};
@@ -397,7 +405,7 @@ impl ReadyActivity {
 /// Ready costs 2 actions and has the concentrate trait.
 ///
 /// Player Core, "Ready".
-pub fn ready_cost() -> ActionCost {
+pub(crate) fn ready_cost() -> ActionCost {
     ActionCost::Actions {
         count: 2,
         traits: CONCENTRATE,

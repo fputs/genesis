@@ -5,6 +5,14 @@
 //!
 //! Player Core, "Raise a Shield". Player Core, "Shield Block".
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use crate::check::DegreeOfSuccess;
 use crate::combatant::{CombatantState, Creature, HpError, Vital};
 use crate::dying::apply_resolved_blow;
@@ -25,7 +33,7 @@ pub enum ShieldBlock {
 ///
 /// Player Core, "Raise a Shield". Player Core, Broken.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ShieldError {
+pub(crate) enum ShieldError {
     /// The creature has no shield. Player Core, "Raise a Shield".
     NoShield,
     /// Shield Hit Points are above 0 and at or below the broken threshold.
@@ -42,7 +50,7 @@ pub enum ShieldError {
 ///
 /// Player Core, "Shield Block".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AttackBlowError {
+pub(crate) enum AttackBlowError {
     /// The resolved blow rejected the amount. Player Core, Hit Points.
     HitPoints(HpError),
     /// The combatant is not Alive. Player Core, "Shield Block".
@@ -76,7 +84,10 @@ pub(crate) enum PlannedBlow {
 /// second bonus.
 ///
 /// Player Core, "Raise a Shield". Player Core, Broken.
-pub fn raise_shield(state: &mut CombatantState, creature: &Creature) -> Result<(), ShieldError> {
+pub(crate) fn raise_shield(
+    state: &mut CombatantState,
+    creature: &Creature,
+) -> Result<(), ShieldError> {
     validate_raise(state, creature)?;
     state.shield_raised = true;
     Ok(())
@@ -110,7 +121,7 @@ pub(crate) fn validate_raise(
 /// Lowers a raised shield. Shield Hit Points, actions, and the reaction stay as they are.
 ///
 /// Player Core, "Raise a Shield". Player Core, "Start Your Turn".
-pub fn lower_raised_shield(state: &mut CombatantState) {
+pub(crate) fn lower_raised_shield(state: &mut CombatantState) {
     state.shield_raised = false;
 }
 
@@ -121,7 +132,7 @@ pub fn lower_raised_shield(state: &mut CombatantState) {
 /// This is not a [`Result`] and it is not a [`ShieldError`].
 ///
 /// Player Core, "Raise a Shield". Player Core, Bonuses. Player Core, Broken.
-pub fn shield_ac_modifier(state: &CombatantState, creature: &Creature) -> Option<Modifier> {
+pub(crate) fn shield_ac_modifier(state: &CombatantState, creature: &Creature) -> Option<Modifier> {
     if state.vital == Vital::Dead || !state.shield_raised {
         return None;
     }
@@ -141,7 +152,7 @@ pub fn shield_ac_modifier(state: &CombatantState, creature: &Creature) -> Option
 /// The shield then loses the same remainder, floored at 0, and the reaction is cleared.
 ///
 /// Player Core, "Shield Block". Player Core, "Item Damage".
-pub fn apply_attack_blow(
+pub(crate) fn apply_attack_blow(
     state: &mut CombatantState,
     creature: &Creature,
     amount: i32,

@@ -1,3 +1,11 @@
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use std::fmt;
 
 use crate::aid::{AidCircumstance, AidPreparation, AidRank, FittingAidModifier, roll_aid};
@@ -91,7 +99,7 @@ impl ReachFeet {
 ///
 /// Player Core, Hit Points.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FoldError {
+pub(crate) enum FoldError {
     /// A summed `i32` overflowed, or a reach sum is negative.
     Overflow,
     /// The damage die has zero faces, or a die count or face count the strike cannot store.
@@ -241,7 +249,7 @@ fn check_shield(shield: Option<&ShieldTemplate>) -> Result<(), TemplateError> {
 
 /// One derivation layer. Numerics are added. `Option` fields replace when `Some`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Contribution {
+pub(crate) struct Contribution {
     /// Hit Points added by this layer. Player Core, Hit Points.
     pub hit_points: i32,
     /// Armor Class added by this layer. Player Core, Hit Points.
@@ -279,7 +287,7 @@ pub struct Contribution {
 /// Copies the authored numbers as the first layer.
 ///
 /// Player Core, Hit Points.
-pub fn base_contribution(build: &CharacterBuild) -> Contribution {
+pub(crate) fn base_contribution(build: &CharacterBuild) -> Contribution {
     let parts = &build.parts;
     Contribution {
         hit_points: parts.hit_points,
@@ -304,7 +312,7 @@ pub fn base_contribution(build: &CharacterBuild) -> Contribution {
 /// Phase 1 supplies only the base contribution.
 ///
 /// Player Core, Hit Points.
-pub fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
+pub(crate) fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
     vec![base_contribution(build)]
 }
 
@@ -317,7 +325,7 @@ pub fn contributions(build: &CharacterBuild) -> Vec<Contribution> {
 /// accepted.
 ///
 /// Player Core, Hit Points, Speed, and "Shield Statistics".
-pub fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError> {
+pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, FoldError> {
     if ordered.is_empty() {
         return Err(FoldError::Empty);
     }
@@ -640,7 +648,7 @@ pub enum HpError {
 /// and not an overflow. Resistance is not an argument; its floor of 0 stays out of scope.
 ///
 /// Player Core, "Damage Rolls" and "Doubling and Halving".
-pub fn damage_dealt(
+pub(crate) fn damage_dealt(
     rolled_plus_baked: i32,
     modifiers: &[Modifier],
     critical: bool,
@@ -701,7 +709,7 @@ fn applied_penalty_total(applied: &[Modifier]) -> Result<i64, ModifierError> {
 /// [`HpError::InconsistentVital`] before the die is drawn.
 ///
 /// Player Core pg. 410, "Getting Knocked Out". Player Core pg. 406, "Damage Rolls".
-pub fn apply_dice_damage(
+pub(crate) fn apply_dice_damage(
     state: &mut CombatantState,
     creature: &Creature,
     dice: &mut impl Dice,
@@ -732,7 +740,7 @@ pub fn apply_dice_damage(
 /// fit, returns [`HpError::Overflow`]. Each of those leaves the state unchanged.
 ///
 /// Player Core pg. 410, Healing. Player Core pg. 411, "Losing the Dying Condition".
-pub fn apply_healing(
+pub(crate) fn apply_healing(
     state: &mut CombatantState,
     creature: &Creature,
     amount: i32,
@@ -743,7 +751,7 @@ pub fn apply_healing(
 /// Stealth DC placed on a build: 10 plus the Stealth modifier. Not used inside [`derive`].
 ///
 /// Player Core, "Getting a DC from a Modifier" and Seek.
-pub fn stealth_dc_from_modifier(stealth_modifier: crate::check::DcModifier) -> i32 {
+pub(crate) fn stealth_dc_from_modifier(stealth_modifier: crate::check::DcModifier) -> i32 {
     crate::check::dc_from_modifier(stealth_modifier)
 }
 
@@ -754,7 +762,7 @@ pub fn stealth_dc_from_modifier(stealth_modifier: crate::check::DcModifier) -> i
 /// The roll does not use `CheckModifier`.
 ///
 /// Player Core, Aid. Player Core, "Step 4: Degree of Success".
-pub fn aid_check(
+pub(crate) fn aid_check(
     dice: &mut impl Dice,
     creature: &Creature,
 ) -> Option<(CheckRoll, AidCircumstance)> {

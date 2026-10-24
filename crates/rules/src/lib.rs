@@ -893,67 +893,42 @@ mod ready;
 mod save;
 mod shield;
 
-pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank, aid_circumstance_bonus};
-pub use check::{
-    ArithmeticOverflow, AttackTotalTerm, CheckModifier, CheckRoll, DcModifier, DegreeOfSuccess,
-    FlatRoll, MapInput, attack_check_total, dc_from_modifier, degree_of_success,
-    fallback_unlisted_critical, flat_check, flat_checks_for_same_thing, multiple_attack_penalty,
-    resolve_check,
-};
+pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank};
+pub use check::{ArithmeticOverflow, DegreeOfSuccess};
 pub use combatant::{
-    BuildParts, CharacterBuild, CombatantId, CombatantState, ConditionSlot, Contribution, Creature,
-    DieCount, DieCountError, DyingValue, DyingValueError, FoldError, HpError, MeleeStrike,
-    ReachError, ReachFeet, ShieldTemplate, TemplateError, Vital, aid_check, apply_dice_damage,
-    apply_healing, base_contribution, contributions, damage_dealt, derive, fold_contributions,
-    new_combatant_state, stealth_dc_from_modifier,
+    BuildParts, CharacterBuild, CombatantId, CombatantState, ConditionSlot, Creature, DieCount,
+    DieCountError, DyingValue, DyingValueError, HpError, MeleeStrike, ReachError, ReachFeet,
+    ShieldTemplate, TemplateError, Vital, derive, new_combatant_state,
 };
-pub use detection::{
-    Area, Concealment, Detection, DetectionCost, DetectionError, Detections, HideObserver,
-    HideResult, OpenRoll, Relation, SeekResult, StrikeNotice, TargetingResult, hide, note_action,
-    note_strike, off_guard_against, refresh, resolve_targeting, seek,
-};
+pub use detection::{Concealment, Detection, DetectionError, Detections, Relation};
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
-pub use dying::{
-    EncounterOutcome, InitiativeMove, RosterEntry, apply_resolved_blow, encounter_outcome,
-    grant_temporary_hit_points, start_of_turn, take_initiative_move,
-};
+pub use dying::InitiativeMove;
 pub use encounter::{
     Agility, Encounter, EncounterError, LostStrike, Participant, Side, StrikeDelivery,
     StrikeOutcome, StrikeProfile, TurnSlot, begin_encounter,
 };
 pub use modifiers::{
-    BonusType, ConditionId, Cover, Modifier, ModifierError, ModifierTotal, PenaltyType, SourceId,
-    Statistic, ac_modifiers, attack_modifiers, dc_from_total, perception_modifiers,
-    reflex_modifiers, total,
+    BonusType, ConditionId, Modifier, ModifierError, PenaltyType, SourceId, Statistic,
 };
 
 #[cfg(any(test, feature = "test-support"))]
 pub use dice::ScriptedDice;
 pub use grid::{
-    DiagonalCounter, FactionId, GridError, MapBounds, MoveInput, MoveOutcome, Occupant, RangeBand,
-    Size, SizeData, Space, Square, SquareEvent, Terrain, adjacent, distance, in_reach,
-    move_trait_allowed, range_band, size_data, step, stride, validate_speed,
+    DiagonalCounter, FactionId, GridError, MapBounds, MoveOutcome, Occupant, Size, Square,
+    SquareEvent, Terrain,
 };
 pub use positioning::{
-    ActionCost, ActionTrait, AttackKind, CombatantPos, CoverBenefit, EndReason, Mobility,
-    MoveAction, NearbyFeature, OccupantPresence, OffGuard, PositioningError, Posture,
-    PostureChange, Readiness, TakeCoverResult, armor_class, attack_penalty, dismiss, dismiss_cost,
-    drop_prone, end_benefit, flanks, leap_while_prone, off_guard, prone_move, stand, take_cover,
+    ActionCost, ActionTrait, CoverBenefit, Mobility, MoveAction, OccupantPresence,
+    PositioningError, Posture, PostureChange,
 };
 pub use reactive::{ActionIdentity, Disruption, ReactiveError, ReactiveOutcome, ReactiveStrike};
 pub use ready::{
     ObservedAction, ReactionField, ReactionPlace, ReactiveStrikeInput, ReadyActivity,
     ReadyEncounter, ReadyError, ReadyStrike, ReadySuccess, ReadyTrigger, ResolvedReaction,
-    StoredReady, StrikeRange, ready_cost,
+    StoredReady, StrikeRange,
 };
-pub use save::{
-    LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveError, SaveRoll, SavingThrows,
-    basic_save_amount, proficiency_bonus, save_dc, save_modifier,
-};
-pub use shield::{
-    AttackBlowError, ShieldBlock, ShieldError, apply_attack_blow, lower_raised_shield,
-    raise_shield, shield_ac_modifier,
-};
+pub use save::{LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveRoll, SavingThrows};
+pub use shield::ShieldBlock;
 
 #[cfg(test)]
 mod facade_check;
