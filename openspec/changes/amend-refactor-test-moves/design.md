@@ -28,7 +28,7 @@ Alternative considered: extract the `#[cfg(test)]` region and compare it to the 
 
 ### 2. Review owns verbatim
 
-A use line, after leading whitespace is removed, starts with `use ` or `pub use `. A path line differs only by a module path written with `crate::`, `super::`, or `self::`. Any other difference in the moved block, including an assertion, an expected value, control flow, a comment, or whitespace in the test body, is a change to asserting logic. Review rejects that, an in-place assertion edit, and a dropped block that no new test file contains. A new test that was not in the removed block is not a change to the moved block. The unchanged-behavior gate in the single-pr-flow spec still applies to the pull request as a whole.
+A use line, after leading whitespace is removed, starts with `use ` or `pub use `. A path line differs only by a module path written with `crate::`, `super::`, or `self::`. Moving a block out of `mod tests` always re-indents it. A uniform change in the moved block's leading indentation is not a change. Any other whitespace change is. Comments are kept verbatim even though they don't assert anything. The dropped `#[cfg(test)] mod tests {` and `}` lines, and an added `#[cfg(test)] mod …;` declaration in a non-test path, are not changes to the moved block. Any other difference in the moved block, including an assertion, an expected value, control flow, or a comment, is a change. Review rejects that, an in-place assertion edit, and a dropped block that no new test file contains. A new test file is an added path that the Test file requirement classifies as a test file, so `crates/rules/src/tests.rs` does not qualify. `crates/<crate>/tests/` (integration tests) is allowed only if the block compiles unchanged apart from use/path lines; otherwise review rejects it. A new test that was not in the removed block is not a change to the moved block. The unchanged-behavior gate in the single-pr-flow spec still applies to the pull request as a whole.
 
 Alternative considered: make CI fail in-place assertion edits. Rejected. That requires parsing, which decision 1 refuses.
 
@@ -44,7 +44,7 @@ Implementation edits `AGENTS.md` section 1 after "Do not modify a `crates/` path
 
 - [CI stays green when asserting logic changes inside a `#[cfg(test)]` block] → Review rejects it. The job must not grow a parser to close that hole.
 - [A use line can name a different item] → The unchanged-behavior gate still applies. The verbatim rule allows that line to differ.
-- [rustfmt rewrites the moved body] → Format the block before the move. Whitespace in the test body is a change review rejects.
+- [rustfmt rewrites the moved body] → A uniform leading-indentation change from leaving `mod tests` is not a change. Any other whitespace change is a change review rejects.
 - [The script already passes the move, so the production file may not change] → Add the tests anyway. Do not add a dead check that searches for `cfg(test)`.
 
 ## Migration Plan
