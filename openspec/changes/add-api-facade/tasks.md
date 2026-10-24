@@ -8,17 +8,17 @@ If a public signature names a type section 3 made `pub(crate)`, stop. Do not add
 
 - [x] 1.1 These files are the behavior. The spec commit adds no Rust, no test, and no changelog bullet. Verify `npx @fission-ai/openspec@1.14.3 validate --all --strict` exits 0
 
-- [ ] 1.2 Do not start section 2 until this pull request has a review whose body line is `spec-approved: <sha>` and that sha is an ancestor of HEAD. Designer rules on the spec in this pull request
+- [x] 1.2 Do not start section 2 until this pull request has a review whose body line is `spec-approved: <sha>` and that sha is an ancestor of HEAD. Designer rules on the spec in this pull request
 
 ## 2. Tests
 
-- [ ] 2.1 Add two doctests on the crate root. One imports every name in the public-list scenario, and not `ScriptedDice`. One builds the 30 HP character from `An external crate starts and ends one turn` and asserts round 1, that order, `start_turn`, and `end_turn`. Verify `cargo test --doc --package rules` passes for those two before any visibility edit
+- [x] 2.1 Add two doctests on the crate root. One imports every name in the public-list scenario, and not `ScriptedDice`. One builds the 30 HP character from `An external crate starts and ends one turn` and asserts round 1, that order, `start_turn`, and `end_turn`. Verify `cargo test --doc --package rules` passes for those two before any visibility edit
 
-- [ ] 2.2 Add one `compile_fail,E0432` doctest per name in `Each removed name is rejected at the root`. The fence is `use rules::<name>;`. Add `compile_fail,E0603` doctests for `use rules::check::degree_of_success;` and `use rules::encounter::Encounter;`. Verify each fence is present. `cargo test --doc --package rules` fails until section 3 because those imports still compile
+- [x] 2.2 Add one `compile_fail,E0432` doctest per name in `Each removed name is rejected at the root`. The fence is `use rules::<name>;`. Add `compile_fail,E0603` doctests for `use rules::check::degree_of_success;` and `use rules::encounter::Encounter;`. Verify each fence is present. `cargo test --doc --package rules` fails until section 3 because those imports still compile
 
-- [ ] 2.3 Add `root_exports_match_the_facade`. It reads the crate root `pub use` names. `ScriptedDice` counts only on the existing `test-support` cfg line. Verify the test fails, and the failure names a private-list export, before section 3
+- [x] 2.3 Add `root_exports_match_the_facade`. It reads the crate root `pub use` names. `ScriptedDice` counts only on the existing `test-support` cfg line. Verify the test fails, and the failure names a private-list export, before section 3
 
-- [ ] 2.4 Add `removed_names_are_pub_crate`. It scans `crates/rules/src` for a column-0 `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub const`, or `pub type` of each private-list name. Indented methods do not count. Verify the test fails before section 3, and that an indented `pub fn stride` on `Encounter` is not a hit
+- [x] 2.4 Add `removed_names_are_pub_crate`. It scans `crates/rules/src` for a column-0 `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub const`, or `pub type` of each private-list name. Indented methods do not count. Verify the test fails before section 3, and that an indented `pub fn stride` on `Encounter` is not a hit
 
 ## 3. Visibility
 
