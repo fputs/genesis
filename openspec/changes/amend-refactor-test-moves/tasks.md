@@ -11,7 +11,7 @@ Genesis DevOps agent implements this change after `spec-approved`. Do not edit `
 
 ## 2. Constitution text
 
-- [ ] 2.1 In `AGENTS.md` section 1, keep the refactor bullet. After the existing sentence that forbids modifying a crates/ path containing `/tests/`, and before `The Unreleased bullet is still required.`, insert the section 1 sentences in the block below. In section 8, append the section 8 sentence to the same-file bullet. In `docs/architect/decisions.md`, after the existing sentence that says a crates/ path containing `/tests/` is not modified, insert the decisions sentence. Change no other sentence in those files. Verify those sentences are present and that `node --test scripts/spec-drift-check.test.mjs` exits 0.
+- [x] 2.1 In `AGENTS.md` section 1, keep the refactor bullet. After the existing sentence that forbids modifying a crates/ path containing `/tests/`, and before `The Unreleased bullet is still required.`, insert the section 1 sentences in the block below. In section 8, append the section 8 sentence to the same-file bullet. In `docs/architect/decisions.md`, after the existing sentence that says a crates/ path containing `/tests/` is not modified, insert the decisions sentence. Change no other sentence in those files. Verify those sentences are present and that `node --test scripts/spec-drift-check.test.mjs` exits 0.
 
 Section 1 sentences:
 
@@ -30,7 +30,7 @@ Decisions sentence:
 ```
 An in-file #[cfg(test)] block may be moved verbatim into a new test file. Only a use line or a path line may change, as the inline test block move requirement defines them. A uniform change in the moved block's leading indentation is not a change. Any other whitespace change is. Asserting logic may not change. Review enforces that move. The spec-drift job does not reject it.
 ```
-- [ ] 2.2 Add a `### Changed` bullet under `## [Unreleased]` in a commit before the archive commit. The bullet states that an `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file, and that the spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. The bullet links `https://github.com/fputs/genesis/pull/` plus this pull request's number. Verify the new bullet is under `### Changed` and contains that URL.
+- [x] 2.2 Add a `### Changed` bullet under `## [Unreleased]` in a commit before the archive commit. The bullet states that an `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file, and that the spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. The bullet links `https://github.com/fputs/genesis/pull/` plus this pull request's number. Verify the new bullet is under `### Changed` and contains that URL.
 
 ## 3. Proof and archive
 
