@@ -31,6 +31,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- An `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file. The spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. ([#86](https://github.com/fputs/genesis/pull/86))
 - The encounter's round wrap and a blow's delayed target are separate types, with no change to fight behavior. ([#78](https://github.com/fputs/genesis/pull/78))
 - **BREAKING:** A creature build carries optional `saves` training, and `Statistic` adds Fortitude and Will. ([#81](https://github.com/fputs/genesis/pull/81))
 - **BREAKING:** Strike, Reactive Strike, and a readied Strike roll the targeting flat check before the attack roll. A lost Strike returns `StrikeDelivery::Lost` and does not roll the attack d20. ([#83](https://github.com/fputs/genesis/pull/83))
