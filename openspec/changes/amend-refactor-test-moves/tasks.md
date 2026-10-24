@@ -34,7 +34,7 @@ An in-file #[cfg(test)] block may be moved verbatim into a new test file. Only a
 
 ## 3. Proof and archive
 
-- [ ] 3.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`.
+- [x] 3.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`.
 - [ ] 3.2 As the final commit of this pull request, after Architect and QA have both passed the previous head, run `openspec archive amend-refactor-test-moves --yes` and check this box in that same commit. The commit deletes `openspec/changes/amend-refactor-test-moves/` and adds `openspec/changes/archive/<YYYY>-<MM>-<DD>-amend-refactor-test-moves/`. It does not modify `CHANGELOG.md`. Leave this box open until that commit so the change is not a completed unarchived change. Verify the change is no longer an active directory under `openspec/changes/`.
 
 ## Workflow follow-up
