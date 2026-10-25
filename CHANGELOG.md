@@ -31,6 +31,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** The rules crate root exports the encounter commands and the types those commands need. Helper names are crate-private. Fight results are unchanged. ([#87](https://github.com/fputs/genesis/pull/87))
 - Split the encounter module into turns, strike, reactions, delay and ready, and vitals, with no change to fight behavior. ([#88](https://github.com/fputs/genesis/pull/88))
 - An `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file. The spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. ([#86](https://github.com/fputs/genesis/pull/86))
 - The encounter's round wrap and a blow's delayed target are separate types, with no change to fight behavior. ([#78](https://github.com/fputs/genesis/pull/78))

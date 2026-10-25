@@ -2,6 +2,14 @@
 //!
 //! Player Core pg. 404, Saving Throws.
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use std::ops::RangeInclusive;
 
 use crate::check::{ArithmeticOverflow, CheckModifier, DegreeOfSuccess};
@@ -125,7 +133,7 @@ impl Save {
 ///
 /// Player Core pg. 404, Saving Throws. Player Core pg. 407, Doubling and Halving Damage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SaveError {
+pub(crate) enum SaveError {
     /// The listed amount was negative. Player Core pg. 404, Basic Saving Throws.
     NegativeAmount,
     /// The attribute, proficiency, and modifiers did not fit a check modifier.
@@ -158,7 +166,7 @@ pub struct SaveRoll {
 /// [`LEVEL_RANGE`] ends at 25, and the const assert keeps `level + 8` inside `i32`.
 ///
 /// Player Core pg. 404, Saving Throws.
-pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
+pub(crate) fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
     let added = match rank {
         Proficiency::Untrained => return 0,
         Proficiency::Trained => 2,
@@ -177,7 +185,7 @@ pub fn proficiency_bonus(level: Level, rank: Proficiency) -> i32 {
 /// Proficiency is not a bonus type.
 ///
 /// Player Core pg. 404, Saving Throws. Player Core pg. 446, Unconscious.
-pub fn save_modifier(
+pub(crate) fn save_modifier(
     training: &SavingThrows,
     save: Save,
     unconscious: bool,
@@ -214,7 +222,7 @@ pub fn save_modifier(
 /// A [`CheckModifier`] keeps `modifier + 255` inside `i32`, so `modifier + 10` fits.
 ///
 /// Player Core pg. 404, Saving Throws. Player Core pg. 401, Getting a DC from a Modifier.
-pub fn save_dc(modifier: CheckModifier) -> i32 {
+pub(crate) fn save_dc(modifier: CheckModifier) -> i32 {
     // `CheckModifier::new` rejects a modifier that cannot be added to 255.
     modifier.get() + 10
 }
@@ -222,7 +230,7 @@ pub fn save_dc(modifier: CheckModifier) -> i32 {
 /// Basic-save damage for `degree`. Half of 1 stays 1. A result of 0 is not raised to 1.
 ///
 /// Player Core pg. 404, Basic Saving Throws. Player Core pg. 407, Doubling and Halving Damage.
-pub fn basic_save_amount(amount: i32, degree: DegreeOfSuccess) -> Result<i32, SaveError> {
+pub(crate) fn basic_save_amount(amount: i32, degree: DegreeOfSuccess) -> Result<i32, SaveError> {
     if amount < 0 {
         return Err(SaveError::NegativeAmount);
     }

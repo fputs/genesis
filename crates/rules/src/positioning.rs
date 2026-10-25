@@ -5,6 +5,14 @@
 //!
 //! Player Core, "Drop Prone", "Stand", Prone, "Flanking", "Take Cover", Cover, and "Off-Guard".
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use crate::combatant::CombatantId;
 use crate::grid::{DiagonalCounter, GridError, Size, Square, in_reach, move_trait_allowed};
 use crate::modifiers::{
@@ -28,7 +36,7 @@ pub enum Posture {
 ///
 /// Player Core, "Flanking".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Readiness {
+pub(crate) enum Readiness {
     /// Able to act. Player Core, "Flanking".
     Able,
     /// Not able to act. Does not flank. Player Core, "Flanking".
@@ -39,7 +47,7 @@ pub enum Readiness {
 ///
 /// Player Core, "Take Cover".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NearbyFeature {
+pub(crate) enum NearbyFeature {
     /// A feature Take Cover can use. Player Core, "Take Cover".
     Present,
     /// No such feature. Player Core, "Take Cover".
@@ -61,7 +69,7 @@ pub enum OccupantPresence {
 ///
 /// Player Core, Cover. Player Core, "Off-Guard".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AttackKind {
+pub(crate) enum AttackKind {
     /// A melee attack. Player Core, "Off-Guard".
     Melee,
     /// A ranged attack. Player Core, Cover.
@@ -87,7 +95,7 @@ pub enum CoverBenefit {
 ///
 /// Player Core, "Take Cover".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EndReason {
+pub(crate) enum EndReason {
     /// The creature left its square. Player Core, "Take Cover".
     LeftSquare,
     /// The creature used an attack action. Player Core, "Take Cover".
@@ -95,6 +103,13 @@ pub enum EndReason {
     /// The creature became unconscious. Player Core, "Take Cover".
     Unconscious,
     /// The creature dismissed the benefit. Player Core, "Take Cover".
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the end reason stays in the enum; this crate does not construct it"
+        )
+    )]
     Dismiss,
     /// The creature was moved by force. Player Core, "Take Cover".
     ForcedMovement,
@@ -181,7 +196,7 @@ pub struct PostureChange {
 ///
 /// Player Core, "Take Cover".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TakeCoverResult {
+pub(crate) struct TakeCoverResult {
     /// Benefit the caller stores. Player Core, "Take Cover".
     pub benefit: CoverBenefit,
     /// The square the creature already occupied. Player Core, "Take Cover".
@@ -205,7 +220,7 @@ pub enum Mobility {
 ///
 /// Player Core, "Off-Guard".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OffGuard {
+pub(crate) enum OffGuard {
     /// Circumstance −2 to Armor Class, once. Player Core, "Off-Guard".
     Yes,
     /// No off-guard penalty. Player Core, "Off-Guard".
@@ -249,7 +264,7 @@ pub enum PositioningError {
 ///
 /// Player Core, "Flanking".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CombatantPos {
+pub(crate) struct CombatantPos {
     /// Identity compared for duplicates and self-flanking. Player Core, "Flanking".
     pub id: CombatantId,
     /// Square on a grid this module does not bound. Player Core, "Grid Movement".
@@ -275,7 +290,7 @@ const NO_TRAITS: &[ActionTrait] = &[];
 /// move trait and no trigger flag.
 ///
 /// Player Core, "Drop Prone". Player Core, "Immobilized".
-pub fn drop_prone(
+pub(crate) fn drop_prone(
     posture: Posture,
     square: Square,
     mobility: Mobility,
@@ -300,7 +315,7 @@ pub fn drop_prone(
 /// and no trigger flag.
 ///
 /// Player Core, "Stand". Player Core, "Immobilized". Player Core, "Sharing Space".
-pub fn stand(
+pub(crate) fn stand(
     posture: Posture,
     square: Square,
     mobility: Mobility,
@@ -325,7 +340,7 @@ pub fn stand(
 /// `()` and carries no distance. Immobilized is checked before the prone restriction.
 ///
 /// Player Core, Prone. Player Core, "Immobilized".
-pub fn prone_move(
+pub(crate) fn prone_move(
     posture: Posture,
     mobility: Mobility,
     action: MoveAction,
@@ -349,7 +364,10 @@ pub fn prone_move(
 /// function.
 ///
 /// Player Core, Prone. Player Core, "Immobilized".
-pub fn leap_while_prone(posture: Posture, mobility: Mobility) -> Result<(), PositioningError> {
+pub(crate) fn leap_while_prone(
+    posture: Posture,
+    mobility: Mobility,
+) -> Result<(), PositioningError> {
     require_mobile(mobility)?;
     match posture {
         Posture::Prone => Err(PositioningError::ProneRestrictsMovement),
@@ -366,7 +384,7 @@ pub fn leap_while_prone(posture: Posture, mobility: Mobility) -> Result<(), Posi
 /// an empty trait list, so immobilized does not apply.
 ///
 /// Player Core, "Take Cover". Player Core, Cover. Player Core, Prone.
-pub fn take_cover(
+pub(crate) fn take_cover(
     posture: Posture,
     square: Square,
     stored: Option<CoverBenefit>,
@@ -398,21 +416,26 @@ pub fn take_cover(
 /// Clears a stored benefit. `None` in is `Ok(None)`.
 ///
 /// Player Core, "Take Cover".
-pub fn dismiss(_stored: Option<CoverBenefit>) -> Result<Option<CoverBenefit>, PositioningError> {
+pub(crate) fn dismiss(
+    _stored: Option<CoverBenefit>,
+) -> Result<Option<CoverBenefit>, PositioningError> {
     Ok(None)
 }
 
 /// Dismiss is a free action with no traits.
 ///
 /// Player Core, "Take Cover".
-pub fn dismiss_cost() -> ActionCost {
+pub(crate) fn dismiss_cost() -> ActionCost {
     ActionCost::Free { traits: &[] }
 }
 
 /// Clears the stored benefit. Does not change posture; the caller still holds that.
 ///
 /// Player Core, "Take Cover".
-pub fn end_benefit(reason: EndReason, _benefit: Option<CoverBenefit>) -> Option<CoverBenefit> {
+pub(crate) fn end_benefit(
+    reason: EndReason,
+    _benefit: Option<CoverBenefit>,
+) -> Option<CoverBenefit> {
     match reason {
         EndReason::LeftSquare
         | EndReason::AttackAction
@@ -428,7 +451,7 @@ pub fn end_benefit(reason: EndReason, _benefit: Option<CoverBenefit>) -> Option<
 /// the multiple attack penalty and Aid.
 ///
 /// Player Core, Prone.
-pub fn attack_penalty(posture: Posture) -> Result<Vec<Modifier>, PositioningError> {
+pub(crate) fn attack_penalty(posture: Posture) -> Result<Vec<Modifier>, PositioningError> {
     let prone = match posture {
         Posture::Prone => true,
         Posture::Standing => false,
@@ -443,7 +466,7 @@ pub fn attack_penalty(posture: Posture) -> Result<Vec<Modifier>, PositioningErro
 /// status penalty belongs in `extra`. Two cover bonuses are not both passed.
 ///
 /// Player Core, Cover. Player Core, "Off-Guard". Player Core, Penalties.
-pub fn armor_class(
+pub(crate) fn armor_class(
     benefit: Option<CoverBenefit>,
     caller_cover: Option<Cover>,
     off_guard: OffGuard,
@@ -473,7 +496,7 @@ pub fn armor_class(
 /// overflow. An empty partner list is not a flank. Partners are not paired with each other.
 ///
 /// Player Core, "Flanking". Player Core, "Range and Reach". Player Core, "Size, Space, and Reach".
-pub fn flanks(
+pub(crate) fn flanks(
     defender: &CombatantPos,
     attacker: &CombatantPos,
     partners: &[CombatantPos],
@@ -524,7 +547,7 @@ pub fn flanks(
 /// Ranged flanking alone is not.
 ///
 /// Player Core, "Flanking". Player Core, "Off-Guard".
-pub fn off_guard(
+pub(crate) fn off_guard(
     defender: &CombatantPos,
     attacker: &CombatantPos,
     attack: AttackKind,
@@ -825,11 +848,12 @@ fn on_segment(a: Pt, b: Pt, point: Pt) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grid::{MoveInput, stride};
+    use crate::modifiers::total;
     use crate::{
         BonusType, BuildParts, CharacterBuild, CombatantId, CombatantState, DieCount, Faces,
-        FactionId, MapBounds, MeleeStrike, Modifier, ModifierError, MoveInput, PenaltyType,
-        ReachFeet, ScriptedDice, Size, SourceId, Statistic, derive, new_combatant_state, stride,
-        total,
+        FactionId, MapBounds, MeleeStrike, Modifier, ModifierError, PenaltyType, ReachFeet,
+        ScriptedDice, Size, SourceId, Statistic, derive, new_combatant_state,
     };
 
     fn at(x: i32, y: i32) -> Square {

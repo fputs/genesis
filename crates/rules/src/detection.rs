@@ -4,6 +4,14 @@
 //!
 //! Player Core pg. 434, "Detecting Creatures".
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::check::{
@@ -87,7 +95,7 @@ pub enum DetectionError {
 ///
 /// Player Core pg. 417, Seek. Player Core pg. 244, Hide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DetectionCost {
+pub(crate) enum DetectionCost {
     /// 1 action with the concentrate trait. Player Core pg. 417, Seek.
     Seek,
     /// 1 action, with none of the concentrate, move, or manipulate traits. Player Core pg. 244, Hide.
@@ -137,7 +145,7 @@ impl DetectionCost {
 ///
 /// Player Core pg. 417, Seek.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Area {
+pub(crate) struct Area {
     /// Length of the area. Player Core pg. 417, Seek.
     pub length_feet: u32,
     /// Width of the area. Player Core pg. 417, Seek.
@@ -150,7 +158,7 @@ pub struct Area {
 ///
 /// Player Core pg. 417, Seek. Player Core pg. 244, Hide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OpenRoll {
+pub(crate) struct OpenRoll {
     /// The d20 face. Player Core pg. 417, Seek.
     pub natural: u8,
     /// Face plus the check modifier. Player Core pg. 417, Seek.
@@ -165,7 +173,7 @@ pub struct OpenRoll {
 ///
 /// Player Core pg. 417, Seek.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SeekResult {
+pub(crate) struct SeekResult {
     /// 1 action with the concentrate trait. Not spent here. Player Core pg. 417, Seek.
     pub cost: DetectionCost,
     /// The open Perception check, or nothing when no subject was compared. Player Core pg. 417, Seek.
@@ -180,7 +188,7 @@ pub struct SeekResult {
 ///
 /// Player Core pg. 244, Hide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HideObserver {
+pub(crate) struct HideObserver {
     /// Who might lose sight of the subject. Player Core pg. 244, Hide.
     pub id: CombatantId,
     /// Perception modifier already including every penalty. Player Core pg. 401, "Getting a DC from a Modifier".
@@ -193,7 +201,7 @@ pub struct HideObserver {
 ///
 /// Player Core pg. 244, Hide.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HideResult {
+pub(crate) struct HideResult {
     /// 1 action with none of the concentrate, move, or manipulate traits. Not spent here.
     ///
     /// Player Core pg. 244, Hide.
@@ -208,7 +216,7 @@ pub struct HideResult {
 ///
 /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TargetingResult {
+pub(crate) struct TargetingResult {
     /// The effect happens. Player Core pg. 400, "Checks (Flat Checks)".
     pub affected: bool,
     /// The flat-check DC, or nothing when no die was drawn. Player Core pg. 400, "Checks (Flat Checks)".
@@ -235,7 +243,7 @@ pub struct TargetingResult {
 ///
 /// Player Core pg. 244, Hide. Player Core pg. 245, Sneak.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StrikeNotice {
+pub(crate) struct StrikeNotice {
     /// Off-guard from detection only. The caller combines other sources.
     ///
     /// Player Core pg. 445, "Off-Guard".
@@ -337,7 +345,7 @@ impl Detections {
 /// This function does not spend an action.
 ///
 /// Player Core pg. 444, Hidden. Player Core pg. 447, Undetected. Player Core pg. 445, "Off-Guard".
-pub fn off_guard_against(relation: Relation, other: OffGuard) -> OffGuard {
+pub(crate) fn off_guard_against(relation: Relation, other: OffGuard) -> OffGuard {
     match relation.detection {
         Detection::Hidden | Detection::Undetected => OffGuard::Yes,
         Detection::Observed => other,
@@ -355,7 +363,7 @@ pub fn off_guard_against(relation: Relation, other: OffGuard) -> OffGuard {
 ///
 /// Player Core pg. 442, Concealed. Player Core pg. 444, Hidden.
 /// Player Core pg. 402, "Multiple Attack Penalty". Player Core pg. 400, "Checks (Flat Checks)".
-pub fn resolve_targeting(
+pub(crate) fn resolve_targeting(
     detections: &Detections,
     observer: CombatantId,
     subject: CombatantId,
@@ -402,7 +410,7 @@ pub fn resolve_targeting(
 /// The caller spends [`DetectionCost::Seek`].
 ///
 /// Player Core pg. 417, Seek.
-pub fn seek(
+pub(crate) fn seek(
     detections: Detections,
     seeker: CombatantId,
     vital: Vital,
@@ -482,7 +490,7 @@ pub fn seek(
 /// The caller spends [`DetectionCost::Hide`].
 ///
 /// Player Core pg. 244, Hide. Player Core pg. 401, "Getting a DC from a Modifier".
-pub fn hide(
+pub(crate) fn hide(
     detections: Detections,
     subject: CombatantId,
     vital: Vital,
@@ -578,7 +586,7 @@ pub fn hide(
 /// Nothing calls this except the caller.
 ///
 /// Player Core pg. 244, Hide.
-pub fn refresh(
+pub(crate) fn refresh(
     mut detections: Detections,
     subject: CombatantId,
     observer: CombatantId,
@@ -602,7 +610,7 @@ pub fn refresh(
 /// This function does not roll.
 ///
 /// Player Core pg. 244, Hide. Player Core pg. 245, Sneak.
-pub fn note_strike(
+pub(crate) fn note_strike(
     mut detections: Detections,
     striker: CombatantId,
     target: CombatantId,
@@ -636,7 +644,11 @@ pub fn note_strike(
 /// Stride, Step, and Drop Prone leave every relation as it was. This function does not roll.
 ///
 /// Player Core pg. 244, Hide.
-pub fn note_action(detections: Detections, _actor: CombatantId, action: MoveAction) -> Detections {
+pub(crate) fn note_action(
+    detections: Detections,
+    _actor: CombatantId,
+    action: MoveAction,
+) -> Detections {
     match action {
         MoveAction::Stride | MoveAction::Step | MoveAction::DropProne => detections,
     }
@@ -762,10 +774,9 @@ fn record_hide(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Cover, DegreeOfSuccess, DyingValue, MoveAction, OffGuard, ScriptedDice, Statistic,
-        ac_modifiers, total,
-    };
+    use crate::modifiers::{Cover, ac_modifiers, total};
+    use crate::positioning::OffGuard;
+    use crate::{DegreeOfSuccess, DyingValue, MoveAction, ScriptedDice, Statistic};
 
     fn cid(value: u32) -> CombatantId {
         CombatantId(value)

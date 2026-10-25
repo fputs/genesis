@@ -5,6 +5,14 @@
 //!
 //! Player Core, "Grid Movement".
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 /// One square on the grid. Coordinates increase east and south.
 ///
 /// Player Core, "Grid Movement". A square is 5 feet.
@@ -52,7 +60,7 @@ pub enum Size {
 ///
 /// Player Core, "Size, Space, and Reach".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Space {
+pub(crate) enum Space {
     /// Less than 5 feet. Player Core, "Size, Space, and Reach".
     UnderFive,
     /// Exactly this many feet. Player Core, "Size, Space, and Reach".
@@ -65,7 +73,7 @@ pub enum Space {
 ///
 /// Player Core, "Size, Space, and Reach". Tall reach and long reach are separate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SizeData {
+pub(crate) struct SizeData {
     /// Space the size occupies. Player Core, "Size, Space, and Reach".
     pub space: Space,
     /// Reach in feet when the creature is tall. Player Core, "Size, Space, and Reach".
@@ -184,7 +192,7 @@ pub struct MoveOutcome {
 ///
 /// Player Core, "Stride". Nothing in this module searches for a route.
 #[derive(Clone, Copy, Debug)]
-pub struct MoveInput<'a> {
+pub(crate) struct MoveInput<'a> {
     /// Square the creature occupies before the action. Player Core, "Grid Movement".
     pub start: Square,
     /// Squares to enter, in order. Empty is a Stride that does not move.
@@ -211,7 +219,7 @@ pub struct MoveInput<'a> {
 ///
 /// Player Core, "Range Penalty".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RangeBand {
+pub(crate) struct RangeBand {
     /// How many increments the distance fills, from 1 through 6. Player Core, "Range Penalty".
     pub increments: u32,
     /// Untyped penalty, −2 per increment after the first. Player Core, "Range Penalty".
@@ -269,7 +277,7 @@ const RANGE_PENALTY_STEP: i32 = -2;
 /// Space and reach for every size. Does not decide whether that size can move.
 ///
 /// Player Core, "Size, Space, and Reach".
-pub fn size_data(size: Size) -> SizeData {
+pub(crate) fn size_data(size: Size) -> SizeData {
     match size {
         Size::Tiny => SizeData {
             space: Space::UnderFive,
@@ -304,7 +312,7 @@ pub fn size_data(size: Size) -> SizeData {
 /// add-modifiers validates Creature Speed at load and at fold. This guard does not change that.
 /// Rule: Player Core has no multiple-of-5 rule. validation (DEV-21). Rules 2347 (Player Core
 /// pg. 420) and Rules 2356 (5-ft squares).
-pub fn validate_speed(speed_feet: i32) -> Result<(), GridError> {
+pub(crate) fn validate_speed(speed_feet: i32) -> Result<(), GridError> {
     if speed_feet < 0 {
         return Err(GridError::NegativeSpeed);
     }
@@ -320,7 +328,7 @@ pub fn validate_speed(speed_feet: i32) -> Result<(), GridError> {
 /// are not implemented.
 ///
 /// Player Core, "Immobilized".
-pub fn move_trait_allowed(immobilized: bool) -> Result<(), GridError> {
+pub(crate) fn move_trait_allowed(immobilized: bool) -> Result<(), GridError> {
     if immobilized {
         Err(GridError::Immobilized)
     } else {
@@ -334,7 +342,7 @@ pub fn move_trait_allowed(immobilized: bool) -> Result<(), GridError> {
 /// An empty path costs 0 feet, emits no events, and ends on the start square.
 ///
 /// Player Core, "Stride".
-pub fn stride(input: MoveInput<'_>) -> Result<MoveOutcome, GridError> {
+pub(crate) fn stride(input: MoveInput<'_>) -> Result<MoveOutcome, GridError> {
     resolve(input, Action::Stride)
 }
 
@@ -344,7 +352,7 @@ pub fn stride(input: MoveInput<'_>) -> Result<MoveOutcome, GridError> {
 /// compared with Speed. A diagonal Step still advances the counter. Speed must be at least 10.
 ///
 /// Player Core, "Step".
-pub fn step(input: MoveInput<'_>) -> Result<MoveOutcome, GridError> {
+pub(crate) fn step(input: MoveInput<'_>) -> Result<MoveOutcome, GridError> {
     resolve(input, Action::Step)
 }
 
@@ -354,7 +362,7 @@ pub fn step(input: MoveInput<'_>) -> Result<MoveOutcome, GridError> {
 /// The two directions match.
 ///
 /// Player Core, "Areas".
-pub fn distance(
+pub(crate) fn distance(
     from: Square,
     to: Square,
     from_size: Size,
@@ -369,7 +377,7 @@ pub fn distance(
 /// Squares that share an edge or a corner. The same square is not adjacent.
 ///
 /// Player Core, "Range and Reach".
-pub fn adjacent(
+pub(crate) fn adjacent(
     from: Square,
     to: Square,
     from_size: Size,
@@ -387,7 +395,7 @@ pub fn adjacent(
 /// creature exactly two diagonal squares away. Reach above 10 is the grid distance only.
 ///
 /// Player Core, "Range and Reach".
-pub fn in_reach(
+pub(crate) fn in_reach(
     from: Square,
     to: Square,
     from_size: Size,
@@ -420,7 +428,7 @@ pub fn in_reach(
 /// An exact multiple stays in that count. A count above 6 is [`GridError::BeyondRange`].
 ///
 /// Player Core, "Range Penalty".
-pub fn range_band(distance_feet: i32, increment_feet: i32) -> Result<RangeBand, GridError> {
+pub(crate) fn range_band(distance_feet: i32, increment_feet: i32) -> Result<RangeBand, GridError> {
     if distance_feet < 0 {
         return Err(GridError::NegativeDistance);
     }

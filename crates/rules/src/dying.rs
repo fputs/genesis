@@ -4,6 +4,14 @@
 //!
 //! Player Core pg. 410, "Getting Knocked Out".
 
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use crate::check::{DegreeOfSuccess, FlatRoll, flat_check};
 use crate::combatant::{CombatantId, CombatantState, Creature, DyingValue, HpError, Vital};
 use crate::dice::Dice;
@@ -24,7 +32,7 @@ pub enum InitiativeMove {
 ///
 /// Player Core pg. 435, "End the Encounter".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EncounterOutcome {
+pub(crate) enum EncounterOutcome {
     /// Fewer than two sides are present, or both still have an alive combatant.
     ///
     /// Player Core pg. 435, "End the Encounter".
@@ -45,8 +53,15 @@ pub enum EncounterOutcome {
 /// One combatant in a victory query.
 ///
 /// Player Core pg. 435, "End the Encounter".
-pub struct RosterEntry<'a> {
+pub(crate) struct RosterEntry<'a> {
     /// Combatant id. Player Core, Encounter Mode.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the roster value keeps the id; nothing in this crate reads it"
+        )
+    )]
     pub id: CombatantId,
     /// Side from encounter turns. Player Core pg. 435, "End the Encounter".
     pub side: Side,
@@ -72,7 +87,7 @@ pub(crate) fn inconsistent_vital(state: &CombatantState) -> bool {
 /// returns [`HpError::NegativeAmount`] and writes nothing. This function does not roll.
 ///
 /// Player Core pg. 410, "Getting Knocked Out". Player Core pg. 412, Massive Damage.
-pub fn apply_resolved_blow(
+pub(crate) fn apply_resolved_blow(
     state: &mut CombatantState,
     creature: &Creature,
     amount: i32,
@@ -173,7 +188,7 @@ pub(crate) fn apply_healing(
 /// reaction are left as the caller set them.
 ///
 /// Player Core pg. 411, Recovery Checks. Player Core pg. 435, "Start Your Turn".
-pub fn start_of_turn(
+pub(crate) fn start_of_turn(
     state: &mut CombatantState,
     _creature: &Creature,
     dice: &mut impl Dice,
@@ -201,7 +216,7 @@ pub fn start_of_turn(
 /// Grants temporary Hit Points. A strictly greater amount replaces the pool and its duration.
 ///
 /// Player Core pg. 410, Temporary Hit Points. Ruling R-06.
-pub fn grant_temporary_hit_points(
+pub(crate) fn grant_temporary_hit_points(
     state: &mut CombatantState,
     amount: i32,
     rounds: u32,
@@ -231,7 +246,7 @@ pub fn grant_temporary_hit_points(
 /// Returns the initiative report and clears it.
 ///
 /// Player Core pg. 410, "Getting Knocked Out".
-pub fn take_initiative_move(state: &mut CombatantState) -> Option<InitiativeMove> {
+pub(crate) fn take_initiative_move(state: &mut CombatantState) -> Option<InitiativeMove> {
     state.initiative_move.take()
 }
 
@@ -241,7 +256,7 @@ pub fn take_initiative_move(state: &mut CombatantState) -> Option<InitiativeMove
 /// alive. Fewer than two present sides is [`EncounterOutcome::Ongoing`].
 ///
 /// Player Core pg. 435, "End the Encounter".
-pub fn encounter_outcome(roster: &[RosterEntry<'_>]) -> EncounterOutcome {
+pub(crate) fn encounter_outcome(roster: &[RosterEntry<'_>]) -> EncounterOutcome {
     let mut pc_present = false;
     let mut pc_alive = false;
     let mut enemy_present = false;

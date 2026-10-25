@@ -105,7 +105,7 @@ pub struct AidOutcome {
 /// and [`AidCircumstance::Plus4`] at legendary. This supersedes DEV-03.
 ///
 /// Player Core, Aid. Player Core, "Step 4: Degree of Success".
-pub fn aid_circumstance_bonus(degree: DegreeOfSuccess, rank: AidRank) -> AidCircumstance {
+pub(crate) fn aid_circumstance_bonus(degree: DegreeOfSuccess, rank: AidRank) -> AidCircumstance {
     match degree {
         DegreeOfSuccess::CriticalSuccess => match rank {
             AidRank::BelowMaster => AidCircumstance::Plus2,

@@ -1,3 +1,11 @@
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "callers are this crate's tests; the facade keeps the procedure and drops the root export"
+    )
+)]
+
 use crate::dice::Dice;
 use crate::modifiers::{Modifier, ModifierError, Statistic, attack_check_parts, total};
 
@@ -49,7 +57,7 @@ impl DegreeOfSuccess {
 /// representable threshold on that side, so the band is not met.
 ///
 /// Player Core, "Step 4: Degree of Success" and "Natural 1 and Natural 20".
-pub fn degree_of_success(natural: u8, total: i32, dc: i32) -> DegreeOfSuccess {
+pub(crate) fn degree_of_success(natural: u8, total: i32, dc: i32) -> DegreeOfSuccess {
     let ten_above = match dc.checked_add(10) {
         Some(threshold) => total >= threshold,
         None => false,
@@ -78,7 +86,7 @@ pub fn degree_of_success(natural: u8, total: i32, dc: i32) -> DegreeOfSuccess {
 /// Maps an unlisted critical success to success and an unlisted critical failure to failure.
 ///
 /// Player Core, "Step 4: Degree of Success".
-pub fn fallback_unlisted_critical(
+pub(crate) fn fallback_unlisted_critical(
     degree: DegreeOfSuccess,
     lists_critical_success: bool,
     lists_critical_failure: bool,
@@ -94,19 +102,19 @@ pub fn fallback_unlisted_critical(
 ///
 /// Player Core, "Getting a DC from a Modifier".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DcModifier(i32);
+pub(crate) struct DcModifier(i32);
 
 /// A modifier that can be added to any die face in `0..=255` without leaving `i32`.
 ///
 /// Player Core, Checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CheckModifier(i32);
+pub(crate) struct CheckModifier(i32);
 
 /// One addend of an attack total. Four values of this type, plus any `u8` natural roll, fit in `i32`.
 ///
 /// Player Core, Penalties.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AttackTotalTerm(i32);
+pub(crate) struct AttackTotalTerm(i32);
 
 /// The sum of the given numbers does not fit in `i32`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,7 +180,7 @@ impl AttackTotalTerm {
 /// DC taken from a modifier: 10 plus that modifier.
 ///
 /// Player Core, "Getting a DC from a Modifier".
-pub fn dc_from_modifier(modifier: DcModifier) -> i32 {
+pub(crate) fn dc_from_modifier(modifier: DcModifier) -> i32 {
     match 10i32.checked_add(modifier.get()) {
         Some(dc) => dc,
         // `DcModifier::new` already rejected every modifier for which this sum does not fit.
@@ -182,7 +190,7 @@ pub fn dc_from_modifier(modifier: DcModifier) -> i32 {
 
 /// One resolved d20 check. Player Core, Checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CheckRoll {
+pub(crate) struct CheckRoll {
     /// Face rolled on the d20. Player Core, Checks.
     pub natural: u8,
     /// Natural roll plus the modifier. Player Core, Checks.
@@ -196,7 +204,7 @@ pub struct CheckRoll {
 /// Rolls a d20, adds `modifier`, and applies [`degree_of_success`] (natural 20 and natural 1 included).
 ///
 /// Player Core, Checks.
-pub fn resolve_check(dice: &mut impl Dice, modifier: CheckModifier, dc: i32) -> CheckRoll {
+pub(crate) fn resolve_check(dice: &mut impl Dice, modifier: CheckModifier, dc: i32) -> CheckRoll {
     let natural = dice.d20();
     let total = match i32::from(natural).checked_add(modifier.get()) {
         Some(total) => total,
@@ -216,7 +224,7 @@ pub fn resolve_check(dice: &mut impl Dice, modifier: CheckModifier, dc: i32) -> 
 ///
 /// Player Core, Flat Checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FlatRoll {
+pub(crate) struct FlatRoll {
     /// The d20, or nothing when the DC did not roll. Player Core, Flat Checks.
     pub natural: Option<u8>,
     /// DC that was compared. Player Core, Flat Checks.
@@ -231,7 +239,7 @@ pub struct FlatRoll {
 /// Automatic results are an ordinary success or an ordinary failure.
 ///
 /// Player Core, Flat Checks.
-pub fn flat_check(dice: &mut impl Dice, dc: i32) -> FlatRoll {
+pub(crate) fn flat_check(dice: &mut impl Dice, dc: i32) -> FlatRoll {
     if dc <= 1 {
         return FlatRoll {
             natural: None,
@@ -259,7 +267,7 @@ pub fn flat_check(dice: &mut impl Dice, dc: i32) -> FlatRoll {
 /// `first_dc` plus `other_dcs` is a non-empty list. The highest DC is chosen with no empty-list result.
 ///
 /// Player Core, Flat Checks.
-pub fn flat_checks_for_same_thing(
+pub(crate) fn flat_checks_for_same_thing(
     dice: &mut impl Dice,
     first_dc: i32,
     other_dcs: &[i32],
@@ -272,7 +280,7 @@ pub fn flat_checks_for_same_thing(
 ///
 /// Player Core, "Multiple Attack Penalty".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MapInput {
+pub(crate) struct MapInput {
     /// False on another creature's turn, including a reaction then. Player Core, "Multiple Attack Penalty".
     pub on_own_turn: bool,
     /// Attack-trait checks already made on this own turn. Player Core, "Multiple Attack Penalty".
@@ -294,7 +302,7 @@ pub struct MapInput {
 /// Any other check off turn has penalty 0. This does not increment the count.
 ///
 /// Player Core, "Multiple Attack Penalty". Player Core, "Ready".
-pub fn multiple_attack_penalty(input: MapInput) -> i32 {
+pub(crate) fn multiple_attack_penalty(input: MapInput) -> i32 {
     let count = match input.readied_attack_count {
         Some(count) => count,
         None if input.on_own_turn => input.prior_attack_trait_checks_this_turn,
@@ -323,7 +331,7 @@ pub fn multiple_attack_penalty(input: MapInput) -> i32 {
 /// `i32` is [`ModifierError::Overflow`], not the natural roll.
 ///
 /// Player Core, Penalties. Player Core, "Multiple Attack Penalty". Player Core, "Range Penalty".
-pub fn attack_check_total(
+pub(crate) fn attack_check_total(
     natural: u8,
     attack_bonus: AttackTotalTerm,
     map: AttackTotalTerm,
