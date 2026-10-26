@@ -19,7 +19,7 @@ Any other whitespace change is.
 ## 2. Proof and archive
 
 - [x] 2.1 Run the AGENTS.md proof commands and verify each exits 0: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo build --workspace`, `cargo test --workspace`, and `npx @fission-ai/openspec@1.14.3 validate --all --strict`. `Review allows a rustfmt-only reflow` is review-enforced. Do not add a job fixture for it.
-- [ ] 2.2 As the final commit of this pull request, after Architect and QA have both passed the previous head, run `openspec archive amend-inline-test-reflow --yes` and check this box in that same commit.
+- [x] 2.2 As the final commit of this pull request, after Architect and QA have both passed the previous head, run `openspec archive amend-inline-test-reflow --yes` and check this box in that same commit.
   The commit deletes `openspec/changes/amend-inline-test-reflow/` and adds `openspec/changes/archive/<YYYY>-<MM>-<DD>-amend-inline-test-reflow/`.
   It does not modify `CHANGELOG.md`. Leave this box open until that commit so the change is not a completed unarchived change.
   Verify the change is no longer an active directory under `openspec/changes/`.
