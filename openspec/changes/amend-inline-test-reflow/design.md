@@ -24,7 +24,7 @@ See proposal.md for why. `Inline test block move` already lets review treat a un
 The constitution sentence is `Any other whitespace change is.` Implementation replaces that one sentence, in `AGENTS.md` section 1's refactor bullet and in the refactor paragraph of `docs/architect/decisions.md`, with:
 
 ```
-A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged. The pull request body carries that token-check output. Pull request 88 is the precedent. Any other whitespace change is.
+A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged. The pull request body carries that token-check output. Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments. Any other whitespace change is.
 ```
 
 The uniform-indentation sentence stays. `Any other whitespace change is.` stays, and it no longer covers the reflow the new sentence names. No new bullet, and no new requirement. Section 3 is the rustfmt settings list. `amend-refactor-test-moves` did not put this rule there.
@@ -33,7 +33,17 @@ Alternative considered: add the reflow sentence and leave `Any other whitespace 
 
 ### 2. Review reads the body. The job does not
 
-Pull request 88 is the precedent for carrying the output: its body pastes the whitespace-insensitive token check and the output. This change does not add that script to the repo. A token that differs is still a change, including a trailing comma that rustfmt deletes. Pull request 88's `standard_pair` comma is not waived by this sentence. The precedent is the body output, not that comma.
+Comments are tokens for this check: each comment's text, trimmed of leading/trailing whitespace, must match. Rustfmt does not rewrite comments.
+
+The check covers only the moved block: the #[cfg(test)] mod tests body at the merge-base against the added test files.
+It drops the mod wrapper lines and use items and compares the rest token by token, whitespace ignored.
+String and char literals are single tokens compared byte for byte.
+Comments are tokens per above.
+Path lines are compared after the allowed crate::/super::/self:: prefix difference.
+Items may be paired by name when split across files.
+The PR body carries the script (or a link at a fixed sha) and its output, ending in an explicit match/mismatch line.
+
+Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments. This change does not add that script to the repo. A token that differs is still a change, including a trailing comma that rustfmt deletes. Pull request 88's `standard_pair` comma is not waived by this sentence.
 
 Alternative considered: teach the job to tokenize the moved block. Rejected. The requirement still says the job does not distinguish a verbatim move from an edit, and does not parse either file.
 

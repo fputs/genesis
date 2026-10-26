@@ -6,7 +6,10 @@
 
 ## What Changes
 
-- Subtract a rustfmt-only reflow from the sentence `Any other whitespace change is.` In that place the rule says: "A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged." The pull request body carries that token-check output. Pull request 88 is the precedent. `Any other whitespace change is.` stays for every other whitespace change.
+- Subtract a rustfmt-only reflow from the sentence `Any other whitespace change is.` In that place the rule says: "A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged."
+  The pull request body carries that token-check output.
+  Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments.
+  `Any other whitespace change is.` stays for every other whitespace change.
 - That replacement is the only edit to the rule text. It lands in the refactor bullet of `AGENTS.md` section 1 and in the refactor paragraph of `docs/architect/decisions.md`. Section 3 states rustfmt settings and does not carry this rule, so it is not given a second copy. Section 8's pointer to the inline test block move rule stays as it is.
 - The `Inline test block move` scenarios that state the whitespace rule gain the same sentences. No new requirement. The spec-drift job still does not parse Rust, compare tokens, or read the pull request body.
 
