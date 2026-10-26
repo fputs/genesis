@@ -7,11 +7,13 @@ Genesis DevOps agent implements this change after `spec-approved`. Do not edit `
 - [ ] 1.1 In `AGENTS.md` section 1, in the refactor bullet, replace the sentence `Any other whitespace change is.` with the block below. In `docs/architect/decisions.md`, in the refactor paragraph, replace that same sentence with the same block. Change no other sentence. Do not add the block to section 3 or section 8.
   Verify both files contain `A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged.` and `The pull request body carries that token-check output.`
   Verify both files contain `Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments.` and still contain `Any other whitespace change is.`
+  Verify both files contain `Comments are tokens for this check: each comment's text, trimmed of leading/trailing whitespace, must match. Rustfmt does not rewrite comments.`
   Verify section 3 does not contain `rustfmt-only reflow`. Verify this commit does not modify `CHANGELOG.md`.
-  Comments are tokens for this check: each comment's text, trimmed of leading/trailing whitespace, must match. Rustfmt does not rewrite comments.
 
 ```
-A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged. The pull request body carries that token-check output. Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments. Any other whitespace change is.
+A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged. The pull request body carries that token-check output. Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments.
+Comments are tokens for this check: each comment's text, trimmed of leading/trailing whitespace, must match. Rustfmt does not rewrite comments.
+Any other whitespace change is.
 ```
 
 ## 2. Proof and archive

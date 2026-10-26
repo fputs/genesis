@@ -45,7 +45,7 @@ On an OpenSpec-Refactor pull request, an in-file `#[cfg(test)]` block in a non-t
 
 - **GIVEN** an `OpenSpec-Refactor` pull request that moves a `#[cfg(test)]` block into a new test file
 - **AND** the moved block differs by a rustfmt-only reflow
-- **AND** a whitespace-insensitive token check, as defined in design §2, shows the code is unchanged
+- **AND** a whitespace-insensitive token check, as defined in this scenario's THEN steps, shows the code is unchanged
 - **WHEN** review checks the move
 - **THEN** the move is allowed
 - **AND** a rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged
@@ -53,7 +53,6 @@ On an OpenSpec-Refactor pull request, an in-file `#[cfg(test)]` block in a non-t
 - **AND** The check covers only the moved block: the #[cfg(test)] mod tests body at the merge-base against the added test files.
 - **AND** It drops the mod wrapper lines and use items and compares the rest token by token, whitespace ignored.
 - **AND** String and char literals are single tokens compared byte for byte.
-- **AND** Comments are tokens per above.
 - **AND** Path lines are compared after the allowed crate::/super::/self:: prefix difference.
 - **AND** Items may be paired by name when split across files.
 - **AND** The PR body carries the script (or a link at a fixed sha) and its output, ending in an explicit match/mismatch line.

@@ -24,7 +24,9 @@ See proposal.md for why. `Inline test block move` already lets review treat a un
 The constitution sentence is `Any other whitespace change is.` Implementation replaces that one sentence, in `AGENTS.md` section 1's refactor bullet and in the refactor paragraph of `docs/architect/decisions.md`, with:
 
 ```
-A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged. The pull request body carries that token-check output. Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments. Any other whitespace change is.
+A rustfmt-only reflow of a moved block is not a change, as long as a whitespace-insensitive token check shows the code is unchanged. The pull request body carries that token-check output. Pull request 88 is the precedent for carrying the check script and output in the body; its tokenizer does not satisfy this rule unless it also compares comments.
+Comments are tokens for this check: each comment's text, trimmed of leading/trailing whitespace, must match. Rustfmt does not rewrite comments.
+Any other whitespace change is.
 ```
 
 The uniform-indentation sentence stays. `Any other whitespace change is.` stays, and it no longer covers the reflow the new sentence names. No new bullet, and no new requirement. Section 3 is the rustfmt settings list. `amend-refactor-test-moves` did not put this rule there.
