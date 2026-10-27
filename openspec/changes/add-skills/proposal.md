@@ -12,7 +12,7 @@ Phase 1 left skills deferred: Armor Class, attack, Perception, and DCs stay bake
 
 - The sixteen Player Core skills other than Lore are the closed set. Each uses the key attribute on its skill page. Lore is not a skill in this change.
 
-- `skill_check` resolves that roll against a caller DC and spends nothing. `recall_knowledge` spends 1 action on the actor's turn and returns the same degree. The result is the degree. It does not answer the question.
+- `skill_check` is a primitive for a caller-adjudicated check. It resolves that roll against a caller DC and spends nothing, including when the creature is unconscious. It adds no unconscious penalty. `recall_knowledge` spends 1 action on the actor's turn and returns the same degree. The result is the degree. It does not answer the question. Recall Knowledge's concentrate trait is not stored.
 
 - Demoralize, Trip, Grapple, and Shove are not this change. Each applies a condition, and Grapple and Demoralize also carry a duration. Those actions belong to a later change that depends on `add-conditions-with-durations`. This change does not define frightened, grabbed, restrained, prone-from-Trip, or the 10-minute immunity.
 
@@ -28,9 +28,9 @@ Phase 1 left skills deferred: Armor Class, attack, Perception, and DCs stay bake
 
 - `creature-template`: `derive` copies optional skill training and does not recompute Armor Class, attack, Perception, the strike, or saves from it.
 
-- `modifiers`: Each skill is its own statistic. No skill producer is added. Unconscious does not penalize a skill.
+- `modifiers`: Each skill is its own statistic. The frightened and sickened producer puts a status penalty equal to its value on all sixteen skill statistics. Unconscious does not penalize a skill. The armor check penalty is out of scope; a caller may pass it as an untyped penalty.
 
-- `encounter-turns`: Recall Knowledge spends 1 action and does not increment the attack count. A skill check spends nothing and is legal off the active turn.
+- `encounter-turns`: Recall Knowledge spends 1 action and does not increment the attack count. A skill check is a caller-adjudicated primitive: it spends nothing and is legal off the active turn, including for an unconscious creature.
 
 - `api-facade`: The public method set and the public name set include the skill command and its types. `skill_modifier` and `skill_dc` stay off the crate root.
 

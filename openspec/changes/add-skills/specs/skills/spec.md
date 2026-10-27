@@ -8,7 +8,7 @@ Resolves the sixteen Player Core skills from a key attribute and a proficiency b
 
 ### Requirement: A skill modifier adds the key attribute and proficiency
 
-The modifier SHALL be that skill's key attribute modifier, plus the proficiency bonus, plus modifiers on that skill only. Untrained SHALL be +0. Proficiency SHALL NOT be a bonus type. A repeated modifier SHALL be totaled once.
+The modifier SHALL be that skill's key attribute modifier, plus the proficiency bonus, plus modifiers on that skill, plus the frightened and sickened status penalty copied onto that skill. Another skill's own modifier SHALL NOT apply. Untrained SHALL be +0. Proficiency SHALL NOT be a bonus type. A repeated modifier SHALL be totaled once.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2300 (Player Core pg. 405, Skill Checks)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
@@ -91,7 +91,35 @@ The modifier SHALL be that skill's key attribute modifier, plus the proficiency 
 - **GIVEN** Athletics, level 1, Strength modifier +0, untrained, and the same item bonus of +1 on Athletics supplied twice
 - **WHEN** the skill check is resolved on a scripted natural 10
 - **THEN** the modifier is +1 and the total is 11
-- **AND** the repeated bonus is totaled once (https://2e.aonprd.com/Rules.aspx?ID=2266)
+- **AND** the repeated bonus is totaled once (PC 398, Duplicate Effects, Rules 2266, https://2e.aonprd.com/Rules.aspx?ID=2266)
+
+#### Scenario: Frightened 2 on trained Athletics is plus 1 and DC 11
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, trained, and frightened 2 attached to the attack roll
+- **WHEN** the skill modifier and the skill DC are taken
+- **THEN** the modifier is +1 and the DC is 11
+- **AND** frightened 2 is a status penalty (https://2e.aonprd.com/Conditions.aspx?ID=76)
+
+#### Scenario: Frightened 2 and sickened 1 give minus 2
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, trained, frightened 2 attached to the attack roll, and sickened 1 attached to Fortitude
+- **WHEN** the skill modifier is taken
+- **THEN** the status penalty is -2 and the modifier is +1
+- **AND** both are status penalties, so only the worst applies (https://2e.aonprd.com/Conditions.aspx?ID=91, https://2e.aonprd.com/Rules.aspx?ID=2282)
+
+#### Scenario: Two untyped penalties of minus 1 on Athletics give minus 2
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, untrained, and two untyped penalties of -1 on Athletics from different sources
+- **WHEN** the skill check is resolved on a scripted natural 10
+- **THEN** the modifier is -2 and the total is 8
+- **AND** untyped penalties stack (Player Core pg. 400, Penalties, https://2e.aonprd.com/Rules.aspx?ID=2282)
+
+#### Scenario: Two status penalties keep only the worst
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, untrained, a status penalty of -2 and a status penalty of -1 on Athletics from different sources
+- **WHEN** the skill check is resolved on a scripted natural 10
+- **THEN** the modifier is -2 and the total is 8
+- **AND** only the worst status penalty applies (Player Core pg. 400, Penalties, https://2e.aonprd.com/Rules.aspx?ID=2282)
 
 ### Requirement: The sixteen skills use their key attributes
 
@@ -181,6 +209,31 @@ The degree SHALL be the existing check, including the natural 1 and natural 20 s
 - **WHEN** the skill check is resolved
 - **THEN** the total is -1 and the degree is failure
 
+#### Scenario: Natural 20 on a skill check at the DC is a critical success
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, untrained, a scripted natural 20, and DC 20
+- **WHEN** the skill check is resolved
+- **THEN** the total is 20, the numeric degree is success, and the final degree is critical success
+- **AND** a natural 20 improves the degree by one step (PC 401, Rules 2287, https://2e.aonprd.com/Rules.aspx?ID=2287)
+
+#### Scenario: Natural 20 on a skill check at DC minus 10 is a failure
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, untrained, a scripted natural 20, and DC 30
+- **WHEN** the skill check is resolved
+- **THEN** the total is 20, the numeric degree is critical failure, and the final degree is failure
+
+#### Scenario: Natural 1 on a skill check at DC plus 10 is a success
+
+- **GIVEN** Athletics, level 1, Strength modifier +14, untrained, a scripted natural 1, and DC 5
+- **WHEN** the skill check is resolved
+- **THEN** the total is 15, the numeric degree is critical success, and the final degree is success
+
+#### Scenario: A total of exactly DC minus 10 is a critical failure
+
+- **GIVEN** Athletics, level 1, Strength modifier +0, untrained, a scripted natural 5, and DC 15
+- **WHEN** the skill check is resolved
+- **THEN** the total is 5 and the degree is critical failure
+
 ### Requirement: A skill DC is 10 plus the modifier
 
 A skill DC SHALL be 10 plus the skill modifier.
@@ -196,7 +249,7 @@ A skill DC SHALL be 10 plus the skill modifier.
 
 ### Requirement: Recall Knowledge returns the degree
 
-Recall Knowledge SHALL roll the named skill against the caller DC and SHALL return that degree and the natural result. It SHALL NOT return a fact. Any of the sixteen skills SHALL be legal while untrained.
+Recall Knowledge SHALL roll the named skill against the caller DC and SHALL return that degree and the natural result. It SHALL NOT return a fact. Any of the sixteen skills SHALL be legal while untrained. Its concentrate trait SHALL NOT be stored.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2367 (Player Core pg. 231, Recall Knowledge)
 **Source**: https://2e.aonprd.com/Skills.aspx?General=true&ID=24 (Player Core pg. 231, Recall Knowledge)

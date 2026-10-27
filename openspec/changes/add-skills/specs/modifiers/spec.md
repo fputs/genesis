@@ -4,9 +4,9 @@
 
 ### Requirement: A skill statistic does not share a stack
 
-Each of the sixteen skills SHALL be its own statistic. A modifier on one SHALL NOT change another statistic. Unconscious SHALL NOT penalize a skill. No skill producer SHALL be added.
+Each of the sixteen skills SHALL be its own statistic. An item, circumstance, or untyped modifier on one skill SHALL NOT change another skill. The frightened and sickened producer SHALL put a status penalty equal to its value on all sixteen skill statistics, including when that condition names another statistic. Unconscious SHALL NOT penalize a skill.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 446, Unconscious)
 
 #### Scenario: Athletics and Acrobatics do not share a stack
@@ -27,3 +27,17 @@ Each of the sixteen skills SHALL be its own statistic. A modifier on one SHALL N
 - **GIVEN** an item bonus of +1 on Athletics and no Fortitude modifier
 - **WHEN** Fortitude is totaled
 - **THEN** Fortitude is +0
+
+#### Scenario: Frightened 2 reaches every skill statistic
+
+- **GIVEN** frightened 2 attached to the attack roll and no skill modifier
+- **WHEN** each of the sixteen skill statistics is totaled
+- **THEN** each total is a status penalty of -2
+- **AND** the value is the status penalty to all checks and DCs (https://2e.aonprd.com/Conditions.aspx?ID=76)
+
+#### Scenario: Sickened 1 reaches every skill statistic
+
+- **GIVEN** sickened 1 attached to Fortitude and no skill modifier
+- **WHEN** each of the sixteen skill statistics is totaled
+- **THEN** each total is a status penalty of -1
+- **AND** sickened uses that same status penalty (https://2e.aonprd.com/Conditions.aspx?ID=91)

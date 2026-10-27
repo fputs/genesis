@@ -30,6 +30,10 @@
 
 - An equipment catalog. The caller passes the item modifier.
 
+- The armor check penalty (https://2e.aonprd.com/Rules.aspx?ID=2169, Player Core pg. 271). It applies to Strength- and Dexterity-based skill checks, except checks with the attack trait, and it does not apply when the wearer meets the armor's Strength threshold. This change has no armor and does not produce that penalty. A caller may pass it as an untyped penalty.
+
+- Recall Knowledge's concentrate trait (https://2e.aonprd.com/Actions.aspx?ID=2367, Player Core pg. 231). The trait is not stored. Stupefied will need it, and stupefied is out of scope.
+
 - Replacing baked `stealth_dc` or the Hide check (DEV-10, DEV-40). Initiative stays Perception (DEV-37). A skill check is not an Aid trigger (DEV-51).
 
 - Tumble Through, Climb, Swim, Balance, and the other skill actions. Perception is not a skill. This change's checks do not read or increment the attack count.
@@ -102,7 +106,7 @@ Alternative considered: store an ability score and use `(score - 10) / 2`. Rejec
 
 ### Modifier formula
 
-`skill_modifier` adds `Skill::attribute`, `proficiency_bonus(level, rank)`, and `total` of caller modifiers whose statistic is `Skill::statistic`. A modifier on another statistic is ignored. Proficiency is not a `Modifier`. There is no skill producer and no unconscious penalty.
+`skill_modifier` adds `Skill::attribute`, `proficiency_bonus(level, rank)`, and `total` of the modifiers on that skill. A modifier on another skill is ignored. Proficiency is not a `Modifier`. The existing frightened and sickened valued-condition producer also emits, on that skill statistic, a status penalty equal to each condition's value, including when the caller's entry names another statistic. `total()` then keeps only the worst status penalty. Rank 0 contributes nothing. `skill_dc` is 10 plus that modifier, so the same penalty is on the skill DC. Unconscious adds no skill penalty.
 
 The sum must fit `CheckModifier`. That failure is `SkillError::ModifierOverflow`. The encounter reports `SkillOverflow` before the die. A fitting `CheckModifier` always fits a DC of `modifier + 10`, so `skill_dc` returns that sum and does not fail.
 
@@ -122,7 +126,7 @@ pub(crate) fn skill_dc(modifier: CheckModifier) -> i32;
 
 ### Statistics
 
-Add the sixteen variants after `Will`. Sort keys are 7 through 22 in the `Skill` order above, so Will stays 6. Each variant has its own bucket in the per-statistic group. Extend every exhaustive `Statistic` match. Do not add a producer.
+Add the sixteen variants after `Will`. Sort keys are 7 through 22 in the `Skill` order above, so Will stays 6. Each variant has its own bucket in the per-statistic group. Extend every exhaustive `Statistic` match. Extend the frightened and sickened valued-condition producer so each of those sixteen statistics receives the status penalty. Do not add an unconscious producer.
 
 ### Encounter commands
 
@@ -150,11 +154,11 @@ impl Encounter {
 }
 ```
 
-`skill_check` checks `UnknownCombatant`, then `NoSkills`, then `SkillOverflow`, then calls `resolve_check`. It does not read vital, the open turn, actions, or the attack count. A dead or unconscious creature still rolls.
+`skill_check` is a primitive for a caller-adjudicated check. It is not the creature taking an action. An unconscious creature can't act (https://2e.aonprd.com/Conditions.aspx?ID=95, Player Core pg. 446); that gate stays on Recall Knowledge. `skill_check` checks `UnknownCombatant`, then `NoSkills`, then `SkillOverflow`, then calls `resolve_check`. It does not read vital, the open turn, actions, or the attack count. A dead or unconscious creature still rolls. Unconscious adds no skill penalty.
 
 `recall_knowledge` checks, in order: `require_active_alive` (`TurnNotOpen`, `NotYourTurn`, `NotConscious`), then `InsufficientActions` when fewer than 1 action remains, then `NoSkills`, then `SkillOverflow`. Those draw no die and spend nothing. It then calls `spend_actions(actor, 1)` and `resolve_check`. It does not call `resolve_reactions`, `note_strike`, Strike, damage, Shield Block, or targeting. The attack count stays unchanged.
 
-The Secret trait is an open roll (DEV-60). `SkillRoll.natural` is the face from `Dice`. The concentrate trait is not stored.
+The Secret trait is an open roll (DEV-60, cross-reference DEV-08). `SkillRoll.natural` is the face from `Dice`. The concentrate trait is not stored.
 
 `BuildParts`, `Contribution`, and `Creature` gain `skills: Option<Skills>`. `derive` copies the option and does not roll. A contribution replaces training when `Some`, as a shield does.
 
@@ -174,8 +178,8 @@ Re-export `Skill`, `Skills`, and `SkillRoll` from the crate root. Do not re-expo
 
 | ID | Rule | RAW citation | Our behavior | Reason | Owning change |
 |---|---|---|---|---|---|
-| DEV-59 | Skill attributes are a second record. Amends DEV-58 | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225) | Strength, Dexterity, Intelligence, Wisdom, and Charisma live on `Skills` and are not read from `SavingThrows`. The two Dexterity or Wisdom values may differ | Saves already shipped their three attributes. This change does not edit `save_modifier` | add-skills |
-| DEV-60 | Recall Knowledge is an open roll | https://2e.aonprd.com/Actions.aspx?ID=2367 (PC 231). The trait is Secret | The natural result is returned | No hidden-information channel. Same reason as DEV-08 | add-skills |
+| DEV-59 | Skill attributes are a second record. This row amends DEV-58 | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225) | This row amends DEV-58. Strength, Dexterity, Intelligence, Wisdom, and Charisma live on `Skills` and are not read from `SavingThrows`. The two Dexterity or Wisdom values may differ | Saves already shipped their three attributes. This change does not edit `save_modifier` | add-skills |
+| DEV-60 | Recall Knowledge is an open roll. Cross-reference DEV-08 | https://2e.aonprd.com/Actions.aspx?ID=2367 (PC 231). The trait is Secret | The natural result is returned. Cross-reference DEV-08 | Cross-reference DEV-08: no hidden-information channel, the same reason as Seek's open roll | add-skills |
 | DEV-61 | The key attribute is the table attribute | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225). The GM may call for a different attribute | `Skill::attribute` is fixed | No GM | add-skills |
 
 DEV-56 through DEV-58 stay as add-saving-throws wrote them. They are not reused.
@@ -190,7 +194,7 @@ DEV-56 through DEV-58 stay as add-saving-throws wrote them. They are not reused.
 
 - [Skill Dexterity overwrites the save] → DEV-59. The derive scenario keeps save Dexterity +1 and skill Dexterity +4.
 
-- [A dead creature rolls a skill check] → `skill_check` ignores vital, as the encounter requirement says. Recall Knowledge still requires an Alive open turn.
+- [A dead creature rolls a skill check] → `skill_check` is a primitive for a caller-adjudicated check and ignores vital. An unconscious creature still rolls, with no unconscious penalty. Recall Knowledge still requires an Alive open turn, because an unconscious creature can't act.
 
 ## Migration Plan
 

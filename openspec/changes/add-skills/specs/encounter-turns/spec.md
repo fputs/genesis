@@ -4,7 +4,7 @@
 
 ### Requirement: Recall Knowledge spends one action and a skill check spends none
 
-Recall Knowledge SHALL spend 1 action on the actor's open Alive turn and SHALL NOT change the attack count. A skill check SHALL spend nothing and SHALL ignore the turn and vital. A rejected Recall Knowledge SHALL draw no die.
+Recall Knowledge SHALL spend 1 action on the actor's open Alive turn and SHALL NOT change the attack count. A skill check is a primitive for a caller-adjudicated check: it SHALL spend nothing, SHALL ignore the turn and vital, and SHALL add no unconscious penalty. A rejected Recall Knowledge SHALL draw no die.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2367 (Player Core pg. 231, Recall Knowledge)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2429 (Player Core pg. 436, Step 2: Act)
@@ -55,7 +55,7 @@ Recall Knowledge SHALL spend 1 action on the actor's open Alive turn and SHALL N
 
 - **GIVEN** an unconscious creature with Athletics, level 1, Strength modifier +0, untrained, and a scripted natural 6
 - **WHEN** a skill check is resolved against DC 15
-- **THEN** the error is not NotConscious and the degree is failure
+- **THEN** the error is not NotConscious, the total is 6, and the degree is failure
 
 #### Scenario: Insufficient actions roll nothing
 
