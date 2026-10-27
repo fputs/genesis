@@ -2,7 +2,7 @@
 
 ## Why
 
-`CombatantState.conditions` is an empty slot, and the encounter's start and end steps do not track a condition. Frightened, sickened, and the other Phase 1 combat conditions need a value, a duration, and a turn tick before persistent damage or spells can attach to them. The modifier stacker already folds status and circumstance penalties; it has nothing on the creature to fold.
+[Pull request #93](https://github.com/fputs/genesis/pull/93), `add-resistances-weaknesses-persistent`, merges first. It owns `ConditionSlot`, the persistent (damage type, amount) container, and one end-of-turn hook that runs before decrements. Frightened, sickened, and the other Phase 1 combat conditions still need a value, a duration, and a decrement after that hook. The modifier stacker already folds status and circumstance penalties.
 
 ## What Changes
 
@@ -14,7 +14,7 @@
 
 - The encounter calls the start tick from the start step and the end tick from the end step. Delay already calls the end step: frightened and an ending duration fire then, once. The end of the turn that return opened does not fire them again. Return does not repeat the start tick. Strike, initiative, and a basic save read the tracked modifiers. A caller Armor Class modifier on Strike still does nothing.
 
-- **BREAKING**: `ConditionSlot` is no longer a unit struct. `StrikeProfile` gains `basis`. The crate root gains the condition types, and `Encounter` gains `apply_condition`, `reduce_condition`, and `remove_condition`. `EncounterError` gains `Condition`. Existing method signatures stay.
+- **BREAKING**: `StrikeProfile` gains `basis` beside the `damage_type` from #93. `ConditionSlot` gains one instance variant. `PersistentDamage` stays a damage type and an amount. The crate root gains the condition types, and `Encounter` gains `apply_condition`, `reduce_condition`, and `remove_condition`. `EncounterError` gains `Condition`. `end_turn` keeps the dice argument from #93. `gain_persistent_damage` stays.
 
 ## Capabilities
 
@@ -24,7 +24,7 @@
 
 ### Modified Capabilities
 
-- `encounter-turns`: The start step ticks round durations. The end step ticks end-of-turn conditions. A skipped dead slot still ticks that creature's round clock. Initiative, Strike attack rolls, Strike Armor Class, and Strike damage include the tracked modifiers. The turn return opened does not run the end tick a second time.
+- `encounter-turns`: The start step ticks round durations. After #93's persistent hook, the end step decrements end-of-turn conditions. A skipped dead slot still ticks that creature's round clock. Initiative, Strike attack rolls, Strike Armor Class, and Strike damage include the tracked modifiers. The turn return opened does not run the decrement a second time.
 
 - `delay`: Delay runs that end tick. Return still does not run the start tick.
 
@@ -36,10 +36,10 @@
 
 ## Impact
 
-New module `crates/rules/src/conditions.rs`, re-exported from the crate root. `start_of_turn_step` and `end_of_turn_step` call the ticks. `ConditionSlot` is the stored instance. No new crate and no new dependency. No file on `v1-reference` is named, so none is ported.
+Depends on `add-resistances-weaknesses-persistent` (#93). This branch is based on that pull request. New module `crates/rules/src/conditions.rs`, re-exported from the crate root. The decrement is called when that change's end-of-turn hook returns. This change does not replace `ConditionSlot` or the persistent payload. No new crate and no new dependency. No file on `v1-reference` is named, so none is ported.
 
 This pull request is the spec only. It adds no Rust, no tests, and no changelog bullet, and it does not archive. Designer rules on the spec here. Code waits for a `spec-approved: <sha>` review from Evan.
 
-Out of this change, for the parallel Phase 2 drafts: resistances, weaknesses, and persistent damage; skills; spells and areas. Stunned, slowed, grabbed, blinded, drained, and the rest of the appendix stay out. The kind and duration enums are the extension point those later changes add a variant to.
+Out of this change: the resistance, weakness, and persistent-damage rules in #93; skills; spells and areas. Stunned, slowed, grabbed, blinded, drained, and the rest of the appendix stay out. The kind and duration enums are the extension point a later change adds a variant to. This change does not add a second persistent container or a second end-of-turn hook.
 
-The archive commit is last, right before merge, and only after Architect and QA have both passed that head. Proposed DEV-59 is in design.md. The ruling log is [docs/designer/rules-rulings.md](../../../docs/designer/rules-rulings.md). The code phase adds DEV-59 to `docs/designer/rules-deviations.md`. The spec commit does not edit that file.
+The archive commit is last, right before merge, and only after Architect and QA have both passed that head. Proposed DEV-73 is in design.md. Phase 2 reserves DEV-59 through DEV-61 for skills, DEV-62 and DEV-63 for resistances, and DEV-64 through DEV-72 for spells. This change does not use those numbers. The ruling log is [docs/designer/rules-rulings.md](../../../docs/designer/rules-rulings.md). The code phase adds DEV-73 to `docs/designer/rules-deviations.md`. The spec commit does not edit that file.

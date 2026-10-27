@@ -271,7 +271,7 @@ Clumsy SHALL penalize Armor Class, Reflex, a Dexterity melee attack, and a range
 
 ### Requirement: The end tick decreases frightened after durations
 
-The end tick SHALL remove due instances clocked to that creature, then reduce that creature's frightened by 1. Other values SHALL NOT decrease. An instance that is not yet due SHALL become due and stay. The tick SHALL NOT roll or change Hit Points.
+The end tick runs after the persistent-damage hook from add-resistances-weaknesses-persistent. It SHALL remove due instances clocked to that creature, then reduce that creature's frightened by 1. Other values SHALL NOT decrease. An instance that is not yet due SHALL become due and stay. The tick SHALL NOT roll, change Hit Points, or change a persistent slot.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
@@ -303,6 +303,14 @@ The end tick SHALL remove due instances clocked to that creature, then reduce th
 - **WHEN** CombatantId(1)'s end tick runs
 - **THEN** off-guard remains
 - **AND** the next end tick for CombatantId(1) removes it
+
+#### Scenario: The end tick leaves persistent damage
+
+- **GIVEN** persistent Fire 5 and frightened 2 until removed on the creature whose turn is ending
+- **WHEN** that creature's end tick runs
+- **THEN** frightened is 1
+- **AND** persistent Fire 5 remains
+- **AND** Hit Points are unchanged
 
 #### Scenario: A due end removes the condition
 

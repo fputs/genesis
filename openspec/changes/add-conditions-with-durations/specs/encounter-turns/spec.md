@@ -197,15 +197,15 @@ Each combatant SHALL add one d20 to that creature's Perception modifier, includi
 
 ### Requirement: Ending a turn drops actions and keeps the reaction
 
-Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent reaction ready. The end step SHALL run once and SHALL run the condition end tick, except on a turn that return opened. It SHALL NOT roll a die or change Hit Points, temporary Hit Points, or wounded. end_turn with no open turn SHALL return TurnNotOpen.
+Ending a turn SHALL set actions to 0 and SHALL keep an unspent reaction. `end_turn` SHALL keep its dice argument. The persistent-damage hook SHALL finish before this change's decrement. With no persistent damage, that hook SHALL NOT roll or change Hit Points. The decrement SHALL then lower frightened and SHALL NOT roll. A turn return opened SHALL skip the decrement. No open turn SHALL return TurnNotOpen and SHALL NOT roll.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
 
 #### Scenario: Ending early drops leftover actions and keeps the reaction
 
-- **GIVEN** an open turn with 2 actions left and the reaction ready, current Hit Points 12, and a scripted natural 8
-- **WHEN** the turn ends
+- **GIVEN** an open turn with 2 actions left and the reaction ready, current Hit Points 12, no persistent damage, and a scripted natural 8
+- **WHEN** the turn ends with that die
 - **THEN** actions are 0
 - **AND** the reaction is still ready
 - **AND** Hit Points stay 12
@@ -215,19 +215,28 @@ Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent 
 
 #### Scenario: End before a start returns an error
 
-- **GIVEN** initiative has been rolled and no turn has started
-- **WHEN** a turn end is requested
+- **GIVEN** initiative has been rolled and no turn has started, and a scripted natural 8 is next
+- **WHEN** a turn end is requested with that die
 - **THEN** the error is TurnNotOpen
 - **AND** every combatant still has 0 actions
+- **AND** the scripted 8 is unused
 
 #### Scenario: Ending the turn lowers frightened and leaves Hit Points
 
-- **GIVEN** an open turn, the active creature frightened 2 and sickened 1, current Hit Points 12, and a scripted natural 8
-- **WHEN** the turn ends
+- **GIVEN** an open turn, the active creature frightened 2 and sickened 1, no persistent damage, current Hit Points 12, and a scripted natural 8
+- **WHEN** the turn ends with that die
 - **THEN** frightened is 1
 - **AND** sickened is 1
 - **AND** Hit Points stay 12
 - **AND** the scripted 8 is still unused
+
+#### Scenario: The persistent hook runs before frightened decreases
+
+- **GIVEN** an open turn, Hit Points 20, empty defenses, persistent Fire 5, frightened 2, and a scripted natural 10
+- **WHEN** the turn ends with that die
+- **THEN** Hit Points are 15
+- **AND** frightened is 1
+- **AND** persistent Fire 5 remains
 
 ### Requirement: Strike spends one action against baked Armor Class
 

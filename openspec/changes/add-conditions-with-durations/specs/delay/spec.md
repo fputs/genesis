@@ -4,12 +4,11 @@
 
 ### Requirement: Return does not repeat the start hook
 
-Return SHALL NOT change temporary Hit Points, their ticks, Hit Points, or wounded, and a shield the start already lowered SHALL stay down. A later resume SHALL also stay unticked. Delay SHALL run the condition end tick once. The turn return opened SHALL NOT run it again. Return SHALL NOT tick round durations. Persistent damage stays unmodeled (DEV-29). A missed arrival uses the ordinary start and ticks round durations once. Temporary Hit Points tick when DEV-32 is wired.
+Return SHALL NOT change temporary Hit Points, their ticks, Hit Points, or wounded, and a shield the start already lowered SHALL stay down. A later resume SHALL also stay unticked. Delay SHALL run the persistent hook from add-resistances-weaknesses-persistent, then the condition decrement, once. The returned turn SHALL NOT decrement again. Return SHALL NOT tick round durations. A missed arrival uses the ordinary start and ticks round durations once. Temporary Hit Points tick when DEV-32 is wired.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
-**Source**: DEV-29 in docs/designer/rules-deviations.md. Persistent damage is not modeled.
 **Source**: DEV-32 in docs/designer/rules-deviations.md. The temporary Hit Point tick is the recipient's start.
 
 #### Scenario: Return leaves temporary Hit Points as the start left them

@@ -2,7 +2,7 @@
 
 ## Context
 
-`CombatantState.conditions` is `Vec<ConditionSlot>`, and `ConditionSlot` is a unit struct. `start_of_turn_step` lowers a raised shield and returns immediately when the creature is dead. `end_of_turn_step` is empty. `delay` already calls `end_of_turn_step` and then closes the turn. `open_at` skips `start_of_turn_step` when the slot is `TurnSlot::SkipStartHook`. `end_turn` calls `end_of_turn_step` before `close_actions`, and `close_actions` sets `Returned` and `SkipStartHook` back to `Normal`. See proposal.md for why this change exists.
+This change depends on pull request #93, `add-resistances-weaknesses-persistent`, which merges first. That change owns `ConditionSlot`, the `PersistentDamage { damage_type, amount }` variant, and one end-of-turn hook that runs before decrements. `end_turn` already takes the injected dice. This change does not replace that enum, that variant, or that hook. See proposal.md for why the named conditions exist.
 
 `ConditionId` already has `FRIGHTENED` = 2, `SICKENED` = 3, and `UNCONSCIOUS` = 4. A private `ConditionId(1)` is the off-guard id inside `ac_modifiers`. `total` already keeps the highest bonus and the worst penalty of one type, and it keeps both a bonus and a penalty of that type. Frightened and sickened status penalties are validated at construction (R-03, R-04). Different condition ids do not share a duplicate key; the type bucket still keeps one status penalty. `Encounter::strike` compares the attack total with baked Armor Class and does not read the target's conditions. `basic_save` passes only the caller slice into `save_modifier`. Initiative adds Perception to the d20. No file on `v1-reference` is named. The spec commit does not edit `docs/designer/`.
 
@@ -16,7 +16,7 @@
 
 **Non-Goals:**
 
-- Resistances, weaknesses, and persistent damage. Skills, including Retch and Athletics. Spells and areas. Stunned, slowed, grabbed, blinded, drained, doomed, and the rest of the appendix.
+- Immunity, weakness, resistance, the persistent blow, and the DC 15 flat check. Those stay in #93. Skills, including Retch and Athletics. Spells and areas. Stunned, slowed, grabbed, blinded, drained, doomed, and the rest of the appendix.
 
 - Moving unconscious or dying into the vec. `Vital` stays the source of the unconscious −4 (DEV-31). Strike still does not read `Vital` (DEV-36).
 
@@ -28,7 +28,7 @@
 
 - A thrown weapon whose attack roll is Strength-based. `AttackBasis::Ranged` takes clumsy and not enfeebled. Phase 1 has no thrown profile.
 
-- Crawl, and greater cover from prone. Those are DEV-59. Drop Prone still does not write the condition list.
+- Crawl, and greater cover from prone. Those are DEV-73. Drop Prone still does not write the condition list.
 
 - A new crate, a new dependency, or a port from `v1-reference`.
 
@@ -40,7 +40,20 @@
 
 `ConditionDuration` is `UntilRemoved`, `Rounds { remaining, on }`, or `UntilEndOfNextTurn { on, due }`. `remaining` is 1 or more at construction. `due` is true when the clock creature's turn is not open. The end tick removes a due instance. An instance that is not due becomes due and stays.
 
-`ConditionSlot` fields are private. `try_new` is the constructor. `kind`, `value`, and `duration` are the getters. An external crate can read a stored slot and cannot build an illegal one with a struct literal.
+`ConditionSlot` stays the enum from #93. This change adds one variant and does not edit `PersistentDamage`.
+
+```rust
+pub enum ConditionSlot {
+    PersistentDamage { damage_type: DamageType, amount: i32 },
+    Instance {
+        kind: ConditionKind,
+        value: Option<u32>,
+        duration: ConditionDuration,
+    },
+}
+```
+
+`Instance` fields are private. `try_new` is the constructor and returns `ConditionSlot::Instance`. `kind`, `value`, and `duration` read that variant. `PersistentDamage` has none of those. Apply, reduce, remove, and both ticks skip `PersistentDamage`. They do not add, replace, or remove one. An external crate can read an instance and cannot build an illegal one with a struct literal.
 
 ```rust
 pub enum ConditionKind {
@@ -65,17 +78,15 @@ pub enum ConditionError {
     EmptyDuration,
 }
 
-pub struct ConditionSlot { /* private */ }
-
 impl ConditionSlot {
     pub fn try_new(
         kind: ConditionKind,
         value: Option<u32>,
         duration: ConditionDuration,
     ) -> Result<Self, ConditionError>;
-    pub fn kind(self) -> ConditionKind;
-    pub fn value(self) -> Option<u32>;
-    pub fn duration(self) -> ConditionDuration;
+    pub fn kind(&self) -> Option<ConditionKind>;
+    pub fn value(&self) -> Option<u32>;
+    pub fn duration(&self) -> Option<ConditionDuration>;
     pub fn condition_id(self) -> ConditionId;
 }
 ```
@@ -92,7 +103,7 @@ pub enum AttackBasis {
 }
 ```
 
-`StrikeProfile` gains `pub basis: AttackBasis` and keeps the other fields. Every current literal sets `StrengthMelee`, so a strike with no conditions keeps today's total. The `strike` signature does not change.
+`StrikeProfile` gains `pub basis: AttackBasis` and keeps `damage_type` from #93. Every literal that this change touches sets `StrengthMelee` unless the scenario names another basis, and leaves `damage_type` as #93 set it. The `strike` signature does not change. `end_turn` keeps the dice argument. `gain_persistent_damage` stays.
 
 Alternative considered: store one slot per name and overwrite it. Rejected. A lower value can outlast a higher one, so both instances stay (Rules 2455).
 
@@ -164,7 +175,7 @@ An unknown bearer is `UnknownCombatant` and stores nothing. `Rounds` and `UntilE
 
 `start_turn` ticks round durations for each dead id it skips, before `open_at`. That tick does not open a turn, does not decrease frightened, and does not run the end tick. `start_of_turn_step` then ticks the creature whose turn is actually opening, before actions are regained, and still lowers a raised shield. A `SkipStartHook` start does not tick. Delay does not tick round durations: the start already did.
 
-`end_of_turn_step` runs the end tick unless the slot is `Returned` or `SkipStartHook`. Delay calls it while the slot is still `Normal`, so the tick runs once there. `end_turn` on the turn return opened sees `Returned` or `SkipStartHook` and does not tick again. `close_actions` then sets the slot to `Normal`, so the next ordinary end ticks. This is the Actions 2294 reading: effects that belong at the end of the delayed turn happen at Delay, and that same turn does not run them a second time. A missed return uses the ordinary start and ticks round durations once.
+The persistent hook from #93 runs to completion first. The decrement is the next step, not a second hook and not a step in front of that hook. It runs unless the slot is `Returned` or `SkipStartHook`. Delay calls the end step while the slot is still `Normal`, so the hook and then the decrement run once there. `end_turn` on the turn return opened sees `Returned` or `SkipStartHook` and does not decrement again. `close_actions` then sets the slot to `Normal`, so the next ordinary end decrements. This is the Actions 2294 reading: effects that belong at the end of the delayed turn happen at Delay, and that same turn does not run them a second time. A missed return uses the ordinary start and ticks round durations once. The decrement does not roll and does not apply the persistent blow.
 
 Initiative, before any d20, adds the Perception condition total to Perception. The existing `perception + 20` check uses that sum. The stored total is the d20 plus Perception plus that total. No conditions leaves the total unchanged.
 
@@ -174,19 +185,21 @@ Strike concatenates the attacker's attack modifiers for `profile.basis` with the
 
 `drop_prone`, `stand`, `stride`, `step`, and Take Cover do not read or write `conditions`.
 
-The extension point for persistent damage is the gap between the two end-tick steps. Rules 2430 places persistent damage after durations that are ending and before the frightened decrease. A later change inserts that step there. It does not add a callback registry.
+Rules 2430 places persistent damage before the frightened decrease. #93 owns that hook. This change does not insert another one. A later condition kind is a new `ConditionKind` variant, not a new container.
 
 ### Proposed deviations
 
 | ID | Rule | RAW citation | Our behavior | Reason | Owning change |
 |---|---|---|---|---|---|
-| DEV-59 | Prone restricts movement and grants greater cover | https://2e.aonprd.com/Conditions.aspx?ID=88 (PC 445) | The condition applies its penalties. It does not change Stride, Step, Drop Prone, Stand, or Take Cover, and it does not grant cover | No Crawl in Phase 1. Posture stays caller-held | add-conditions-with-durations |
+| DEV-73 | Prone restricts movement and grants greater cover | https://2e.aonprd.com/Conditions.aspx?ID=88 (PC 445) | The condition applies its penalties. It does not change Stride, Step, Drop Prone, Stand, or Take Cover, and it does not grant cover | No Crawl in Phase 1. Posture stays caller-held | add-conditions-with-durations |
 
-DEV-29, DEV-31, DEV-32, and DEV-36 stay as they are. Sickened's Retch is a non-goal, not a deviation: the condition does not decrease by itself, and `reduce_condition` is what a later action will call. DEV-33 to DEV-35 and DEV-47 to DEV-49 stay unused. Do not reuse them.
+DEV-29, DEV-31, DEV-32, and DEV-36 stay as they are. Sickened's Retch is a non-goal, not a deviation: the condition does not decrease by itself, and `reduce_condition` is what a later action will call. DEV-33 to DEV-35 and DEV-47 to DEV-49 stay unused. Do not reuse them. Phase 2 reserves DEV-59 through DEV-61 for skills, DEV-62 and DEV-63 for resistances, and DEV-64 through DEV-72 for spells. This change does not use DEV-59 through DEV-72. Its first number is DEV-73.
 
 ## Risks / Trade-offs
 
-- [A returned turn decreases frightened twice] → Delay ticks while the slot is `Normal`. The returned end sees `Returned` or `SkipStartHook` and skips. The scenario locks frightened 2 down to 1, then to absent on the next ordinary end.
+- [The decrement runs before the persistent blow] → The call sits after the hook from #93 returns. The encounter scenario locks the blow's Hit Points and the frightened decrease on the same end.
+
+- [A returned turn decreases frightened twice] → Delay runs the hook and the decrement while the slot is `Normal`. The returned end sees `Returned` or `SkipStartHook` and skips the decrement. The scenario locks frightened 2 down to 1, then to absent on the next ordinary end.
 
 - [A dead caster's rounds never move] → The skip loop ticks that clock before `open_at`. The dead id does not start a turn. The scenario locks 2 rounds down to 1.
 
@@ -200,4 +213,4 @@ DEV-29, DEV-31, DEV-32, and DEV-36 stay as they are. Sickened's Retch is a non-g
 
 ## Migration Plan
 
-The code phase adds `basis: AttackBasis::StrengthMelee` on every current `StrikeProfile` literal, including the doctest, and adds one arm to each `EncounterError` match. No saved data exists. Revert that commit to roll back. The spec commit has no Rust change. DEV-59 is written into `docs/designer/rules-deviations.md` in the code phase, not in the spec commit.
+The code phase adds `basis: AttackBasis::StrengthMelee` on every current `StrikeProfile` literal, including the doctest, and adds one arm to each `EncounterError` match. No saved data exists. Revert that commit to roll back. The spec commit has no Rust change. DEV-73 is written into `docs/designer/rules-deviations.md` in the code phase, not in the spec commit. That commit does not write DEV-59 through DEV-72.
