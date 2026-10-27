@@ -69,17 +69,6 @@ For every event the job SHALL check out `pull_request.head.sha` and SHALL fetch 
 - **THEN** the job fails
 - **AND** the log includes `spec-approved: pull request unavailable`
 
-### Requirement: Concurrency
-
-The job SHALL use concurrency group `spec-approved-${{ github.event.pull_request.number }}` with `cancel-in-progress: true`.
-
-#### Scenario: A new push cancels the previous run
-
-- **GIVEN** `.github/workflows/spec-approved.yml`
-- **WHEN** the job concurrency is read
-- **THEN** the group is `spec-approved-${{ github.event.pull_request.number }}`
-- **AND** `cancel-in-progress` is true
-
 ### Requirement: Base script and authors file
 
 The base sha SHALL be `pull_request.base.sha` from the payload. The job SHALL run `git worktree add $RUNNER_TEMP/base` for that sha, then `node --test` and `scripts/spec-approved.mjs` from that tree, with the head checkout as the repo root. It SHALL read the authors file, `isCodePath`, and `unfencedBody` from that tree. The head SHALL be used only to diff and to hash. A head edit to the script or the authors file SHALL NOT change the program or the allow-list.
@@ -509,3 +498,15 @@ The repository SHALL contain a fixture test for every pass and fail scenario of 
 - **THEN** the test builds a temporary git repository
 - **AND** it injects reviews instead of calling GitHub
 - **AND** it asserts the exit status and the failure line
+
+### Requirement: Spec-approved declares no concurrency
+
+The `spec-approved` job SHALL NOT declare a concurrency block. The workflow SHALL NOT declare workflow-level concurrency. A same-sha review SHALL NOT cancel an in-flight `spec-approved` run.
+
+#### Scenario: The spec-approved job declares no concurrency
+
+- **GIVEN** `.github/workflows/spec-approved.yml`
+- **WHEN** the `spec-approved` job and the workflow header are read
+- **THEN** the job does not contain a `concurrency:` line
+- **AND** the workflow has no workflow-level concurrency block
+- **AND** the file does not contain `cancel-in-progress` or `queue:`
