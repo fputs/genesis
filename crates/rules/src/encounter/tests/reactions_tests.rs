@@ -1429,6 +1429,7 @@ fn a_reaction_spent_by_shield_block_still_reports_aidoverflow() {
         aid_rank: Some(AidRank::BelowMaster),
         uses_dying_rules: Some(false),
         saves: None,
+        skills: None,
     };
     let aider = participant(
         1,

@@ -126,6 +126,38 @@ pub enum Statistic {
     ///
     /// Player Core pg. 404, Saving Throws.
     Will,
+    /// Acrobatics. Player Core pg. 233, Acrobatics.
+    Acrobatics,
+    /// Arcana. Player Core pg. 234, Arcana.
+    Arcana,
+    /// Athletics. Player Core pg. 234, Athletics.
+    Athletics,
+    /// Crafting. Player Core pg. 236, Crafting.
+    Crafting,
+    /// Deception. Player Core pg. 237, Deception.
+    Deception,
+    /// Diplomacy. Player Core pg. 239, Diplomacy.
+    Diplomacy,
+    /// Intimidation. Player Core pg. 240, Intimidation.
+    Intimidation,
+    /// Medicine. Player Core pg. 241, Medicine.
+    Medicine,
+    /// Nature. Player Core pg. 242, Nature.
+    Nature,
+    /// Occultism. Player Core pg. 243, Occultism.
+    Occultism,
+    /// Performance. Player Core pg. 243, Performance.
+    Performance,
+    /// Religion. Player Core pg. 244, Religion.
+    Religion,
+    /// Society. Player Core pg. 244, Society.
+    Society,
+    /// Stealth. Player Core pg. 244, Stealth.
+    Stealth,
+    /// Survival. Player Core pg. 246, Survival.
+    Survival,
+    /// Thievery. Player Core pg. 246, Thievery.
+    Thievery,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -394,6 +426,11 @@ impl Modifier {
     /// Player Core, "Condition Values".
     pub fn rank(self) -> Option<u32> {
         self.condition.and_then(|condition| condition.rank)
+    }
+
+    fn with_statistic(mut self, statistic: Statistic) -> Self {
+        self.statistic = statistic;
+        self
     }
 }
 
@@ -726,6 +763,7 @@ struct ByStatistic {
     reflex: Buckets,
     fortitude: Buckets,
     will: Buckets,
+    skills: [Buckets; SKILL_STATISTIC_COUNT],
 }
 
 fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
@@ -737,6 +775,7 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         reflex: Buckets::new(),
         fortitude: Buckets::new(),
         will: Buckets::new(),
+        skills: std::array::from_fn(|_| Buckets::new()),
     };
     for modifier in modifiers.iter().copied() {
         push_bucket(buckets_for(&mut grouped, modifier.statistic), modifier);
@@ -753,6 +792,9 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
     ] {
         applied.extend(applied_from(buckets));
     }
+    for buckets in grouped.skills {
+        applied.extend(applied_from(buckets));
+    }
     applied
 }
 
@@ -765,6 +807,7 @@ fn buckets_for(grouped: &mut ByStatistic, statistic: Statistic) -> &mut Buckets 
         Statistic::Reflex => &mut grouped.reflex,
         Statistic::Fortitude => &mut grouped.fortitude,
         Statistic::Will => &mut grouped.will,
+        skill => &mut grouped.skills[skill_offset(skill)],
     }
 }
 
@@ -860,6 +903,7 @@ struct StatisticTotals {
     reflex: i32,
     fortitude: i32,
     will: i32,
+    skills: [i32; SKILL_STATISTIC_COUNT],
 }
 
 impl StatisticTotals {
@@ -872,6 +916,7 @@ impl StatisticTotals {
             Statistic::Reflex => self.reflex,
             Statistic::Fortitude => self.fortitude,
             Statistic::Will => self.will,
+            skill => self.skills[skill_offset(skill)],
         }
     }
 }
@@ -884,6 +929,7 @@ struct StatisticWide {
     reflex: i64,
     fortitude: i64,
     will: i64,
+    skills: [i64; SKILL_STATISTIC_COUNT],
 }
 
 fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
@@ -900,9 +946,14 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         reflex: 0,
         fortitude: 0,
         will: 0,
+        skills: [0; SKILL_STATISTIC_COUNT],
     };
     for modifier in &applied {
         add_statistic(&mut wide, modifier.statistic, modifier.value)?;
+    }
+    let mut skills = [0; SKILL_STATISTIC_COUNT];
+    for (index, value) in wide.skills.into_iter().enumerate() {
+        skills[index] = i32::try_from(value).map_err(|_| ModifierError::Overflow)?;
     }
     let totals = StatisticTotals {
         attack: i32::try_from(wide.attack).map_err(|_| ModifierError::Overflow)?,
@@ -912,6 +963,7 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         reflex: i32::try_from(wide.reflex).map_err(|_| ModifierError::Overflow)?,
         fortitude: i32::try_from(wide.fortitude).map_err(|_| ModifierError::Overflow)?,
         will: i32::try_from(wide.will).map_err(|_| ModifierError::Overflow)?,
+        skills,
     };
     Ok(ModifierTotal { totals, applied })
 }
@@ -929,6 +981,7 @@ fn add_statistic(
         Statistic::Reflex => &mut wide.reflex,
         Statistic::Fortitude => &mut wide.fortitude,
         Statistic::Will => &mut wide.will,
+        skill => &mut wide.skills[skill_offset(skill)],
     };
     *slot = slot
         .checked_add(i64::from(value))
@@ -997,6 +1050,58 @@ fn source_ord(source: ModifierSource) -> (u8, u32) {
     }
 }
 
+const SKILL_STATISTIC_COUNT: usize = 16;
+
+/// The sixteen skill statistics in book order. Sort keys are 7 through 22.
+///
+/// Player Core pg. 225, Key Attribute.
+pub(crate) const SKILL_STATISTICS: [Statistic; SKILL_STATISTIC_COUNT] = [
+    Statistic::Acrobatics,
+    Statistic::Arcana,
+    Statistic::Athletics,
+    Statistic::Crafting,
+    Statistic::Deception,
+    Statistic::Diplomacy,
+    Statistic::Intimidation,
+    Statistic::Medicine,
+    Statistic::Nature,
+    Statistic::Occultism,
+    Statistic::Performance,
+    Statistic::Religion,
+    Statistic::Society,
+    Statistic::Stealth,
+    Statistic::Survival,
+    Statistic::Thievery,
+];
+
+fn skill_offset(statistic: Statistic) -> usize {
+    match statistic {
+        Statistic::Acrobatics => 0,
+        Statistic::Arcana => 1,
+        Statistic::Athletics => 2,
+        Statistic::Crafting => 3,
+        Statistic::Deception => 4,
+        Statistic::Diplomacy => 5,
+        Statistic::Intimidation => 6,
+        Statistic::Medicine => 7,
+        Statistic::Nature => 8,
+        Statistic::Occultism => 9,
+        Statistic::Performance => 10,
+        Statistic::Religion => 11,
+        Statistic::Society => 12,
+        Statistic::Stealth => 13,
+        Statistic::Survival => 14,
+        Statistic::Thievery => 15,
+        Statistic::Attack
+        | Statistic::ArmorClass
+        | Statistic::Perception
+        | Statistic::Damage
+        | Statistic::Reflex
+        | Statistic::Fortitude
+        | Statistic::Will => 0,
+    }
+}
+
 fn statistic_ord(statistic: Statistic) -> u8 {
     match statistic {
         Statistic::Attack => 0,
@@ -1006,7 +1111,38 @@ fn statistic_ord(statistic: Statistic) -> u8 {
         Statistic::Reflex => 4,
         Statistic::Fortitude => 5,
         Statistic::Will => 6,
+        skill => 7 + u8::try_from(skill_offset(skill)).unwrap_or(0),
     }
+}
+
+/// Copies frightened and sickened penalties onto every skill statistic.
+///
+/// The existing valued-condition rules still choose the value and the worst status
+/// penalty. A penalty already on that skill is not copied again. Unconscious is not copied.
+/// Rank 0 still contributes nothing when totaled.
+///
+/// Player Core pg. 444, Frightened. Player Core pg. 446, Sickened.
+pub(crate) fn with_skill_conditions(modifiers: &[Modifier]) -> Vec<Modifier> {
+    let mut expanded = modifiers.to_vec();
+    for modifier in modifiers.iter().copied() {
+        if !valued_condition_penalty(modifier) {
+            continue;
+        }
+        for statistic in SKILL_STATISTICS {
+            if modifier.statistic() != statistic {
+                expanded.push(modifier.with_statistic(statistic));
+            }
+        }
+    }
+    expanded
+}
+
+fn valued_condition_penalty(modifier: Modifier) -> bool {
+    modifier.penalty_type().is_some()
+        && matches!(
+            modifier.condition_id(),
+            Some(ConditionId::FRIGHTENED | ConditionId::SICKENED)
+        )
 }
 
 fn kind_ord(kind: ModifierKind) -> u8 {
@@ -3603,7 +3739,10 @@ mod tests {
                     Statistic::Reflex,
                     Statistic::Fortitude,
                     Statistic::Will,
-                ] {
+                ]
+                .into_iter()
+                .chain(SKILL_STATISTICS)
+                {
                     assert_eq!(stacked.get(statistic), oracle_total(order, statistic));
                 }
             });
@@ -3619,6 +3758,7 @@ mod tests {
         let mut reflex = 0usize;
         let mut fortitude = 0usize;
         let mut will = 0usize;
+        let mut skills = [0usize; SKILL_STATISTIC_COUNT];
         for modifier in set.iter().copied() {
             if !matches(modifier) {
                 continue;
@@ -3631,6 +3771,7 @@ mod tests {
                 Statistic::Reflex => &mut reflex,
                 Statistic::Fortitude => &mut fortitude,
                 Statistic::Will => &mut will,
+                skill => &mut skills[skill_offset(skill)],
             };
             *count += 1;
             if *count >= 2 {
@@ -4068,7 +4209,10 @@ mod tests {
             Statistic::Reflex,
             Statistic::Fortitude,
             Statistic::Will,
-        ] {
+        ]
+        .into_iter()
+        .chain(SKILL_STATISTICS)
+        {
             let on_statistic: Vec<_> = modifiers
                 .iter()
                 .copied()
@@ -4444,6 +4588,88 @@ mod tests {
                 && modifier.statistic() == Statistic::Reflex
         }));
         assert_eq!(stacked.get(Statistic::Fortitude), 0);
+    }
+
+    /// Player Core pg. 400, Bonuses.
+    #[test]
+    fn athletics_and_acrobatics_do_not_share_a_stack() {
+        let stacked = summed(&[
+            bonus(BonusType::Item, 2, 1, 1, None, Statistic::Athletics),
+            bonus(BonusType::Item, 1, 2, 2, None, Statistic::Acrobatics),
+        ]);
+        assert_eq!(stacked.get(Statistic::Athletics), 2);
+        assert_eq!(stacked.get(Statistic::Acrobatics), 1);
+    }
+
+    /// Player Core pg. 446, Unconscious.
+    #[test]
+    fn unconscious_adds_nothing_to_athletics() {
+        let mut modifiers = reflex_modifiers(true).expect("reflex");
+        modifiers.push(bonus(BonusType::Item, 1, 1, 1, None, Statistic::Athletics));
+        let stacked = summed(&with_skill_conditions(&modifiers));
+        assert_eq!(stacked.get(Statistic::Athletics), 1);
+        assert!(stacked.applied().iter().all(|modifier| {
+            modifier.statistic() != Statistic::Athletics
+                || modifier.penalty_type() != Some(PenaltyType::Status)
+        }));
+    }
+
+    /// Player Core pg. 400, Bonuses. Player Core pg. 404, Saving Throws.
+    #[test]
+    fn a_skill_item_bonus_does_not_change_fortitude() {
+        let stacked = summed(&[bonus(BonusType::Item, 1, 1, 1, None, Statistic::Athletics)]);
+        assert_eq!(stacked.get(Statistic::Fortitude), 0);
+    }
+
+    fn valued(id: ConditionId, rank: u32, source: u32, statistic: Statistic) -> Modifier {
+        penalty(
+            PenaltyType::Status,
+            -i32::try_from(rank).expect("rank"),
+            source,
+            source,
+            None,
+            statistic,
+        )
+        .with_condition(id, Some(rank))
+        .expect("condition")
+    }
+
+    /// Player Core pg. 444, Frightened.
+    #[test]
+    fn frightened_2_reaches_every_skill_statistic() {
+        let stacked = summed(&with_skill_conditions(&[valued(
+            ConditionId::FRIGHTENED,
+            2,
+            1,
+            Statistic::Attack,
+        )]));
+        for statistic in SKILL_STATISTICS {
+            assert_eq!(stacked.get(statistic), -2);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.statistic() == statistic
+                    && modifier.penalty_type() == Some(PenaltyType::Status)
+                    && modifier.value() == -2
+            }));
+        }
+    }
+
+    /// Player Core pg. 446, Sickened.
+    #[test]
+    fn sickened_1_reaches_every_skill_statistic() {
+        let stacked = summed(&with_skill_conditions(&[valued(
+            ConditionId::SICKENED,
+            1,
+            2,
+            Statistic::Fortitude,
+        )]));
+        for statistic in SKILL_STATISTICS {
+            assert_eq!(stacked.get(statistic), -1);
+            assert!(stacked.applied().iter().any(|modifier| {
+                modifier.statistic() == statistic
+                    && modifier.penalty_type() == Some(PenaltyType::Status)
+                    && modifier.value() == -1
+            }));
+        }
     }
 
     struct Lcg(u64);

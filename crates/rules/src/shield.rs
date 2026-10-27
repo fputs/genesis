@@ -327,6 +327,7 @@ mod tests {
             aid_rank: None,
             uses_dying_rules: Some(dying),
             saves: None,
+            skills: None,
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))
     }

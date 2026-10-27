@@ -31,6 +31,7 @@
 //!     aid_rank: None,
 //!     uses_dying_rules: None,
 //!     saves: None,
+//!     skills: None,
 //! })
 //! .expect("build");
 //! let creature = derive(&build);
@@ -139,6 +140,9 @@
 //!     ShieldBlock,
 //!     ShieldTemplate,
 //!     Side,
+//!     Skill,
+//!     SkillRoll,
+//!     Skills,
 //!     Size,
 //!     SourceId,
 //!     Square,
@@ -245,6 +249,22 @@
 //! let _ = rules::Encounter::step;
 //! let _ = rules::Encounter::drop_prone;
 //! let _ = rules::Encounter::stand;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::Skill,
+//!     i32,
+//!     &[rules::Modifier],
+//!     &mut rules::SeededDice,
+//! ) -> Result<rules::SkillRoll, rules::EncounterError> = rules::Encounter::skill_check;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::Skill,
+//!     i32,
+//!     &[rules::Modifier],
+//!     &mut rules::SeededDice,
+//! ) -> Result<rules::SkillRoll, rules::EncounterError> = rules::Encounter::recall_knowledge;
 //! ```
 //!
 //! Hit points and a condition id stay readable.
@@ -875,6 +895,18 @@
 //! ```compile_fail,E0432
 //! use rules::validate_speed;
 //! ```
+//!
+//! `skill_modifier` is not a crate-root name.
+//!
+//! ```compile_fail,E0432
+//! use rules::skill_modifier;
+//! ```
+//!
+//! `skill_dc` is not a crate-root name.
+//!
+//! ```compile_fail,E0432
+//! use rules::skill_dc;
+//! ```
 
 #![forbid(unsafe_code)]
 
@@ -892,6 +924,7 @@ mod reactive;
 mod ready;
 mod save;
 mod shield;
+mod skill;
 
 pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank};
 pub use check::{ArithmeticOverflow, DegreeOfSuccess};
@@ -929,6 +962,7 @@ pub use ready::{
 };
 pub use save::{LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveRoll, SavingThrows};
 pub use shield::ShieldBlock;
+pub use skill::{Skill, SkillRoll, Skills};
 
 #[cfg(test)]
 mod facade_check;
