@@ -11,7 +11,7 @@ Types each damage instance, applies immunity then weakness then resistance, and 
 A damage instance SHALL be a non-negative amount and exactly one damage type. The types SHALL be Bludgeoning, Piercing, Slashing, Bleed, Acid, Cold, Electricity, Fire, Sonic, Force, Spirit, Mental, and Poison.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2308 (Player Core pg. 407, Damage Types)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
 
 #### Scenario: Fire and slashing are different instances
 
@@ -46,10 +46,10 @@ If the creature is immune to the instance's type, the adjusted amount SHALL be 0
 
 ### Requirement: Weakness is the highest value of that type
 
-If the creature is not immune, the highest weakness of the instance's type SHALL be added once. A weakness of another type SHALL NOT be added. Two weakness values of the same type SHALL NOT be summed.
+If the creature is not immune, the highest weakness of the instance's type SHALL be added once. A weakness of another type SHALL NOT be added. Two weakness values of the same type SHALL NOT be summed. A weakness that applies without a damage instance is out of scope.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2317 (Player Core pg. 408, Weakness)
-**Source**: DEV-59. The book adds each weakness once and does not say two values of one type sum.
+**Source**: DEV-62. The book adds each weakness once and does not say two values of one type sum.
 
 #### Scenario: Weakness 5 fire raises 7 fire to 12
 
@@ -75,7 +75,7 @@ After weakness, the highest resistance of that type SHALL be subtracted. The res
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2318 (Player Core pg. 408, Resistance)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2309 (Player Core pg. 407, Step 3)
-**Source**: DEV-60. The book says usually the highest. This engine always uses the highest.
+**Source**: DEV-63. The book says usually the highest. This engine always uses the highest.
 
 #### Scenario: Weakness then resistance leaves 3
 
@@ -105,7 +105,7 @@ After weakness, the highest resistance of that type SHALL be subtracted. The res
 
 The penalty floor of 1 and critical doubling SHALL stay in the existing damage roll, before this adjustment. Resistance MAY reduce that result to 0. Weakness and resistance SHALL NOT themselves be doubled.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, Damage Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, Step 1: Roll Damage Dice)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2307 (Player Core pg. 407, Doubling and Halving)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2318 (Player Core pg. 408, Resistance)
 
@@ -163,7 +163,7 @@ The same amount, type, and defenses SHALL adjust to the same result on a second 
 
 A hit SHALL adjust the damage roll by the Strike profile's damage type and the target's defenses before Shield Block and before the blow. A miss SHALL NOT adjust and SHALL NOT roll a damage die. Reactive Strike and a readied Strike SHALL use that same adjustment. Empty defenses SHALL leave the rolled total unchanged.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 
 #### Scenario: A fire Strike adds weakness 5
@@ -196,6 +196,24 @@ A hit SHALL adjust the damage roll by the Strike profile's damage type and the t
 - **WHEN** that Reactive Strike hits
 - **THEN** the target has 17 Hit Points
 
+### Requirement: A zero Strike skips the blow
+
+The Strike path SHALL skip the blow when the adjusted amount is 0, as a basic save of 0 does. Hit Points and dying SHALL stay unchanged.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2327 (Player Core pg. 411, Taking Damage)
+
+#### Scenario: Dying 1 and immune fire 8 stays dying 1
+
+- **GIVEN** uses_dying_rules, dying 1, 0 Hit Points, immunity to Fire, Armor Class 11, and a Fire Strike of 1d8 with bonus 0
+- **WHEN** the Strike hits on a scripted natural 11 and a damage die of 8
+- **THEN** Hit Points stay 0 and the vital stays Dying(1)
+
+#### Scenario: Dying 1 and resisted fire 8 stays dying 1
+
+- **GIVEN** uses_dying_rules, dying 1, 0 Hit Points, resistance 10 to Fire, Armor Class 11, and a Fire Strike of 1d8 with bonus 0
+- **WHEN** the Strike hits on a scripted natural 11 and a damage die of 8
+- **THEN** Hit Points stay 0 and the vital stays Dying(1)
+
 ### Requirement: A basic save is not a typed instance
 
 `basic_save` SHALL NOT take a damage type and SHALL NOT apply immunity, weakness, or resistance. The listed amount SHALL be the amount the blow receives.
@@ -208,12 +226,12 @@ A hit SHALL adjust the damage roll by the Strike profile's damage type and the t
 - **WHEN** a basic Fortitude save fails on a scripted natural 6 against DC 15 for listed damage 5
 - **THEN** the damage is 5 and Hit Points are 15
 
-### Requirement: Persistent damage assumes a generic condition
+### Requirement: This change owns the persistent container
 
-Persistent damage SHALL be a condition of one damage type and a positive amount. This change assumes `add-conditions-with-durations` provides only a generic condition and one end-of-turn tick. The entry SHALL NOT end by counting rounds.
+This change owns the condition container. Persistent damage SHALL be one entry of a damage type and a positive amount. The end-of-turn hook SHALL run before any decrease. An entry SHALL NOT end by counting rounds.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=86 (Player Core pg. 445, Persistent Damage)
-**Source**: dependency `add-conditions-with-durations`
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
 
 #### Scenario: A fresh creature has no persistent damage
 
@@ -252,6 +270,18 @@ The amount SHALL be at least 1. A non-positive amount SHALL return NonPositivePe
 - **WHEN** persistent Fire 5 is gained
 - **THEN** the error is TargetDead
 - **AND** no persistent damage is stored
+
+### Requirement: A caller doubles persistent damage on a critical hit
+
+On a critical hit the caller SHALL pass twice the listed persistent amount. The gain SHALL store that amount and SHALL NOT double it. Twice 2 SHALL be stored as 4, not as 6.
+
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=86 (Player Core pg. 445, Persistent Damage)
+
+#### Scenario: A critical persistent fire 2 is stored as 4
+
+- **GIVEN** an Alive combatant with no persistent damage and a critical hit listing persistent Fire 2
+- **WHEN** the caller gains persistent Fire 4
+- **THEN** the stored amount is 4
 
 ### Requirement: The higher amount of one type replaces the lower
 
@@ -349,7 +379,7 @@ The persistent blow SHALL NOT use Shield Block. Another creature's persistent da
 
 ### Requirement: A zero sum still rolls the flat checks
 
-A sum of 0 SHALL NOT apply a blow and SHALL NOT change Hit Points or dying. Each remaining condition SHALL still roll its flat check.
+A sum of 0 SHALL NOT apply a blow and SHALL NOT change Hit Points or dying. Each remaining condition SHALL still roll its flat check. The GM call that negating the initial damage also negates persistent damage is out of scope.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=86 (Player Core pg. 445, Persistent Damage)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2318 (Player Core pg. 408, Resistance)
@@ -359,6 +389,12 @@ A sum of 0 SHALL NOT apply a blow and SHALL NOT change Hit Points or dying. Each
 - **GIVEN** Alive at 20 Hit Points, resistance 10 to Fire, persistent Fire 5, and a scripted natural 14
 - **WHEN** that creature's turn ends
 - **THEN** Hit Points stay 20 and Fire 5 remains
+
+#### Scenario: Immune fire 5 still rolls the flat check
+
+- **GIVEN** Alive at 20 Hit Points, immunity to Fire, persistent Fire 5, and a scripted natural 15
+- **WHEN** that creature's turn ends
+- **THEN** Hit Points stay 20 and no persistent damage remains
 
 ### Requirement: Each condition then rolls DC 15
 
@@ -406,7 +442,7 @@ Present conditions SHALL roll in this order: Bludgeoning, Piercing, Slashing, Bl
 
 ### Requirement: Death clears persistent damage before the flat check
 
-If the creature is already Dead when the end step starts, persistent damage SHALL be cleared and no die SHALL be drawn. If the blow leaves the creature Dead, persistent damage SHALL be cleared and no flat-check die SHALL be drawn.
+If the creature is already Dead when the end step starts, persistent damage SHALL be cleared and no die SHALL be drawn. If the blow leaves the creature Dead, persistent damage SHALL be cleared and no flat-check die SHALL be drawn. A tick that raises dying 3 SHALL leave the creature Dead.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2329 (Player Core pg. 411, Death)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=86 (Player Core pg. 445, Persistent Damage)
@@ -414,6 +450,12 @@ If the creature is already Dead when the end step starts, persistent damage SHAL
 #### Scenario: Massive persistent damage draws no flat check
 
 - **GIVEN** Alive at 9 Hit Points, maximum 9, persistent Fire 20, and a scripted natural 15
+- **WHEN** that creature's turn ends
+- **THEN** the creature is Dead, no persistent damage remains, and the scripted 15 is unused
+
+#### Scenario: Dying 3 and persistent bleed 2 draws no flat check
+
+- **GIVEN** uses_dying_rules, dying 3, 0 Hit Points, persistent Bleed 2, and a scripted natural 15
 - **WHEN** that creature's turn ends
 - **THEN** the creature is Dead, no persistent damage remains, and the scripted 15 is unused
 

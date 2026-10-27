@@ -6,11 +6,11 @@
 
 derive SHALL put the authored Hit Points, Armor Class, Perception modifier, and Speed in feet on the Creature, and SHALL include exactly one melee strike. The strike SHALL record attack bonus, damage dice, die faces, damage bonus, reach in feet, an agile flag, and one damage type. Those numbers SHALL NOT be recomputed from level or from roster size.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core pg. 410, Hit Points, Healing, and Dying)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2308 (Player Core pg. 407, Damage Types)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, agile)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2345 (Player Core pg. 420, Speed)
 
 #### Scenario: Authored numbers are kept
@@ -35,7 +35,7 @@ derive SHALL put the authored Hit Points, Armor Class, Perception modifier, and 
 
 When penalties on an attack reduce a damage total to 0 or below, the roll SHALL deal 1 damage. That floor SHALL apply only to penalties on an attack and SHALL be applied before critical doubling, so the smallest critical hit SHALL deal 2 damage. RAW does not state that order; this change applies DEV-14. An overflowing total SHALL return a typed error and SHALL NOT change Hit Points. Resistance is applied after that roll and MAY reduce the result to 0.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, penalties on an attack)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, Step 1: Roll Damage Dice)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2307 (Player Core pg. 407, Doubling and Halving)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2318 (Player Core pg. 408, resistance floor of 0)
 **Source**: DEV-14. RAW does not state whether the floor is before or after doubling; this change applies it first.
