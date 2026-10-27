@@ -53,6 +53,7 @@ v1 history lives on the `v1-reference` branch.
 - `NOTICE-ORC.md`. The ORC notice is `LICENSES/ORC-NOTICE`. ([#85](https://github.com/fputs/genesis/pull/85))
 
 ### Fixed
+- spec-drift, pr-hygiene, and spec-approved no longer declare concurrency, so a same-sha burst does not leave a cancelled required check. ([#90](https://github.com/fputs/genesis/pull/90))
 - The condition group key is (condition, statistic, bonus or penalty, type) after the status rewrite, so different types stack. ([#30](https://github.com/fputs/genesis/pull/30))
 - Condition grouping is by (condition, statistic), the source key leaves different conditions apart, and a tie keeps the lower source id. ([#30](https://github.com/fputs/genesis/pull/30))
 - Duplicate effects collapse on (source id, statistic, type, bonus or penalty), and an equal sequence keeps the worse penalty. ([#30](https://github.com/fputs/genesis/pull/30))
