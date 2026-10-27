@@ -1,7 +1,7 @@
 # Genesis — Rules Deviations Log (intentional departures from RAW)
 
 Owner: Designer (rules lawyer). Baseline: PF2e Remaster Player Core (PC), verified on AoN 2026-10-20. Designer rulings of 2026-10-20 are applied. **FINAL.**
-Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws.
+Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills.
 
 ## Deviations
 
@@ -59,6 +59,9 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 | DEV-56 | A save may be untrained | https://2e.aonprd.com/Rules.aspx?ID=2296 (PC 404) | `Untrained` is legal and is +0 | No class grants trained | 14 |
 | DEV-57 | Shield Block on a basic save | https://2e.aonprd.com/Feats.aspx?ID=5212 (PC 262) | `basic_save` never calls the shield path | Shield Block triggers only on physical damage from an attack (Feats 5212, PC 262). Most basic-save damage is not from an attack; DEV-57 matters only for an attack that calls for a basic save. | 14 |
 | DEV-58 | Three attributes. Amends DEV-01 | https://2e.aonprd.com/Rules.aspx?ID=2296 (PC 404) | Constitution, Dexterity, and Wisdom only | Saves, not full derivation | 14 |
+| DEV-59 | Skill attributes are a second record. This row amends DEV-58 | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225) | This row amends DEV-58. Strength, Dexterity, Intelligence, Wisdom, and Charisma live on `Skills` and are not read from `SavingThrows`. The two Dexterity or Wisdom values may differ | Saves already shipped their three attributes. This change does not edit `save_modifier` | 15 |
+| DEV-60 | Recall Knowledge is an open roll. Cross-reference DEV-08 | https://2e.aonprd.com/Actions.aspx?ID=2367 (PC 231). The trait is Secret | The natural result is returned. Cross-reference DEV-08 | Cross-reference DEV-08: no hidden-information channel, the same reason as Seek's open roll | 15 |
+| DEV-61 | The key attribute is the table attribute | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225). The GM may call for a different attribute | `Skill::attribute` is fixed | No GM | 15 |
 
 Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49.
 
