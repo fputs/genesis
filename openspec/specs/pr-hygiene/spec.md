@@ -41,17 +41,6 @@ The `pr-hygiene` job SHALL run on Node 22. It SHALL run `node --test` on the fix
 - **AND** `node --test` runs before `scripts/pr-hygiene.mjs`
 - **AND** a failing test fails the job
 
-### Requirement: Cancel the previous run
-
-The `pr-hygiene` workflow SHALL set concurrency group `pr-hygiene-<pull request number>` and SHALL cancel an in-progress run in that group.
-
-#### Scenario: An in-progress run is cancelled
-
-- **GIVEN** `.github/workflows/pr-hygiene.yml`
-- **WHEN** its concurrency block is read
-- **THEN** the group is `pr-hygiene-` plus the pull request number
-- **AND** `cancel-in-progress` is true
-
 ### Requirement: NUL-split diff paths
 
 Changed paths SHALL be parsed from `git diff -z` output split on NUL, including additions, modifications, deletions, and both sides of a rename, as the spec-drift check parses them.
@@ -944,3 +933,14 @@ When every changed path is under `crates/` and contains `/tests/`, the job SHALL
 - **THEN** the job fails
 - **AND** the log includes `archive commit is not last`
 - **AND** the log does not include `implementation PR missing CHANGELOG bullet`
+
+### Requirement: Pr-hygiene declares no concurrency
+
+The `pr-hygiene` workflow SHALL NOT declare a concurrency block. A same-sha `edited` or `synchronize` SHALL NOT cancel an in-flight `pr-hygiene` run.
+
+#### Scenario: The pr-hygiene workflow declares no concurrency
+
+- **GIVEN** `.github/workflows/pr-hygiene.yml`
+- **WHEN** its lines are read
+- **THEN** the file does not contain a `concurrency:` line
+- **AND** the file does not contain `cancel-in-progress` or `queue:`

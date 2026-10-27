@@ -1321,14 +1321,10 @@ test("Cargo and spec-drift stay", () => {
   assert.deepEqual(hygieneJobs, ["  pr-hygiene:"]);
 });
 
-test("An in-progress run is cancelled", () => {
-  assert.match(
-    workflow,
-    /group: pr-hygiene-\$\{\{ github\.event\.pull_request\.number \}\}/,
-  );
-  assert.match(workflow, /cancel-in-progress:\s*true/);
-  const jobs = workflow.slice(workflow.indexOf("jobs:")).match(/^ {2}[a-z0-9-]+:$/gm);
-  assert.deepEqual(jobs, ["  pr-hygiene:"]);
+test("The pr-hygiene workflow declares no concurrency", () => {
+  assert.equal(workflow.includes("concurrency:"), false);
+  assert.equal(workflow.includes("cancel-in-progress"), false);
+  assert.equal(workflow.includes("queue:"), false);
 });
 
 function jobBlock(yaml, id) {

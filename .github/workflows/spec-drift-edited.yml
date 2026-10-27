@@ -11,9 +11,6 @@ permissions:
 jobs:
   spec-drift:
     runs-on: ubuntu-latest
-    concurrency:
-      group: spec-drift-${{ github.event.pull_request.number || github.sha }}
-      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
         with:

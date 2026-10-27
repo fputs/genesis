@@ -17,10 +17,16 @@ const editedWorkflowPath = fileURLToPath(
 );
 const workflow = readFileSync(workflowPath, "utf8");
 const editedWorkflow = readFileSync(editedWorkflowPath, "utf8");
+const prHygieneWorkflowPath = fileURLToPath(
+  new URL("../.github/workflows/pr-hygiene.yml", import.meta.url),
+);
+const specApprovedWorkflowPath = fileURLToPath(
+  new URL("../.github/workflows/spec-approved.yml", import.meta.url),
+);
+const prHygieneWorkflow = readFileSync(prHygieneWorkflowPath, "utf8");
+const specApprovedWorkflow = readFileSync(specApprovedWorkflowPath, "utf8");
 const realGit = spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim();
 
-const SPEC_DRIFT_GROUP =
-  "spec-drift-${{ github.event.pull_request.number || github.sha }}";
 const STUB_LINE = "stub-openspec: validate --all --strict";
 const OPEN = "- [ ] 1.1 Open\n";
 const DONE = "- [x] 1.1 Done\n";
@@ -1216,39 +1222,65 @@ test("The edited workflow reuses the spec-drift job name", () => {
   assert.ok(suite >= 0);
   assert.ok(script > suite);
   assert.equal(stepsBlock(job), stepsBlock(jobBlock(workflow, "spec-drift")));
-  assert.ok(job.includes(`group: ${SPEC_DRIFT_GROUP}`), job);
-  assert.match(job, /cancel-in-progress:\s*true/);
+  assert.equal(job.includes("concurrency:"), false);
   const header = editedWorkflow.slice(0, editedWorkflow.indexOf("jobs:"));
   assert.equal(header.includes("concurrency:"), false);
   assert.doesNotMatch(editedWorkflow, /spec-drift-edited-/);
   assert.doesNotMatch(editedWorkflow, /pr-hygiene/);
 });
 
-test("Both spec-drift jobs share a pull request group", () => {
+test("The spec-drift jobs declare no concurrency", () => {
   for (const yaml of [workflow, editedWorkflow]) {
-    const job = jobBlock(yaml, "spec-drift");
-    assert.ok(job.includes(`group: ${SPEC_DRIFT_GROUP}`), job);
-    assert.match(job, /cancel-in-progress:\s*true/);
-    const header = yaml.slice(0, yaml.indexOf("jobs:"));
-    assert.equal(header.includes("concurrency:"), false, header);
-    assert.equal(header.includes(SPEC_DRIFT_GROUP), false);
+    assert.equal(jobBlock(yaml, "spec-drift").includes("concurrency:"), false);
+    assert.equal(yaml.includes("cancel-in-progress"), false);
+    assert.equal(yaml.includes("queue:"), false);
   }
-  assert.doesNotMatch(jobBlock(workflow, "ci"), /concurrency:/);
-  assert.doesNotMatch(editedWorkflow, /spec-drift-edited-/);
+  const header = workflow.slice(0, workflow.indexOf("jobs:"));
+  assert.equal(header.includes("concurrency:"), false);
 });
 
-test("A push does not join a pull request group", () => {
+test("A push does not cancel a pull request run", () => {
+  const header = workflow.slice(0, workflow.indexOf("jobs:"));
+  assert.match(header, /push:/);
+  assert.match(header, /pull_request:/);
   const job = jobBlock(workflow, "spec-drift");
-  assert.ok(job.includes(`group: ${SPEC_DRIFT_GROUP}`), job);
-  const sha = "abc123def";
-  const pushGroup = `spec-drift-${"" || sha}`;
-  const pullGroup = `spec-drift-${"31" || sha}`;
-  assert.equal(pushGroup, `spec-drift-${sha}`);
-  assert.equal(pullGroup, "spec-drift-31");
-  assert.notEqual(pushGroup, pullGroup);
-  assert.equal(pushGroup.includes("31"), false);
-  assert.match(job, /github\.sha/);
-  assert.doesNotMatch(job, /group: spec-drift-\$\{\{ github\.event\.pull_request\.number \}\}/);
+  assert.equal(job.includes("concurrency:"), false);
+  assert.equal(job.includes("cancel-in-progress"), false);
+  assert.equal(header.includes("concurrency:"), false);
+});
+
+test("The Cargo job has no concurrency key", () => {
+  const header = workflow.slice(0, workflow.indexOf("jobs:"));
+  assert.equal(jobBlock(workflow, "ci").includes("concurrency:"), false);
+  assert.equal(header.includes("concurrency:"), false);
+});
+
+test("Three same-sha events leave no cancelled check", () => {
+  assert.match(workflow, /pull_request:/);
+  assert.match(prHygieneWorkflow, /synchronize/);
+  assert.match(editedWorkflow, /types:\s*\[edited]/);
+  assert.match(specApprovedWorkflow, /pull_request_review:/);
+  assert.match(specApprovedWorkflow, /submitted/);
+  assert.equal(jobBlock(workflow, "ci").includes("concurrency:"), false);
+  assert.equal(jobBlock(workflow, "spec-drift").includes("concurrency:"), false);
+  assert.equal(jobBlock(editedWorkflow, "spec-drift").includes("concurrency:"), false);
+  assert.equal(jobBlock(prHygieneWorkflow, "pr-hygiene").includes("concurrency:"), false);
+  assert.equal(jobBlock(specApprovedWorkflow, "spec-approved").includes("concurrency:"), false);
+  const header = prHygieneWorkflow.slice(0, prHygieneWorkflow.indexOf("jobs:"));
+  assert.equal(header.includes("concurrency:"), false);
+  for (const yaml of [workflow, editedWorkflow, prHygieneWorkflow, specApprovedWorkflow]) {
+    assert.equal(yaml.includes("concurrency:"), false);
+    assert.equal(yaml.includes("cancel-in-progress"), false);
+    assert.equal(yaml.includes("queue:"), false);
+  }
+});
+
+test("No required check declares concurrency", () => {
+  for (const yaml of [workflow, editedWorkflow, prHygieneWorkflow, specApprovedWorkflow]) {
+    assert.equal(yaml.includes("concurrency:"), false);
+    assert.equal(yaml.includes("cancel-in-progress"), false);
+    assert.equal(yaml.includes("queue:"), false);
+  }
 });
 
 test("Dropping the change line on edit fails", async () => {
