@@ -52,7 +52,7 @@ The start step SHALL run before actions are regained. It SHALL decrease round du
 Applying until the end of a creature's next turn while that creature's turn is open SHALL leave the condition in place when that turn ends, and SHALL remove it when that creature's following turn ends. Applying it while that turn is not open SHALL remove it at the end of that creature's next turn.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions)
 
 #### Scenario: An open turn's end is not the next end
 
@@ -70,7 +70,7 @@ Applying until the end of a creature's next turn while that creature's turn is o
 
 ### Requirement: The attacker's conditions adjust the attack and damage
 
-A Strike SHALL include the attacker's condition modifiers for that strike's basis in the attack total, beside the caller modifiers. A Strength melee strike SHALL include enfeebled on the attack and on the damage. A ranged strike and a Dexterity melee strike SHALL include clumsy on the attack and SHALL NOT include enfeebled. Damage SHALL NOT include frightened or clumsy.
+A Strike SHALL add the attacker's modifiers for its attack basis to the attack, and for its damage basis to the damage. Enfeebled SHALL penalize a Strength melee attack and Strength damage. A Dexterity melee attack SHALL NOT take enfeebled. Strength damage on that attack SHALL. A ranged attack SHALL include clumsy and SHALL NOT include enfeebled. Damage SHALL NOT include frightened or clumsy.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=71 (Player Core pg. 443, Enfeebled)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=61 (Player Core pg. 442, Clumsy)
@@ -107,10 +107,18 @@ A Strike SHALL include the attacker's condition modifiers for that strike's basi
 
 #### Scenario: Enfeebled 2 does not lower a Dexterity melee attack
 
-- **GIVEN** an open turn, Dexterity melee, attack bonus +6, Armor Class 16, 0 damage dice, the attacker enfeebled 2, and a scripted natural 10
+- **GIVEN** an open turn, a Dexterity melee attack, Strength damage, attack bonus +6, Armor Class 16, 0 damage dice, the attacker enfeebled 2, and a scripted natural 10
 - **WHEN** the Strike is resolved
 - **THEN** the total is 16
 - **AND** the degree is success
+
+#### Scenario: Enfeebled 2 lowers Dexterity melee damage
+
+- **GIVEN** an open turn, a Dexterity melee attack, Strength damage, attack bonus +10, Armor Class 11, the attacker enfeebled 2, a scripted natural 10, and damage 1d8+0 showing 4
+- **WHEN** the Strike is resolved
+- **THEN** the total is 20
+- **AND** the degree is success
+- **AND** the damage is 2
 
 #### Scenario: Clumsy 2 lowers a ranged attack
 
@@ -133,20 +141,45 @@ A Strike SHALL include the attacker's condition modifiers for that strike's basi
 - **THEN** the degree is success
 - **AND** the damage is 4
 
-### Requirement: A returned turn does not tick the end twice
+### Requirement: The returned turn decrements once
 
-The end step of a turn that return opened SHALL NOT run the condition end tick. The next ordinary end for that creature SHALL run it.
+The end of the turn a creature returns to SHALL decrement frightened and SHALL expire a due negative until-end condition, once. It SHALL NOT run the persistent hook again. The next ordinary end SHALL decrement again.
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
+**Source**: R-14 in docs/designer/rules-rulings.md. Delay, Player Core pg. 416.
 
-#### Scenario: A returned turn does not lower frightened again
+#### Scenario: Frightened drops at the end of the returned turn
 
 - **GIVEN** CombatantId(1) frightened 2, and CombatantId(2), both Alive, Perception +0, scripted initiative naturals 15 then 10
-- **WHEN** CombatantId(1)'s turn starts, CombatantId(1) Delays, CombatantId(2)'s turn ends, CombatantId(1) returns, and that turn ends
+- **WHEN** CombatantId(1)'s turn starts and CombatantId(1) Delays
+- **THEN** frightened is 2
+- **WHEN** CombatantId(2)'s turn ends, CombatantId(1) returns, and that turn ends
 - **THEN** frightened is 1
 - **WHEN** CombatantId(1)'s next ordinary turn ends
 - **THEN** frightened is absent
+
+### Requirement: Death clears condition instances
+
+Becoming Dead SHALL clear that creature's condition instances, as persistent damage is cleared. A skipped dead slot SHALL NOT run the end decrement. A skipped dead slot SHALL still tick round durations at the start.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2329 (Player Core pg. 411, Death)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
+
+#### Scenario: Death clears frightened
+
+- **GIVEN** uses_dying_rules false, CombatantId(2) Alive at 4 Hit Points with frightened 2, CombatantId(1)'s turn open, a Strength melee attack, Strength damage, attack bonus +10, Armor Class 11, a scripted natural 10, and damage 1d8+0 showing 4
+- **WHEN** CombatantId(1) Strikes CombatantId(2)
+- **THEN** CombatantId(2) is Dead
+- **AND** frightened is absent
+
+#### Scenario: A skipped dead slot does not decrement
+
+- **GIVEN** the order CombatantId(1), CombatantId(2), CombatantId(3), CombatantId(2) already Dead with no condition instances, CombatantId(1) frightened 2, and a scripted natural 8
+- **WHEN** CombatantId(1)'s turn ends and the next turn starts
+- **THEN** the open turn is CombatantId(3)
+- **AND** CombatantId(1) is frightened 1
+- **AND** CombatantId(2) did not end a turn
+- **AND** the scripted 8 is unused
 
 ## MODIFIED Requirements
 
@@ -197,7 +230,7 @@ Each combatant SHALL add one d20 to that creature's Perception modifier, includi
 
 ### Requirement: Ending a turn drops actions and keeps the reaction
 
-Ending a turn SHALL set actions to 0 and SHALL keep an unspent reaction. `end_turn` SHALL keep its dice argument. The persistent-damage hook SHALL finish before this change's decrement. With no persistent damage, that hook SHALL NOT roll or change Hit Points. The decrement SHALL then lower frightened and SHALL NOT roll. A turn return opened SHALL skip the decrement. No open turn SHALL return TurnNotOpen and SHALL NOT roll.
+Ending a turn SHALL set actions to 0 and SHALL keep an unspent reaction. `end_turn` SHALL keep its dice argument. An ordinary end SHALL deal persistent damage, then roll its flat check, then decrement. Rules 2430 allows expiries in any order; this change removes a due until-end instance before the decrement. With no persistent damage, that hook SHALL NOT roll or change Hit Points. The decrement SHALL NOT roll. No open turn SHALL return TurnNotOpen and SHALL NOT roll.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)

@@ -77,3 +77,11 @@ R-02 closed by #81 (add-saving-throws). The halving minimum is now implemented f
 - MAP counts attack actions used during your turn (Player Core p.402, Rules 2289), whether or not they resolve.
 - Ruling: a failed targeting flat check at any DC (5 concealed, 11 hidden, or one roll at the highest DC when both apply, Player Core p.400, Rules 2278) spends the action and counts toward MAP, and the target is not affected. This is a ruling, not a deviation.
 - Example: a Strike against a concealed target rolls a natural 4 on the DC 5 flat check. The target isn't affected, the action is spent, and the next Strike this turn takes -5 (-4 agile).
+
+## R-14 Delay runs some end-of-turn effects immediately (Designer, PR #94, 2026-10-27)
+
+- Delay (Player Core p.416, https://2e.aonprd.com/Actions.aspx?ID=2294): negative effects that would happen at the end of your turn happen immediately when you Delay. A beneficial effect that lasts through the end of your turn also ends. You do not run those effects a second time when you later act.
+- Ruling: On Delay, (a) negative end-of-turn effects run immediately, which is the persistent-damage hook and its flat check; (b) a beneficial effect lasting through the end of the turn ends; (c) frightened does not decrement, and a negative condition that lasts until the end of your turn, or until the end of your next turn, does not expire. Those run at the end of the turn the creature returns to, once per actual turn.
+- Reason: a creature cannot Delay to dodge a negative or to extend a benefit.
+- Scenarios: off-guard until the end of the creature's own next turn stays through Delay and is gone when the returned turn ends. Frightened 2 stays 2 on Delay and drops to 1 at the end of the returned turn. Persistent fire 2 ticks at Delay. A creature that never returns follows the existing Delay spec.
+- This is a ruling, not a deviation. The core set has no beneficial condition. (b) is stated so a later beneficial duration follows it.

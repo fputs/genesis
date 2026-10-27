@@ -10,7 +10,7 @@ Applies, tracks, and removes the core combat conditions on a creature, ticks the
 
 The same instances, the same tick, and the same check SHALL produce the same stored list, the same active value, and the same modifiers. A call SHALL NOT roll dice, read a clock, or read a file, and SHALL NOT panic.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Conditions Appendix)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions)
 
 #### Scenario: The same conditions twice match
 
@@ -23,7 +23,7 @@ The same instances, the same tick, and the same check SHALL produce the same sto
 
 The conditions that can be applied SHALL be frightened, sickened, off-guard, prone, clumsy, and enfeebled. Applying SHALL append one instance and SHALL NOT replace an instance already stored. A round duration SHALL name a clock creature and SHALL start at 1 or more rounds. Apply SHALL NOT tick.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions)
 
 #### Scenario: Frightened 2 is stored at value 2
 
@@ -77,7 +77,7 @@ Frightened, sickened, clumsy, and enfeebled SHALL require a value of 1 or more. 
 
 A valued condition SHALL keep every current instance. Its active value SHALL be the highest value still stored. An unvalued condition SHALL be present while any instance of that name remains. Modifiers SHALL use the active value once.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions With Values)
 
 #### Scenario: The active value is the higher frightened
 
@@ -97,7 +97,7 @@ A valued condition SHALL keep every current instance. Its active value SHALL be 
 
 Reducing a valued condition by N SHALL subtract N from every instance of that name. An instance at 0 SHALL end. Reducing an absent condition, or reducing by 0, SHALL change nothing. Off-guard and prone SHALL reject a reduction. Other names SHALL stay.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions With Values)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions With Values)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2456 (Player Core pg. 442, Condition Values)
 
 #### Scenario: Reduce lowers every frightened instance
@@ -144,7 +144,7 @@ Reducing a valued condition by N SHALL subtract N from every instance of that na
 
 Removing a condition SHALL remove every instance of that name, whatever the values and durations. Removing an absent condition SHALL change nothing. Other names SHALL stay.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Redundant Conditions)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions)
 
 #### Scenario: Remove clears frightened and leaves sickened
 
@@ -240,7 +240,7 @@ Off-guard SHALL be a −2 circumstance penalty to Armor Class and SHALL NOT pena
 
 ### Requirement: Clumsy and enfeebled follow the ability lists
 
-Clumsy SHALL penalize Armor Class, Reflex, a Dexterity melee attack, and a ranged attack by its value. It SHALL NOT penalize Fortitude, Will, Perception, damage, or a Strength melee attack. Enfeebled SHALL penalize a Strength melee attack and its damage by its value, and nothing else in this set.
+Clumsy SHALL penalize Armor Class, Reflex, a Dexterity melee attack, and a ranged attack by its value. It SHALL NOT penalize Fortitude, Will, Perception, damage, or a Strength melee attack. Enfeebled SHALL penalize Strength-based rolls and DCs in this set, including a Strength melee attack and Strength damage. A Dexterity melee attack SHALL NOT take enfeebled. Strength damage on that attack SHALL. Enfeebled SHALL NOT penalize Armor Class or a ranged attack.
 
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=61 (Player Core pg. 442, Clumsy)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=71 (Player Core pg. 443, Enfeebled)
@@ -269,9 +269,16 @@ Clumsy SHALL penalize Armor Class, Reflex, a Dexterity melee attack, and a range
 - **WHEN** Armor Class modifiers and ranged attack modifiers are produced
 - **THEN** neither has a penalty
 
+#### Scenario: Enfeebled 2 lowers Strength damage on a Dexterity melee attack
+
+- **GIVEN** enfeebled 2 until removed
+- **WHEN** Dexterity melee attack modifiers and Strength damage modifiers are produced
+- **THEN** the attack has no penalty
+- **AND** the damage has one status penalty of -2
+
 ### Requirement: The end tick decreases frightened after durations
 
-The end tick runs after the persistent-damage hook from add-resistances-weaknesses-persistent. It SHALL remove due instances clocked to that creature, then reduce that creature's frightened by 1. Other values SHALL NOT decrease. An instance that is not yet due SHALL become due and stay. The tick SHALL NOT roll, change Hit Points, or change a persistent slot.
+The encounter order SHALL be persistent damage, then its flat check, then this decrement. Rules 2430 allows expiries in any order; this tick removes a due until-end instance before the frightened decrease. It SHALL reduce that creature's frightened by 1. Other values SHALL NOT decrease. An instance that is not yet due SHALL become due and stay. The tick SHALL NOT roll, change Hit Points, or change a persistent slot.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
 **Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
