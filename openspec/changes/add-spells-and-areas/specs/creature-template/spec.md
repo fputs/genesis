@@ -6,7 +6,7 @@
 
 derive SHALL copy a present spellcasting entry and SHALL store none when it is omitted. It SHALL NOT roll. It SHALL NOT change Armor Class, the strike, Perception, or saves from that entry. The same build twice SHALL match.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core, Spell Attack Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core pg. 403, Spell Attack Rolls)
 
 #### Scenario: Omitted spellcasting stays omitted
 

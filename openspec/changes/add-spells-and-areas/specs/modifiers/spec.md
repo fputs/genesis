@@ -6,7 +6,7 @@
 
 SpellAttack SHALL be its own statistic. It SHALL NOT share a stack with Attack, Armor Class, Perception, damage, Fortitude, Reflex, or Will. Unconscious SHALL NOT add a penalty to it. Proficiency SHALL NOT be a bonus type.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core, Spell Attack Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core pg. 403, Spell Attack Rolls)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 
 #### Scenario: SpellAttack and Attack do not share a stack

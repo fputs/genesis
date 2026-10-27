@@ -39,8 +39,8 @@ On the caster's open Alive turn, each reference spell SHALL spend 2 actions. The
 - **GIVEN** an open Alive turn with 3 actions, a cone with no creature inside it, and a scripted 3
 - **WHEN** the caster casts Breathe Fire
 - **THEN** 1 action remains
-- **AND** the cost is 2 actions with concentrate and manipulate
-- **AND** the cost is not ranged
+- **AND** the cost is 2 actions with concentrate, fire, and manipulate
+- **AND** the cost does not name attack or ranged
 - **AND** the reaction is still ready
 - **AND** the scripted 3 is unused
 
@@ -49,28 +49,29 @@ On the caster's open Alive turn, each reference spell SHALL spend 2 actions. The
 - **GIVEN** an open Alive turn with 3 actions, a target in range, and a scripted natural 10 that misses
 - **WHEN** the caster casts Telekinetic Projectile
 - **THEN** 1 action remains
-- **AND** the cost is 2 actions with concentrate, manipulate, and ranged
+- **AND** the cost is 2 actions with attack, cantrip, concentrate, and manipulate
 - **AND** the reaction is still ready
 
 ### Requirement: The two spells name their traits
 
-Breathe Fire's cost SHALL name concentrate and manipulate, and SHALL NOT name ranged. Telekinetic Projectile's cost SHALL name concentrate, manipulate, and ranged.
+Breathe Fire's cost SHALL name concentrate, fire, and manipulate, and SHALL NOT name attack or ranged. Telekinetic Projectile's cost SHALL name attack, cantrip, concentrate, and manipulate, and SHALL NOT name ranged.
 
 **Source**: https://2e.aonprd.com/Spells.aspx?ID=1457 (Player Core pg. 319, Breathe Fire)
 **Source**: https://2e.aonprd.com/Spells.aspx?ID=1718 (Player Core pg. 363, Telekinetic Projectile)
 
-#### Scenario: Breathe Fire is not ranged
+#### Scenario: Breathe Fire has no attack trait
 
 - **GIVEN** an open Alive turn and a cone with no creature inside it
 - **WHEN** Breathe Fire is cast
-- **THEN** the cost names concentrate and manipulate
-- **AND** the cost does not name ranged
+- **THEN** the cost names concentrate, fire, and manipulate
+- **AND** the cost does not name attack or ranged
 
-#### Scenario: The projectile is ranged
+#### Scenario: The projectile has the attack trait
 
 - **GIVEN** an open Alive turn and a target in range
 - **WHEN** Telekinetic Projectile is cast and misses
-- **THEN** the cost names concentrate, manipulate, and ranged
+- **THEN** the cost names attack, cantrip, concentrate, and manipulate
+- **AND** the cost does not name ranged
 
 ### Requirement: A cast off the open turn rolls nothing
 
@@ -125,7 +126,7 @@ A cast that costs more actions than the caster has remaining SHALL return Insuff
 
 A creature with no spellcasting entry SHALL return NoSpellcasting. The cast SHALL spend nothing and draw no die. An omitted entry SHALL stay omitted.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core, Spell Attack Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core pg. 403, Spell Attack Rolls)
 
 #### Scenario: No spellcasting rolls nothing
 
@@ -139,8 +140,8 @@ A creature with no spellcasting entry SHALL return NoSpellcasting. The cast SHAL
 
 The modifier SHALL be the attribute modifier, plus that level's proficiency bonus, plus SpellAttack modifiers. Untrained SHALL be +0. The other ranks SHALL be level plus 2, 4, 6, or 8. The DC SHALL be 10 plus the modifier. The attribute SHALL be a modifier, not a score. The same inputs SHALL match and draw no die.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core, Spell Attack Rolls)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2293 (Player Core, Spell DC)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core pg. 403, Spell Attack Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2293 (Player Core pg. 403, Spell DC)
 
 #### Scenario: Trained at level 1 with plus 4 is plus 7 and DC 17
 
@@ -171,7 +172,7 @@ The modifier SHALL be the attribute modifier, plus that level's proficiency bonu
 
 A modifier on Attack SHALL NOT change the spell attack modifier or the spell DC. A modifier on SpellAttack SHALL change both. Two circumstance bonuses on SpellAttack SHALL keep the highest. A sum that does not fit SHALL return an overflow and draw no die.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core, Spell Attack Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core pg. 403, Spell Attack Rolls)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2281 (Player Core pg. 400, Bonuses)
 
 #### Scenario: An Attack bonus does not raise the spell DC
@@ -201,10 +202,10 @@ A modifier on Attack SHALL NOT change the spell attack modifier or the spell DC.
 
 ### Requirement: The multiple attack penalty hits the roll only
 
-A spell attack SHALL take the caster's current multiple attack penalty and SHALL NOT be agile, including when that creature's Strike is agile. The spell DC SHALL NOT include that penalty. Breathe Fire SHALL NOT take the penalty and SHALL NOT change the attack count.
+The attack trait SHALL apply the multiple attack penalty, and the spell SHALL NOT be agile. The spell DC SHALL NOT include that penalty. Breathe Fire SHALL NOT take the penalty and SHALL NOT change the attack count.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core, Spell Attack Rolls)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2292 (Player Core pg. 403, Spell Attack Rolls)
 
 #### Scenario: The second attack takes minus 5 and the DC stays 17
 
@@ -280,9 +281,70 @@ A hit or a critical hit SHALL roll 2d6 once and SHALL NOT add the attribute modi
 - **AND** the damage is 14
 - **AND** the target has 0 Hit Points and dying 2
 
+### Requirement: Spell attack degrees use the one-step shift
+
+A natural 20 at Armor Class minus 1 SHALL be a success and SHALL deal 2d6 once. A natural 1 at Armor Class plus 10 SHALL be a success and SHALL deal 2d6 once. A natural 1 equal to Armor Class SHALL be a failure and SHALL roll no damage die. A natural 1 one below Armor Class SHALL be a critical failure and SHALL roll no damage die.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2287 (Player Core pg. 401, Natural 1 and Natural 20)
+
+#### Scenario: A natural 20 at Armor Class minus 1 is a success
+
+- **GIVEN** modifier +0, baked Armor Class 21, 20 Hit Points, and the script 20, 3, 4
+- **WHEN** Telekinetic Projectile is cast
+- **THEN** the total is 20 and the degree is success
+- **AND** the damage is 7
+- **AND** the target has 13 Hit Points
+
+#### Scenario: A natural 1 at Armor Class plus 10 is a success
+
+- **GIVEN** modifier +29, baked Armor Class 20, 20 Hit Points, and the script 1, 3, 4
+- **WHEN** Telekinetic Projectile is cast
+- **THEN** the total is 30 and the degree is success
+- **AND** the damage is 7
+- **AND** the target has 13 Hit Points
+
+#### Scenario: A natural 1 at Armor Class is a failure
+
+- **GIVEN** modifier +19, baked Armor Class 20, 20 Hit Points, and the script 1, 3
+- **WHEN** Telekinetic Projectile is cast
+- **THEN** the total is 20 and the degree is failure
+- **AND** the target still has 20 Hit Points
+- **AND** the scripted 3 is unused
+
+#### Scenario: A natural 1 one below Armor Class is a critical failure
+
+- **GIVEN** modifier +18, baked Armor Class 20, 20 Hit Points, and the script 1, 3
+- **WHEN** Telekinetic Projectile is cast
+- **THEN** the total is 19 and the degree is critical failure
+- **AND** the target still has 20 Hit Points
+- **AND** the scripted 3 is unused
+
+### Requirement: Both spells stay at rank 1
+
+Each cast SHALL deal 2d6. A higher caster level SHALL NOT add a die. There SHALL be no rank argument.
+
+**Source**: https://2e.aonprd.com/Spells.aspx?ID=1457 (Player Core pg. 319, Breathe Fire)
+**Source**: https://2e.aonprd.com/Spells.aspx?ID=1718 (Player Core pg. 363, Telekinetic Projectile)
+
+#### Scenario: A level 5 projectile still deals 7
+
+- **GIVEN** level 5, attribute modifier +3, expert, baked Armor Class 16, 20 Hit Points, and the script 10, 3, 4
+- **WHEN** Telekinetic Projectile is cast
+- **THEN** the modifier is +12 and the damage is 7
+- **AND** the target has 13 Hit Points
+- **AND** the script is fully consumed
+
+#### Scenario: A level 5 cone still deals 7
+
+- **GIVEN** level 5, attribute modifier +3, expert, one creature in the cone with Reflex +0 and 20 Hit Points, and the script 3, 4, 13
+- **WHEN** Breathe Fire is cast
+- **THEN** the spell DC is 22 and the rolled damage is 7
+- **AND** the degree is failure and the creature has 13 Hit Points
+- **AND** the script is fully consumed
+
 ### Requirement: Range is 30 feet and draws nothing beyond it
 
-Distance SHALL be the existing grid distance. 30 feet or less SHALL be in range, including the caster's own square. Farther SHALL return OutOfSpellRange, spend nothing, and draw no die. There SHALL be no range-increment penalty.
+Distance SHALL be the existing grid distance. 30 feet or less SHALL be in range, including the caster. One creature SHALL be legal, including an ally, and Side SHALL NOT be read. Farther SHALL return OutOfSpellRange and draw no die. There SHALL be no range increment and no line-of-effect test.
 
 **Source**: https://2e.aonprd.com/Spells.aspx?ID=1718 (Player Core pg. 363, Telekinetic Projectile)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2379 (Player Core pg. 426, Range and Reach)
@@ -309,6 +371,14 @@ Distance SHALL be the existing grid distance. 30 feet or less SHALL be in range,
 - **WHEN** Telekinetic Projectile is cast
 - **THEN** the degree is success and the damage is 7
 - **AND** the caster has 13 Hit Points
+- **AND** the target is that one creature
+
+#### Scenario: An ally is a legal target
+
+- **GIVEN** a Pc caster at (0, 0) and a Pc ally at (1, 0), modifier +7, baked Armor Class 16, 20 Hit Points, and the script 10, 3, 4
+- **WHEN** Telekinetic Projectile is cast at that ally
+- **THEN** the degree is success and the damage is 7
+- **AND** the ally has 13 Hit Points
 
 ### Requirement: A dead or unknown target spends nothing
 
@@ -444,9 +514,10 @@ A burst radius SHALL be a positive multiple of 5 feet. Any other radius SHALL be
 
 ### Requirement: A 15-foot cardinal cone is the seven-square template
 
-The origin square SHALL NOT be included. The two squares diagonally adjacent to the origin, beside the first square, SHALL NOT be included. Any cone length other than 15 feet SHALL be rejected and SHALL return no squares.
+The origin square SHALL NOT be included. The two squares diagonally adjacent to the origin, beside the first square, SHALL NOT be included. This 15-foot template SHALL be ruling R-13 and SHALL NOT be a deviation. Any cone length other than 15 feet SHALL be rejected and SHALL return no squares.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2386 (Player Core pg. 428, Cone)
+**Source**: docs/designer/rules-rulings.md (R-13)
 
 #### Scenario: East is the seven squares
 
@@ -454,6 +525,7 @@ The origin square SHALL NOT be included. The two squares diagonally adjacent to 
 - **WHEN** membership is listed
 - **THEN** the squares are (1, 0), (2, -1), (2, 0), (2, 1), (3, -1), (3, 0), and (3, 1)
 - **AND** (0, 0), (1, -1), and (1, 1) are not included
+- **AND** the template is ruling R-13
 
 #### Scenario: North is that template turned
 
@@ -482,16 +554,18 @@ The origin square SHALL NOT be included. The two squares diagonally adjacent to 
 
 ### Requirement: A 15-foot diagonal cone is one burst quadrant
 
-The cone SHALL be the squares of one 15-foot burst quadrant from the chosen corner of the origin square. The origin square SHALL NOT be included.
+The cone SHALL be the squares of one 15-foot burst quadrant from the chosen corner of the origin square. The origin square SHALL NOT be included. This template SHALL be ruling R-13 and SHALL NOT be a deviation.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2386 (Player Core pg. 428, Cone)
+**Source**: docs/designer/rules-rulings.md (R-13)
 
 #### Scenario: Northeast is the six squares
 
 - **GIVEN** a Medium caster at (0, 0) and a 15-foot cone aimed northeast
 - **WHEN** membership is listed
-- **THEN** the squares are (1, -3), (1, -2), (1, -1), (2, -2), (2, -1), and (3, -1)
+- **THEN** the squares are (1, -1), (2, -1), (3, -1), (1, -2), (2, -2), and (1, -3)
 - **AND** (0, 0) is not included
+- **AND** the template is ruling R-13
 
 #### Scenario: Southeast is the six squares
 
@@ -541,9 +615,10 @@ A radius SHALL be a positive multiple of 5 feet. A square SHALL be inside when t
 
 ### Requirement: A line is one square wide
 
-A length SHALL be a positive multiple of 5 feet. A cardinal line SHALL be that length in feet divided by 5, in a straight row, starting at the adjacent square. A diagonal line SHALL be each diagonal square whose existing distance from the origin is at most the length. The origin square SHALL NOT be included. Any other length SHALL be rejected.
+A length SHALL be a positive multiple of 5 feet. A cardinal line SHALL be that many squares, starting at the neighbor. A diagonal line SHALL use the existing 5-10-5-10 distance. Four squares at 30 feet SHALL be that rule, not a deviation. The origin SHALL be excluded. Any other length SHALL be rejected.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2384 (Player Core pg. 428, Line)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2357 (Player Core pg. 421, Diagonal Movement)
 
 #### Scenario: A 30-foot east line is six squares
 
@@ -595,6 +670,52 @@ When any living creature is in the cone, the spell SHALL roll 2d6 once and then 
 - **WHEN** Breathe Fire is cast
 - **THEN** the save degree is critical failure and the damage is 14
 - **AND** the creature has 6 Hit Points and is Alive
+
+#### Scenario: A natural 1 turns a success into a failure
+
+- **GIVEN** spell DC 17, one creature in the cone with Reflex +16 and 20 Hit Points, and the script 3, 4, 1
+- **WHEN** Breathe Fire is cast
+- **THEN** the total is 17, the numeric degree is success, and the final degree is failure
+- **AND** the damage is 3
+- **AND** the creature has 17 Hit Points
+
+### Requirement: A dying creature in the cone takes the unconscious penalty
+
+A dying creature SHALL take the existing −4 status penalty to Reflex. A failure SHALL be an ordinary blow and SHALL raise dying by 1. A critical success SHALL deal 0, SHALL NOT apply a blow, and SHALL leave dying unchanged.
+
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=95 (Player Core pg. 446, Unconscious)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2327 (Player Core pg. 411, Damage and Dying)
+**Source**: docs/designer/rules-rulings.md (R-08, R-09, R-10)
+
+#### Scenario: A dying creature who fails goes to dying 2
+
+- **GIVEN** spell DC 17, one creature in the cone at dying 1 with 0 Hit Points and Reflex +0, and the script 3, 4, 13
+- **WHEN** Breathe Fire is cast
+- **THEN** the total is 9 and the degree is failure
+- **AND** the damage is 7
+- **AND** the creature is dying 2
+
+#### Scenario: A critical success leaves a dying creature at dying 1
+
+- **GIVEN** spell DC 17, one creature in the cone at dying 1 with 0 Hit Points and Reflex +1, and the script 3, 4, 20
+- **WHEN** Breathe Fire is cast
+- **THEN** the total is 17 and the degree is critical success
+- **AND** the damage is 0
+- **AND** the creature stays dying 1
+- **AND** Hit Points stay 0
+
+### Requirement: Area saves do not apply cover
+
+Standard or greater cover would apply against an area, and lesser cover would not. This cast SHALL NOT add a cover bonus to the Reflex save. Cover on Armor Class SHALL stay the positioning model.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2384 (Player Core pg. 428, Areas)
+
+#### Scenario: Standard cover does not raise the Reflex save
+
+- **GIVEN** spell DC 17, one creature in the east cone with standard cover, Reflex +0, an empty modifier slice, and the script 3, 4, 10
+- **WHEN** Breathe Fire is cast east
+- **THEN** the save total is 10
+- **AND** the degree is failure
 
 ### Requirement: Creatures outside the cone are unchanged
 

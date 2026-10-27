@@ -77,3 +77,10 @@ R-02 closed by #81 (add-saving-throws). The halving minimum is now implemented f
 - MAP counts attack actions used during your turn (Player Core p.402, Rules 2289), whether or not they resolve.
 - Ruling: a failed targeting flat check at any DC (5 concealed, 11 hidden, or one roll at the highest DC when both apply, Player Core p.400, Rules 2278) spends the action and counts toward MAP, and the target is not affected. This is a ruling, not a deviation.
 - Example: a Strike against a concealed target rolls a natural 4 on the DC 5 flat check. The target isn't affected, the action is spent, and the next Strike this turn takes -5 (-4 agile).
+
+## R-13 The 15-foot cone is the diagram (PR #92 review, 2026-10-27)
+- Cone (Player Core p.428, https://2e.aonprd.com/Rules.aspx?ID=2386). The 15-foot template below is the diagram. This is RAW, not a deviation. `x` increases east and `y` increases south. The caster is on square (0, 0).
+- Cardinal, aiming east: 7 squares (1, 0); (2, -1), (2, 0), (2, 1); (3, -1), (3, 0), (3, 1). The origin and the two diagonally adjacent squares, (1, -1) and (1, 1), are outside. North, south, and west are that template turned.
+- Diagonal, aiming northeast: 6 squares (1, -1), (2, -1), (3, -1), (1, -2), (2, -2), (1, -3). That is one quadrant of a 15-foot burst from the chosen corner, and the origin square is excluded. Southeast, southwest, and northwest are that quadrant turned.
+- Remaster note, not a second ruling: standard or greater cover applies against an area, and lesser cover does not (Player Core p.428, https://2e.aonprd.com/Rules.aspx?ID=2384). Cover on areas stays out of this change. Cover that already exists is an Armor Class bonus in positioning.
+- A 30-foot diagonal line of four squares, at 5 then 15 then 20 then 30 feet, is the 5-10-5-10 count (Player Core p.421, https://2e.aonprd.com/Rules.aspx?ID=2357). That measurement is RAW, not a deviation.

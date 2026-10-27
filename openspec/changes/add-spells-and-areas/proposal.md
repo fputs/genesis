@@ -36,8 +36,8 @@ The encounter can Strike and roll a basic save, and the grid already measures 5-
 
 New module `crates/rules/src/spell.rs`, re-exported from the crate root for the types a caller must name. Area membership stays `pub(crate)` and calls the existing grid distance. `breathe_fire` calls `Encounter::basic_save`. `telekinetic_projectile` does not call `strike`. `crates/rules` gains no dependency. No file on `v1-reference` is named, so none is ported.
 
-This change depends on `add-conditions-with-durations` and `add-resistances-weaknesses-persistent`, both drafted in parallel. It does not define a condition, a duration, a damage type, resistance, weakness, immunity, or persistent damage. `add-skills` is a separate change and is not modified.
+This change depends on `add-resistances-weaknesses-persistent`, drafted in parallel. `add-conditions-with-durations` is related, not a dependency. It does not define a condition, a duration, a damage type, resistance, weakness, immunity, or persistent damage. `add-skills` is a separate change and is not modified.
 
 This pull request is the spec commit. It adds no code, no tests, and no changelog bullet, and it does not archive. Designer rules on the spec here. Code waits for a `spec-approved: <sha>` comment from Evan.
 
-The archive commit is last, right before merge, and only after Architect and QA have both passed that head. Proposed deviations are in design.md. The ruling log is [docs/designer/rules-rulings.md](../../../docs/designer/rules-rulings.md). The code phase records those deviations in `docs/designer/rules-deviations.md`.
+The archive commit is last, right before merge, and only after Architect and QA have both passed that head. Proposed deviations are DEV-64 through DEV-72 in design.md. DEV-59 through DEV-63 are reserved for the skills and resistance changes. The ruling log is [docs/designer/rules-rulings.md](../../../docs/designer/rules-rulings.md), including R-13. The code phase records those deviations in `docs/designer/rules-deviations.md`.
