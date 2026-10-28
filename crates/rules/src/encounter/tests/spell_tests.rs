@@ -1092,6 +1092,7 @@ fn a_natural_1_turns_a_success_into_a_failure() {
     let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
     assert_eq!(outcome.saves[0].total, 17);
     assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::Failure);
+    // A final failure uses the existing basic-save multiplier, so the full 7 is dealt.
     assert_eq!(outcome.saves[0].damage, 7);
     assert_eq!(hit_points(&encounter, 2), 13);
 }

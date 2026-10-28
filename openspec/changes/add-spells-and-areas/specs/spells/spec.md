@@ -676,8 +676,8 @@ When any living creature is in the cone, the spell SHALL roll 2d6 once and then 
 - **GIVEN** spell DC 17, one creature in the cone with Reflex +16 and 20 Hit Points, and the script 3, 4, 1
 - **WHEN** Breathe Fire is cast
 - **THEN** the total is 17, the numeric degree is success, and the final degree is failure
-- **AND** the damage is 7
-- **AND** the creature has 13 Hit Points
+- **AND** the damage is 3
+- **AND** the creature has 17 Hit Points
 
 ### Requirement: A dying creature in the cone takes the unconscious penalty
 
