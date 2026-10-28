@@ -209,6 +209,8 @@ impl Encounter {
                 break id;
             }
             clear_delayed.push(id);
+            // Round durations clocked to this dead creature still decrease. The end tick does
+            // not run, so an until-end condition clocked to them is not removed.
             self.tick_round_clock(id);
             if index + 1 >= len {
                 round = round.checked_add(1).ok_or(EncounterError::RoundOverflow)?;
@@ -575,7 +577,11 @@ impl Encounter {
                 member.participant.state.actions_remaining = 0;
                 member.participant.state.reaction_ready = false;
             }
-            member.slot = TurnSlot::Normal;
+            // A batch return's later creature is SkipStartHook. That marker has to survive
+            // until end_turn, which skips persistent damage for Returned and SkipStartHook.
+            if !matches!(member.slot, TurnSlot::Returned | TurnSlot::SkipStartHook) {
+                member.slot = TurnSlot::Normal;
+            }
         }
     }
 

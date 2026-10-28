@@ -218,6 +218,115 @@ fn ending_the_turn_lowers_frightened_and_leaves_hit_points() {
     assert_eq!(dice.remaining(), 1);
 }
 
+/// Player Core pg. 416, Delay. Player Core pg. 445, Persistent Damage.
+#[test]
+fn a_returned_turn_does_not_run_persistent_damage_again() {
+    let (mut encounter, mut dice) =
+        begin(vec![pc(1, 0, 40, 16), pc(2, 0, 20, 16)], &[15, 10, 10, 15]);
+    encounter
+        .gain_persistent_damage(id(1), DamageType::Fire, 5)
+        .expect("persistent");
+    assert_eq!(encounter.start_turn().expect("start"), id(1));
+    encounter.delay(id(1), &mut dice).expect("delay");
+    assert_eq!(hit_points(&encounter, 1), 35);
+    assert_eq!(encounter.start_turn().expect("two"), id(2));
+    encounter.end_turn(&mut dice).expect("end two");
+    encounter.return_from_delay(&[id(1)]).expect("return");
+    encounter.end_turn(&mut dice).expect("returned end");
+    assert_eq!(hit_points(&encounter, 1), 35);
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 416, Delay. Player Core pg. 445, Persistent Damage.
+#[test]
+fn a_batch_return_does_not_run_persistent_damage_on_the_later_creature() {
+    let (mut encounter, mut dice) = begin(
+        vec![pc(1, 0, 20, 16), pc(2, 0, 40, 16), pc(3, 0, 20, 16)],
+        &[20, 15, 10, 10, 15],
+    );
+    encounter
+        .gain_persistent_damage(id(2), DamageType::Fire, 5)
+        .expect("persistent");
+    assert_eq!(encounter.start_turn().expect("one"), id(1));
+    encounter
+        .delay(id(1), &mut ScriptedDice::new([]))
+        .expect("delay one");
+    assert_eq!(encounter.start_turn().expect("two"), id(2));
+    encounter.delay(id(2), &mut dice).expect("delay two");
+    assert_eq!(hit_points(&encounter, 2), 35);
+    assert_eq!(encounter.start_turn().expect("three"), id(3));
+    encounter.end_turn(&mut dice).expect("end three");
+    encounter
+        .return_from_delay(&[id(1), id(2)])
+        .expect("return");
+    encounter.end_turn(&mut dice).expect("end first return");
+    assert_eq!(encounter.start_turn().expect("later"), id(2));
+    encounter.end_turn(&mut dice).expect("end later");
+    assert_eq!(hit_points(&encounter, 2), 35);
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 416, Delay. Player Core pg. 302, Durations.
+#[test]
+fn a_batch_return_does_not_tick_the_later_creature_s_start() {
+    let (mut encounter, mut dice) = begin(
+        vec![pc(1, 0, 20, 16), pc(2, 0, 20, 16), pc(3, 0, 20, 16)],
+        &[20, 15, 10],
+    );
+    give(
+        &mut encounter,
+        2,
+        ConditionKind::Sickened,
+        Some(1),
+        rounds_on(3, 2),
+    );
+    assert_eq!(encounter.start_turn().expect("one"), id(1));
+    encounter
+        .delay(id(1), &mut ScriptedDice::new([]))
+        .expect("delay one");
+    assert_eq!(encounter.start_turn().expect("two"), id(2));
+    assert_eq!(rounds_left(&encounter, 2), 2);
+    encounter
+        .delay(id(2), &mut ScriptedDice::new([]))
+        .expect("delay two");
+    assert_eq!(encounter.start_turn().expect("three"), id(3));
+    encounter.end_turn(&mut dice).expect("end three");
+    encounter
+        .return_from_delay(&[id(1), id(2)])
+        .expect("return");
+    encounter.end_turn(&mut dice).expect("end first return");
+    assert_eq!(encounter.start_turn().expect("later"), id(2));
+    assert_eq!(rounds_left(&encounter, 2), 2);
+}
+
+/// Player Core pg. 445, Persistent Damage. Player Core pg. 446, Sickened.
+#[test]
+fn a_passing_flat_check_removes_persistent_damage_and_leaves_sickened() {
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 16)], &[10, 15]);
+    encounter
+        .gain_persistent_damage(id(1), DamageType::Fire, 5)
+        .expect("persistent");
+    assert_eq!(encounter.start_turn().expect("start"), id(1));
+    give(
+        &mut encounter,
+        1,
+        ConditionKind::Sickened,
+        Some(1),
+        until_removed(),
+    );
+    encounter.end_turn(&mut dice).expect("end");
+    assert_eq!(hit_points(&encounter, 1), 15);
+    assert_eq!(value_of(&encounter, 1, ConditionKind::Sickened), Some(1));
+    assert!(
+        !encounter
+            .state(id(1))
+            .expect("state")
+            .conditions
+            .iter()
+            .any(|slot| matches!(slot, ConditionSlot::PersistentDamage { .. }))
+    );
+}
+
 /// Player Core pg. 436, Step 3: End Your Turn. Player Core pg. 445, Persistent Damage.
 ///
 /// A non-persistent condition stays when the end step rewrites persistent damage.

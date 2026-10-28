@@ -85,6 +85,8 @@ impl Encounter {
         let advance = self.plan_advance(TurnAdvance::Delay)?;
         // R-14: persistent damage and its flat check run now. Frightened and a negative
         // until-end condition wait for the end of the turn this creature returns to.
+        // R-14(b), ending a beneficial effect that lasts through this turn, has no code path.
+        // The core set has no beneficial condition.
         self.resolve_persistent(id, dice)?;
         self.end_of_turn_step(id);
         self.close_actions(id);
