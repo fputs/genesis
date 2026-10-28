@@ -383,7 +383,9 @@ pub(crate) fn condition_modifiers(
             24,
         )?);
     }
-    if statistic == Statistic::Attack && present(list, ConditionKind::Prone) {
+    if matches!(statistic, Statistic::Attack | Statistic::SpellAttack)
+        && present(list, ConditionKind::Prone)
+    {
         modifiers.push(circumstance_penalty(
             statistic,
             ConditionId::PRONE,
@@ -403,6 +405,7 @@ fn checks_and_dcs(statistic: Statistic) -> bool {
             | Statistic::Fortitude
             | Statistic::Reflex
             | Statistic::Will
+            | Statistic::SpellAttack
     )
 }
 

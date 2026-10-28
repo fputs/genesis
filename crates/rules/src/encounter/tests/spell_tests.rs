@@ -1,4 +1,6 @@
-use super::{actions, begin, dead, enemy, hit_points, id, pc, reaction, relate, sq, vital};
+use super::{
+    actions, begin, dead, enemy, hit_points, id, order_of, pc, penalty, reaction, relate, sq, vital,
+};
 use crate::check::DegreeOfSuccess;
 use crate::combatant::{DyingValue, Vital};
 use crate::detection::{Concealment, Detection, Detections};
@@ -7,7 +9,7 @@ use crate::encounter::{
     BreatheFireOutcome, Encounter, EncounterError, SpellAttackHit, SpellAttackOutcome,
 };
 use crate::grid::Size;
-use crate::modifiers::Statistic;
+use crate::modifiers::{PenaltyType, Statistic};
 use crate::positioning::{ActionCost, ActionTrait};
 use crate::save::{Level, Proficiency, SavingThrows};
 use crate::spell::{Aim, AreaCreature, Spellcasting};
@@ -1303,7 +1305,7 @@ fn frightened_2_lowers_the_spell_attack_by_2() {
         .expect("cast"),
     );
     assert_eq!(hit.total, 15);
-    assert_eq!(hit.spell_dc, 17);
+    assert_eq!(hit.spell_dc, 15);
     assert_eq!(hit.degree, DegreeOfSuccess::Failure);
 }
 
@@ -1356,4 +1358,254 @@ fn a_later_save_overflow_leaves_state_unchanged() {
     assert_eq!(hit_points(&encounter, 2), 20);
     assert_eq!(hit_points(&encounter, 5), 20);
     assert_eq!(vital(&encounter, 2), Vital::Alive);
+    assert_eq!(dice.remaining(), 3);
+}
+
+/// Player Core pg. 442, Clumsy. Player Core pg. 403, Spell Attack Rolls.
+#[test]
+fn clumsy_2_leaves_the_spell_attack_unchanged() {
+    let (mut encounter, mut dice) =
+        opened(vec![caster(20, 16, trained()), pc(2, 0, 20, 18)], &[10]);
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Clumsy,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("clumsy");
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.total, 17);
+    assert_eq!(hit.spell_dc, 17);
+    assert_eq!(hit.degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 444, Frightened. Player Core pg. 403, Spell DC.
+#[test]
+fn frightened_1_lowers_the_breathe_fire_dc_to_16() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), with_reflex(foe(2, 20, 16), 0)],
+        &[3, 4, 16],
+    );
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Frightened,
+            Some(1),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
+    assert_eq!(outcome.saves[0].total, 16);
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::Success);
+    assert_eq!(outcome.saves[0].damage, 3);
+    assert_eq!(hit_points(&encounter, 2), 17);
+}
+
+/// Player Core pg. 400, Penalties. Player Core pg. 403, Spell Attack Rolls.
+#[test]
+fn a_caller_status_penalty_does_not_stack_with_frightened() {
+    let (mut encounter, mut dice) =
+        opened(vec![caster(20, 16, trained()), pc(2, 0, 20, 18)], &[10]);
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Frightened,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[penalty(PenaltyType::Status, -1, 1, Statistic::SpellAttack)],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.total, 15);
+    assert_eq!(hit.spell_dc, 15);
+}
+
+/// Player Core pg. 407, Damage Rolls.
+#[test]
+fn a_damage_penalty_that_would_reduce_the_projectile_below_1_deals_1() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), pc(2, 0, 20, 16)],
+        &[10, 3, 4],
+    );
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[penalty(PenaltyType::Status, -10, 1, Statistic::Damage)],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.degree, DegreeOfSuccess::Success);
+    assert_eq!(hit.damage, 1);
+    assert_eq!(hit_points(&encounter, 2), 19);
+}
+
+/// Player Core pg. 404, Saving Throws.
+#[test]
+fn an_error_before_the_saves_draws_no_dice() {
+    let (mut encounter, mut dice) = opened(
+        vec![
+            caster(20, 16, trained()),
+            with_reflex(foe(2, 20, 16), 0),
+            with_reflex(foe(5, 20, 16), i32::MAX),
+        ],
+        &[3, 4, 10, 10],
+    );
+    let error = breathe(&mut encounter, &mut dice, &[place(2, 1, 0), place(5, 2, 0)]);
+    assert!(matches!(error, Err(EncounterError::SaveOverflow(_))));
+    assert_eq!(dice.remaining(), 4);
+    assert_eq!(actions(&encounter, 1), 3);
+    assert_eq!(hit_points(&encounter, 2), 20);
+}
+
+/// Player Core pg. 400, Penalties. Player Core pg. 404, Saving Throws.
+#[test]
+fn a_caller_reflex_penalty_applies_with_frightened() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), with_reflex(foe(2, 20, 16), 0)],
+        &[3, 4, 10],
+    );
+    encounter
+        .apply_condition(
+            id(2),
+            crate::conditions::ConditionKind::Frightened,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let outcome = encounter
+        .breathe_fire(
+            id(1),
+            sq(0, 0),
+            Size::Medium,
+            Aim::East,
+            &[place(2, 1, 0)],
+            &[penalty(PenaltyType::Circumstance, -1, 1, Statistic::Reflex)],
+            &mut dice,
+        )
+        .expect("cast");
+    assert_eq!(outcome.saves[0].total, 7);
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::CriticalFailure);
+    assert_eq!(outcome.saves[0].damage, 14);
+}
+
+/// Player Core pg. 442, Clumsy. Player Core pg. 363, Telekinetic Projectile.
+#[test]
+fn clumsy_2_lowers_the_spell_attack_armor_class() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), pc(2, 0, 20, 18)],
+        &[10, 3, 4],
+    );
+    encounter
+        .apply_condition(
+            id(2),
+            crate::conditions::ConditionKind::Clumsy,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("clumsy");
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.total, 17);
+    assert_eq!(hit.degree, DegreeOfSuccess::Success);
+    assert_eq!(hit.damage, 7);
+}
+
+/// Player Core pg. 442, Clumsy. Player Core pg. 404, Saving Throws.
+#[test]
+fn clumsy_2_lowers_the_reflex_save_by_2() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), with_reflex(foe(2, 20, 16), 0)],
+        &[3, 4, 10],
+    );
+    encounter
+        .apply_condition(
+            id(2),
+            crate::conditions::ConditionKind::Clumsy,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("clumsy");
+    let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
+    assert_eq!(outcome.saves[0].total, 8);
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 410, Getting Knocked Out.
+#[test]
+fn a_breathe_fire_knockout_is_placed_before_the_open_creature() {
+    let (mut encounter, mut dice) = opened(
+        vec![
+            caster(20, 16, trained()),
+            with_reflex(with_dying_rules(foe(2, 20, 16)), 0),
+        ],
+        &[3, 4, 10],
+    );
+    set_vital(&mut encounter, 2, Vital::Alive, 5);
+    assert_eq!(encounter.order(), order_of(&[1, 2]).as_slice());
+    let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::Failure);
+    assert_eq!(outcome.saves[0].damage, 7);
+    assert_eq!(
+        vital(&encounter, 2),
+        Vital::Dying(DyingValue::new(1).expect("dying"))
+    );
+    assert_eq!(encounter.order(), order_of(&[2, 1]).as_slice());
+}
+
+/// Player Core pg. 410, Getting Knocked Out. Player Core pg. 404, Basic Saving Throws.
+#[test]
+fn a_critical_failure_knockout_lands_at_dying_2() {
+    let (mut encounter, mut dice) = opened(
+        vec![
+            caster(20, 16, trained()),
+            with_reflex(with_dying_rules(foe(2, 20, 16)), 0),
+        ],
+        &[3, 4, 1],
+    );
+    set_vital(&mut encounter, 2, Vital::Alive, 10);
+    let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::CriticalFailure);
+    assert_eq!(outcome.saves[0].damage, 14);
+    assert_eq!(hit_points(&encounter, 2), 0);
+    assert_eq!(
+        vital(&encounter, 2),
+        Vital::Dying(DyingValue::new(2).expect("dying"))
+    );
 }

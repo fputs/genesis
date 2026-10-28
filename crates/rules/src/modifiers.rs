@@ -1150,15 +1150,15 @@ fn skill_offset(statistic: Statistic) -> usize {
         Statistic::Stealth => 13,
         Statistic::Survival => 14,
         Statistic::Thievery => 15,
+        // SpellAttack is matched before every call, so it never indexes the skill array.
         Statistic::Attack
         | Statistic::ArmorClass
         | Statistic::Perception
         | Statistic::Damage
         | Statistic::Reflex
         | Statistic::Fortitude
-        | Statistic::Will => 0,
-        // Past the skill array, so a spell attack cannot alias Acrobatics at offset 0.
-        Statistic::SpellAttack => SKILL_STATISTIC_COUNT,
+        | Statistic::Will
+        | Statistic::SpellAttack => 0,
     }
 }
 

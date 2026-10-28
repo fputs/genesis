@@ -6,7 +6,7 @@
 //! Player Core, Hit Points. Player Core pg. 404, Basic Saving Throws.
 //! Player Core pg. 410, Getting Knocked Out.
 
-use crate::check::{DegreeOfSuccess, resolve_check};
+use crate::check::{CheckModifier, DegreeOfSuccess, resolve_check};
 use crate::combatant::{CombatantId, Vital};
 use crate::conditions::condition_modifiers;
 use crate::dice::Dice;
@@ -48,25 +48,19 @@ impl Encounter {
         .map_err(EncounterError::HitPoints)
     }
 
-    /// Rolls one basic save for `defender` and applies the multiplied damage.
+    /// Checks a save before any die: the creature, the amount, training, and the modifier.
     ///
-    /// Unknown, dead, a negative amount, missing training, and a modifier that does not fit
-    /// are rejected before the die. A multiplied 0 does not call [`apply_resolved_blow`].
-    /// A positive failure is an ordinary blow. A positive critical failure is a critical blow
-    /// and is not doubled again. While a turn is open, every new knockout moves `defender`
-    /// to directly before that creature. The save spends no action, reaction, or attack.
+    /// Tracked condition modifiers and the caller list are one list. [`Self::basic_save`]
+    /// rolls only after this returns.
     ///
-    /// Player Core pg. 404, Saving Throws. Player Core pg. 404, Basic Saving Throws.
-    /// Player Core pg. 410, Getting Knocked Out.
-    pub fn basic_save(
-        &mut self,
+    /// Player Core pg. 404, Saving Throws.
+    pub(super) fn prepared_save_modifier(
+        &self,
         defender: CombatantId,
         save: Save,
-        dc: i32,
         amount: i32,
         modifiers: &[Modifier],
-        dice: &mut impl Dice,
-    ) -> Result<SaveRoll, EncounterError> {
+    ) -> Result<CheckModifier, EncounterError> {
         let index = self.member_index(defender)?;
         let member = self
             .members
@@ -95,14 +89,33 @@ impl Encounter {
         })?;
         let mut save_modifiers = tracked;
         save_modifiers.extend_from_slice(modifiers);
-        let modifier =
-            save_modifier(&training, save, unconscious, &save_modifiers).map_err(|error| {
-                match error {
-                    SaveError::ModifierOverflow(error) => EncounterError::SaveOverflow(error),
-                    SaveError::NegativeAmount => EncounterError::NegativeAmount,
-                    SaveError::DoubleOverflow(error) => EncounterError::SaveOverflow(error),
-                }
-            })?;
+        save_modifier(&training, save, unconscious, &save_modifiers).map_err(|error| match error {
+            SaveError::ModifierOverflow(error) => EncounterError::SaveOverflow(error),
+            SaveError::NegativeAmount => EncounterError::NegativeAmount,
+            SaveError::DoubleOverflow(error) => EncounterError::SaveOverflow(error),
+        })
+    }
+
+    /// Rolls one basic save for `defender` and applies the multiplied damage.
+    ///
+    /// Unknown, dead, a negative amount, missing training, and a modifier that does not fit
+    /// are rejected before the die. A multiplied 0 does not call [`apply_resolved_blow`].
+    /// A positive failure is an ordinary blow. A positive critical failure is a critical blow
+    /// and is not doubled again. While a turn is open, every new knockout moves `defender`
+    /// to directly before that creature. The save spends no action, reaction, or attack.
+    ///
+    /// Player Core pg. 404, Saving Throws. Player Core pg. 404, Basic Saving Throws.
+    /// Player Core pg. 410, Getting Knocked Out.
+    pub fn basic_save(
+        &mut self,
+        defender: CombatantId,
+        save: Save,
+        dc: i32,
+        amount: i32,
+        modifiers: &[Modifier],
+        dice: &mut impl Dice,
+    ) -> Result<SaveRoll, EncounterError> {
+        let modifier = self.prepared_save_modifier(defender, save, amount, modifiers)?;
         let check = resolve_check(dice, modifier, dc);
         let damage = match basic_save_amount(amount, check.degree) {
             Ok(damage) => damage,

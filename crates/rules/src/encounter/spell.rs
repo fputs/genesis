@@ -5,14 +5,14 @@
 //! Player Core pg. 299, Cast a Spell. Player Core pg. 319, Breathe Fire.
 //! Player Core pg. 363, Telekinetic Projectile.
 
-use crate::check::{DegreeOfSuccess, degree_of_success, resolve_check};
-use crate::combatant::{CombatantId, Vital};
-use crate::conditions::{AttackBasis, condition_modifiers};
+use crate::check::degree_of_success;
+use crate::combatant::{CombatantId, Vital, damage_dealt};
+use crate::conditions::condition_modifiers;
 use crate::detection::{Detections, resolve_targeting};
 use crate::dice::Dice;
 use crate::grid::{Size, Square, distance};
 use crate::modifiers::{Modifier, ModifierError, Statistic, total};
-use crate::save::{Save, SaveError, SaveRoll, basic_save_amount, save_modifier};
+use crate::save::Save;
 use crate::spell::{
     Aim, AreaCreature, breathe_fire_cost, fifteen_foot_cone, projectile_cost, roll_2d6,
     spell_attack_modifier, spell_dc,
@@ -36,13 +36,16 @@ pub struct SpellAttackHit {
     ///
     /// Player Core pg. 403, Spell Attack Rolls. Player Core pg. 402, Multiple Attack Penalty.
     pub total: i32,
-    /// Degree against baked Armor Class. Player Core pg. 401, Degree of Success.
+    /// Degree against Armor Class after tracked Armor Class conditions.
+    ///
+    /// A caller modifier on Armor Class is not read. Player Core pg. 401, Degree of Success.
     pub degree: crate::check::DegreeOfSuccess,
     /// Multiple attack penalty on this roll. It is not agile.
     ///
     /// Player Core pg. 402, Multiple Attack Penalty.
     pub map: i32,
-    /// Spell DC from the same modifier, without the multiple attack penalty.
+    /// Spell DC from the same modifier, including the caster's tracked condition penalties,
+    /// and without the multiple attack penalty.
     ///
     /// Player Core pg. 403, Spell DC.
     pub spell_dc: i32,
@@ -135,6 +138,10 @@ impl Encounter {
         living.sort();
         living.dedup();
         let dc = self.caster_dc(caster, modifiers)?;
+        for id in &living {
+            // The 2d6 is at least 2. This rejects a modifier that does not fit before any die.
+            self.prepared_save_modifier(*id, Save::Reflex, 1, modifiers)?;
+        }
         if living.is_empty() {
             self.finish_cast(caster, false)?;
             return Ok(BreatheFireOutcome {
@@ -144,21 +151,15 @@ impl Encounter {
             });
         }
         let rolled = roll_2d6(dice);
-        let mut planned = Vec::with_capacity(living.len());
+        let mut saves = Vec::with_capacity(living.len());
         for id in living {
-            planned.push(self.plan_reflex_save(id, dc, rolled, modifiers, dice)?);
+            saves.push(self.basic_save(id, Save::Reflex, dc, rolled, modifiers, dice)?);
         }
         self.finish_cast(caster, false)?;
-        for (id, roll) in &planned {
-            if roll.damage > 0 {
-                self.apply_damage(*id, roll.damage, save_blow(roll.degree))?;
-                self.place_save_knockout(*id);
-            }
-        }
         Ok(BreatheFireOutcome {
             cost: breathe_fire_cost(),
             rolled_damage: Some(rolled),
-            saves: planned.into_iter().map(|(_, roll)| roll).collect(),
+            saves,
         })
     }
 
@@ -201,18 +202,30 @@ impl Encounter {
             .creature(caster)?
             .spellcasting
             .ok_or(EncounterError::NoSpellcasting)?;
-        let spell_modifier = spell_attack_modifier(&casting, modifiers).map_err(overflow)?;
-        let spell_dc = spell_dc(&casting, modifiers).map_err(overflow)?;
-        let caster_conditions = self.state(caster)?.conditions.clone();
+        let combined = self.spell_check_modifiers(caster, modifiers)?;
+        let spell_modifier = spell_attack_modifier(&casting, &combined).map_err(overflow)?;
+        let spell_dc = spell_dc(&casting, &combined).map_err(overflow)?;
         let target_conditions = self.state(target)?.conditions.clone();
-        let attack_delta = condition_delta(
-            &caster_conditions,
-            Statistic::Attack,
-            Some(AttackBasis::Ranged),
+        let armor_conditions =
+            condition_modifiers(&target_conditions, Statistic::ArmorClass, None, None)
+                .map_err(overflow)?;
+        let armor_delta = total(&armor_conditions)
+            .map_err(overflow)?
+            .get(Statistic::ArmorClass);
+        let armor_class = self
+            .creature(target)?
+            .armor_class
+            .checked_add(armor_delta)
+            .ok_or_else(|| overflow(ModifierError::Overflow))?;
+        let damage_conditions = condition_modifiers(
+            &self.state(caster)?.conditions,
+            Statistic::Damage,
             None,
-        )?;
-        let armor_delta = condition_delta(&target_conditions, Statistic::ArmorClass, None, None)?;
-        let damage_delta = condition_delta(&caster_conditions, Statistic::Damage, None, None)?;
+            None,
+        )
+        .map_err(overflow)?;
+        let mut damage_modifiers = modifiers.to_vec();
+        damage_modifiers.extend(damage_conditions);
         let map = self.attack_trait_penalty(caster, super::Agility::NotAgile)?;
         // Reject a full attack count before the flat check. finish_cast repeats the
         // check when it increments, after the actions are spent; this earlier check
@@ -233,27 +246,18 @@ impl Encounter {
         let total = i32::from(natural)
             .checked_add(spell_modifier)
             .and_then(|sum| sum.checked_add(map))
-            .and_then(|sum| sum.checked_add(attack_delta))
             .ok_or_else(|| overflow(ModifierError::Overflow))?;
-        let armor_class = self
-            .creature(target)?
-            .armor_class
-            .checked_add(armor_delta)
-            .ok_or(EncounterError::DamageOverflow(ModifierError::Overflow))?;
         let degree = degree_of_success(natural, total, armor_class);
         let damage = if misses(degree) {
             0
         } else {
-            let rolled = roll_2d6(dice)
-                .checked_add(damage_delta)
-                .ok_or(EncounterError::DamageOverflow(ModifierError::Overflow))?;
-            let dealt = if degree == crate::check::DegreeOfSuccess::CriticalSuccess {
-                rolled
-                    .checked_mul(2)
-                    .ok_or_else(|| overflow(ModifierError::Overflow))?
-            } else {
-                rolled
-            };
+            let rolled = roll_2d6(dice);
+            let dealt = damage_dealt(
+                rolled,
+                &damage_modifiers,
+                degree == crate::check::DegreeOfSuccess::CriticalSuccess,
+            )
+            .map_err(EncounterError::DamageOverflow)?;
             if dealt > 0 {
                 let blow = if degree == crate::check::DegreeOfSuccess::CriticalSuccess {
                     crate::check::DegreeOfSuccess::CriticalSuccess
@@ -288,6 +292,23 @@ impl Encounter {
         Ok(())
     }
 
+    fn spell_check_modifiers(
+        &self,
+        caster: CombatantId,
+        modifiers: &[Modifier],
+    ) -> Result<Vec<Modifier>, EncounterError> {
+        let tracked = condition_modifiers(
+            &self.state(caster)?.conditions,
+            Statistic::SpellAttack,
+            None,
+            None,
+        )
+        .map_err(overflow)?;
+        let mut combined = tracked;
+        combined.extend_from_slice(modifiers);
+        Ok(combined)
+    }
+
     fn caster_dc(
         &self,
         caster: CombatantId,
@@ -297,66 +318,8 @@ impl Encounter {
             .creature(caster)?
             .spellcasting
             .ok_or(EncounterError::NoSpellcasting)?;
-        spell_dc(&casting, modifiers).map_err(overflow)
-    }
-
-    fn plan_reflex_save(
-        &self,
-        defender: CombatantId,
-        dc: i32,
-        amount: i32,
-        modifiers: &[Modifier],
-        dice: &mut impl Dice,
-    ) -> Result<(CombatantId, SaveRoll), EncounterError> {
-        let index = self.member_index(defender)?;
-        let member = self
-            .members
-            .get(index)
-            .ok_or(EncounterError::UnknownCombatant)?;
-        let vital = member.participant.state.vital;
-        let training = member
-            .participant
-            .creature
-            .saves
-            .ok_or(EncounterError::NoSavingThrows)?;
-        let unconscious = matches!(vital, Vital::Dying(_) | Vital::Unconscious);
-        let tracked = condition_modifiers(
-            &member.participant.state.conditions,
-            Save::Reflex.statistic(),
-            None,
-            None,
-        )
-        .map_err(|_| {
-            EncounterError::SaveOverflow(crate::check::ArithmeticOverflow::SumDoesNotFit)
-        })?;
-        let mut save_modifiers = tracked;
-        save_modifiers.extend_from_slice(modifiers);
-        let modifier = save_modifier(&training, Save::Reflex, unconscious, &save_modifiers)
-            .map_err(|error| match error {
-                SaveError::ModifierOverflow(error) => EncounterError::SaveOverflow(error),
-                SaveError::NegativeAmount => EncounterError::NegativeAmount,
-                SaveError::DoubleOverflow(error) => EncounterError::SaveOverflow(error),
-            })?;
-        let check = resolve_check(dice, modifier, dc);
-        let damage = match basic_save_amount(amount, check.degree) {
-            Ok(damage) => damage,
-            Err(SaveError::DoubleOverflow(_)) => {
-                return Err(EncounterError::DamageOverflow(ModifierError::Overflow));
-            }
-            Err(SaveError::NegativeAmount) => return Err(EncounterError::NegativeAmount),
-            Err(SaveError::ModifierOverflow(error)) => {
-                return Err(EncounterError::SaveOverflow(error));
-            }
-        };
-        Ok((
-            defender,
-            SaveRoll {
-                natural: check.natural,
-                total: check.total,
-                degree: check.degree,
-                damage,
-            },
-        ))
+        let combined = self.spell_check_modifiers(caster, modifiers)?;
+        spell_dc(&casting, &combined).map_err(overflow)
     }
 
     fn finish_cast(&mut self, id: CombatantId, attack: bool) -> Result<(), EncounterError> {
@@ -388,28 +351,6 @@ fn reject_duplicates(creatures: &[AreaCreature]) -> Result<(), EncounterError> {
         }
     }
     Ok(())
-}
-
-fn condition_delta(
-    conditions: &[crate::combatant::ConditionSlot],
-    statistic: Statistic,
-    attack_basis: Option<AttackBasis>,
-    damage_basis: Option<crate::conditions::DamageBasis>,
-) -> Result<i32, EncounterError> {
-    let tracked = condition_modifiers(conditions, statistic, attack_basis, damage_basis)
-        .map_err(EncounterError::DamageOverflow)?;
-    Ok(total(&tracked)
-        .map_err(EncounterError::DamageOverflow)?
-        .get(statistic))
-}
-
-fn save_blow(degree: DegreeOfSuccess) -> DegreeOfSuccess {
-    match degree {
-        DegreeOfSuccess::CriticalFailure => DegreeOfSuccess::CriticalSuccess,
-        DegreeOfSuccess::CriticalSuccess | DegreeOfSuccess::Success | DegreeOfSuccess::Failure => {
-            DegreeOfSuccess::Success
-        }
-    }
 }
 
 fn overflow(error: ModifierError) -> EncounterError {
