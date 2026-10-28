@@ -374,6 +374,8 @@ mod tests {
             damage_faces: faces(dice),
             damage_bonus: bonus,
             damage_type: crate::damage::DamageType::Slashing,
+            attack_basis: crate::conditions::AttackBasis::StrengthMelee,
+            damage_basis: crate::conditions::DamageBasis::Strength,
         }
     }
 

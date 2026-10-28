@@ -877,6 +877,139 @@ fn a_creature_may_save_against_itself() {
     assert_eq!(hit_points(&encounter, 1), 15);
 }
 
+/// Player Core pg. 444, Frightened. Player Core pg. 404, Saving Throws.
+#[test]
+fn frightened_2_lowers_fortitude_by_2() {
+    let mut encounter = opened(
+        vec![alive(1, 20, fort(1, 0, Proficiency::Untrained))],
+        &[10],
+    );
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Frightened,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let (result, _) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
+    let roll = result.expect("save");
+    assert_eq!(roll.total, 8);
+    assert_eq!(roll.degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 444, Frightened. Player Core pg. 446, Sickened.
+#[test]
+fn frightened_2_and_sickened_1_lower_will_by_2() {
+    let saves = ranks(
+        1,
+        0,
+        0,
+        0,
+        Proficiency::Untrained,
+        Proficiency::Untrained,
+        Proficiency::Untrained,
+    );
+    let mut encounter = opened(vec![alive(1, 20, saves)], &[10]);
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Frightened,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Sickened,
+            Some(1),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("sickened");
+    let (result, _) = attempt(&mut encounter, 1, Save::Will, 15, 0, &[], &[10]);
+    let roll = result.expect("save");
+    assert_eq!(roll.total, 8);
+    assert_eq!(roll.degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 442, Clumsy.
+#[test]
+fn clumsy_2_lowers_reflex_and_not_fortitude() {
+    let saves = ranks(
+        1,
+        0,
+        0,
+        0,
+        Proficiency::Untrained,
+        Proficiency::Untrained,
+        Proficiency::Untrained,
+    );
+    let mut encounter = opened(vec![alive(1, 20, saves)], &[10, 10]);
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Clumsy,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("clumsy");
+    let (reflex, _) = attempt(&mut encounter, 1, Save::Reflex, 15, 0, &[], &[10]);
+    let (fortitude, _) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
+    assert_eq!(reflex.expect("reflex").total, 8);
+    assert_eq!(fortitude.expect("fortitude").total, 10);
+}
+
+/// Player Core pg. 443, Enfeebled.
+#[test]
+fn enfeebled_2_does_not_lower_fortitude() {
+    let mut encounter = opened(
+        vec![alive(1, 20, fort(1, 0, Proficiency::Untrained))],
+        &[10],
+    );
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Enfeebled,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("enfeebled");
+    let (result, _) = attempt(&mut encounter, 1, Save::Fortitude, 15, 0, &[], &[10]);
+    let roll = result.expect("save");
+    assert_eq!(roll.total, 10);
+    assert_eq!(roll.degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 446, Unconscious. Player Core pg. 444, Frightened.
+#[test]
+fn frightened_1_and_unconscious_reflex_stay_at_minus_4() {
+    let saves = ranks(
+        1,
+        0,
+        0,
+        0,
+        Proficiency::Untrained,
+        Proficiency::Untrained,
+        Proficiency::Untrained,
+    );
+    let mut person = alive(1, 0, saves);
+    person.state.vital = Vital::Unconscious;
+    let mut encounter = opened(vec![person], &[15]);
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Frightened,
+            Some(1),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let (result, _) = attempt(&mut encounter, 1, Save::Reflex, 15, 0, &[], &[15]);
+    let roll = result.expect("save");
+    assert_eq!(roll.total, 11);
+    assert_eq!(roll.degree, DegreeOfSuccess::Failure);
+}
+
 fn delay_then_reopen(people: Vec<Participant>, initiative: &[u8]) -> Encounter {
     let mut encounter = opened(people, initiative);
     assert_eq!(encounter.start_turn().expect("first"), id(1));
@@ -884,7 +1017,9 @@ fn delay_then_reopen(people: Vec<Participant>, initiative: &[u8]) -> Encounter {
         .end_turn(&mut crate::dice::ScriptedDice::new([]))
         .expect("end");
     assert_eq!(encounter.start_turn().expect("second"), id(2));
-    encounter.delay(id(2)).expect("delay");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(encounter.start_turn().expect("reopen"), id(1));
     encounter
 }

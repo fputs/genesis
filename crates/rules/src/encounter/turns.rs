@@ -6,10 +6,13 @@
 use crate::aid::AidPreparation;
 use crate::check::{DegreeOfSuccess, flat_check};
 use crate::combatant::{CombatantId, CombatantState, ConditionSlot, Creature, Vital};
+use crate::conditions::{
+    self, ConditionDuration, ConditionKind, condition_modifiers, end_tick, start_tick,
+};
 use crate::damage::{DamageType, adjust_damage};
 use crate::dice::Dice;
 use crate::dying::apply_resolved_blow;
-use crate::modifiers::ModifierError;
+use crate::modifiers::{ModifierError, Statistic, total};
 use crate::shield::lower_raised_shield;
 
 use super::{Encounter, EncounterError, Member, Participant, Side, TurnSlot, TurnState};
@@ -42,12 +45,6 @@ pub fn begin_encounter(
     {
         return Err(EncounterError::DuplicateCombatant);
     }
-    for participant in &participants {
-        if participant.creature.perception.checked_add(20).is_none() {
-            return Err(EncounterError::PerceptionOutOfRange);
-        }
-    }
-
     let mut members: Vec<Member> = participants
         .into_iter()
         .map(|mut participant| {
@@ -65,6 +62,13 @@ pub fn begin_encounter(
         })
         .collect();
 
+    for member in &members {
+        let perception = perception_total(member)?;
+        if perception.checked_add(20).is_none() {
+            return Err(EncounterError::PerceptionOutOfRange);
+        }
+    }
+
     let mut roll_order: Vec<usize> = (0..members.len()).collect();
     roll_order.sort_by(|&left, &right| {
         let left_id = members.get(left).map(|member| member.participant.id);
@@ -76,10 +80,8 @@ pub fn begin_encounter(
         let member = members
             .get_mut(index)
             .ok_or(EncounterError::UnknownCombatant)?;
-        member.initiative = member
-            .participant
-            .creature
-            .perception
+        let perception = perception_total(member)?;
+        member.initiative = perception
             .checked_add(i32::from(face))
             .ok_or(EncounterError::PerceptionOutOfRange)?;
     }
@@ -207,6 +209,9 @@ impl Encounter {
                 break id;
             }
             clear_delayed.push(id);
+            // Round durations clocked to this dead creature still decrease. The end tick does
+            // not run, so an until-end condition clocked to them is not removed.
+            self.tick_round_clock(id);
             if index + 1 >= len {
                 round = round.checked_add(1).ok_or(EncounterError::RoundOverflow)?;
                 index = 0;
@@ -288,8 +293,14 @@ impl Encounter {
         let Some(id) = self.open else {
             return Err(EncounterError::TurnNotOpen);
         };
+        let slot = self.slot_of(id)?;
         let advance = self.plan_advance(TurnAdvance::End)?;
-        self.resolve_persistent(id, dice)?;
+        if !matches!(slot, TurnSlot::Returned | TurnSlot::SkipStartHook) {
+            self.resolve_persistent(id, dice)?;
+        }
+        // Rules 2430: persistent damage and its flat check already ran on an ordinary end.
+        // Expiries may happen in any order; this decrement removes a due until-end instance first.
+        self.decrement_end(id);
         self.end_of_turn_step(id);
         self.close_actions(id);
         self.open = None;
@@ -302,7 +313,7 @@ impl Encounter {
     ///
     /// Player Core pg. 436, Step 3: End Your Turn. Player Core pg. 445, Persistent Damage.
     /// Player Core pg. 411, Taking Damage. Player Core pg. 411, Death.
-    fn resolve_persistent(
+    pub(super) fn resolve_persistent(
         &mut self,
         id: CombatantId,
         dice: &mut impl Dice,
@@ -367,6 +378,78 @@ impl Encounter {
                 ConditionSlot::PersistentDamage { damage_type, .. } if ended.contains(damage_type)
             )
         });
+        Ok(())
+    }
+
+    /// Stores one condition instance. The encounter writes `due` from the open turn.
+    ///
+    /// Player Core pg. 442, Appendix entry, Redundant Conditions.
+    pub fn apply_condition(
+        &mut self,
+        id: CombatantId,
+        kind: ConditionKind,
+        value: Option<u32>,
+        mut duration: ConditionDuration,
+    ) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        if let ConditionDuration::Rounds { on, .. }
+        | ConditionDuration::UntilEndOfNextTurn { on, .. } = duration
+        {
+            self.member_index(on)?;
+        }
+        if let ConditionDuration::UntilEndOfNextTurn { on, ref mut due } = duration {
+            *due = self.open != Some(on);
+        }
+        let slot =
+            ConditionSlot::try_new(kind, value, duration).map_err(EncounterError::Condition)?;
+        let list = &mut self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?
+            .participant
+            .state
+            .conditions;
+        conditions::apply(list, slot);
+        Ok(())
+    }
+
+    /// Lowers every instance of `kind` by `by`.
+    ///
+    /// Player Core pg. 442, Appendix entry, Redundant Conditions With Values.
+    pub fn reduce_condition(
+        &mut self,
+        id: CombatantId,
+        kind: ConditionKind,
+        by: u32,
+    ) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let list = &mut self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?
+            .participant
+            .state
+            .conditions;
+        conditions::reduce(list, kind, by).map_err(EncounterError::Condition)
+    }
+
+    /// Removes every instance of `kind`.
+    ///
+    /// Player Core pg. 442, Appendix entry, Redundant Conditions.
+    pub fn remove_condition(
+        &mut self,
+        id: CombatantId,
+        kind: ConditionKind,
+    ) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let list = &mut self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?
+            .participant
+            .state
+            .conditions;
+        conditions::remove(list, kind);
         Ok(())
     }
 
@@ -494,7 +577,11 @@ impl Encounter {
                 member.participant.state.actions_remaining = 0;
                 member.participant.state.reaction_ready = false;
             }
-            member.slot = TurnSlot::Normal;
+            // A batch return's later creature is SkipStartHook. That marker has to survive
+            // until end_turn, which skips persistent damage for Returned and SkipStartHook.
+            if !matches!(member.slot, TurnSlot::Returned | TurnSlot::SkipStartHook) {
+                member.slot = TurnSlot::Normal;
+            }
         }
     }
 
@@ -516,6 +603,7 @@ impl Encounter {
         if self.is_dead(id) {
             return;
         }
+        self.tick_round_clock(id);
         if let Ok(index) = self.member_index(id)
             && let Some(member) = self.members.get_mut(index)
         {
@@ -693,10 +781,6 @@ fn persistent_entries(state: &CombatantState) -> Vec<(DamageType, i32)> {
 }
 
 /// Reads one persistent entry. Any other condition is left out of the list.
-#[expect(
-    irrefutable_let_patterns,
-    reason = "a later ConditionSlot variant must take the else arm and stay out of this list"
-)]
 fn persistent_pair(slot: &ConditionSlot) -> Option<(DamageType, i32)> {
     let ConditionSlot::PersistentDamage {
         damage_type,
@@ -706,6 +790,48 @@ fn persistent_pair(slot: &ConditionSlot) -> Option<(DamageType, i32)> {
         return None;
     };
     Some((*damage_type, *amount))
+}
+
+fn perception_total(member: &Member) -> Result<i32, EncounterError> {
+    let modifiers = condition_modifiers(
+        &member.participant.state.conditions,
+        Statistic::Perception,
+        None,
+        None,
+    )
+    .map_err(EncounterError::DamageOverflow)?;
+    let penalty = total(&modifiers)
+        .map_err(EncounterError::DamageOverflow)?
+        .get(Statistic::Perception);
+    member
+        .participant
+        .creature
+        .perception
+        .checked_add(penalty)
+        .ok_or(EncounterError::PerceptionOutOfRange)
+}
+
+impl Encounter {
+    fn tick_round_clock(&mut self, clock: CombatantId) {
+        for member in &mut self.members {
+            start_tick(&mut member.participant.state.conditions, clock);
+        }
+    }
+
+    fn decrement_end(&mut self, clock: CombatantId) {
+        let ids: Vec<CombatantId> = self
+            .members
+            .iter()
+            .map(|member| member.participant.id)
+            .collect();
+        for bearer in ids {
+            if let Ok(index) = self.member_index(bearer)
+                && let Some(member) = self.members.get_mut(index)
+            {
+                end_tick(&mut member.participant.state.conditions, bearer, clock);
+            }
+        }
+    }
 }
 
 /// Drops persistent damage and leaves every other condition.

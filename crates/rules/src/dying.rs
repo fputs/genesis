@@ -183,14 +183,11 @@ pub(crate) fn apply_healing(
     state.vital = Vital::Alive;
     state.initiative_move = None;
     if hit_points == maximum {
-        state.conditions.retain(|slot| {
-            !matches!(
-                slot,
-                ConditionSlot::PersistentDamage {
-                    damage_type: DamageType::Bleed,
-                    ..
-                }
-            )
+        state.conditions.retain(|slot| match slot {
+            ConditionSlot::PersistentDamage { damage_type, .. } => {
+                *damage_type != DamageType::Bleed
+            }
+            ConditionSlot::Instance(_) => true,
         });
     }
     Ok(())

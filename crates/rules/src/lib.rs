@@ -71,6 +71,7 @@
 //!     AidPreparation,
 //!     AidRank,
 //!     ArithmeticOverflow,
+//!     AttackBasis,
 //!     BonusType,
 //!     BuildParts,
 //!     CharacterBuild,
@@ -78,9 +79,13 @@
 //!     CombatantState,
 //!     Concealment,
 //!     ConditionId,
+//!     ConditionDuration,
+//!     ConditionError,
+//!     ConditionKind,
 //!     ConditionSlot,
 //!     CoverBenefit,
 //!     Creature,
+//!     DamageBasis,
 //!     DamageDefenses,
 //!     DamageType,
 //!     Detection,
@@ -237,7 +242,14 @@
 //!     &[rules::Modifier],
 //!     &mut rules::SeededDice,
 //! ) -> Result<rules::SaveRoll, rules::EncounterError> = rules::Encounter::basic_save;
-//! let _ = rules::Encounter::delay;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     &mut rules::SeededDice,
+//! ) -> Result<(), rules::EncounterError> = rules::Encounter::delay;
+//! let _ = rules::Encounter::apply_condition;
+//! let _ = rules::Encounter::reduce_condition;
+//! let _ = rules::Encounter::remove_condition;
 //! let _ = rules::Encounter::return_from_delay;
 //! let _: fn(
 //!     &mut rules::Encounter,
@@ -929,6 +941,7 @@
 mod aid;
 mod check;
 mod combatant;
+mod conditions;
 mod damage;
 mod detection;
 mod dice;
@@ -950,6 +963,7 @@ pub use combatant::{
     DieCountError, DyingValue, DyingValueError, HpError, MeleeStrike, ReachError, ReachFeet,
     ShieldTemplate, TemplateError, Vital, derive, new_combatant_state,
 };
+pub use conditions::{AttackBasis, ConditionDuration, ConditionError, ConditionKind, DamageBasis};
 pub use damage::{DamageDefenses, DamageType, Resistance, Weakness};
 pub use detection::{Concealment, Detection, DetectionError, Detections, Relation};
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};

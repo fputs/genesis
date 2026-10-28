@@ -8,10 +8,11 @@ use crate::check::{
     multiple_attack_penalty,
 };
 use crate::combatant::{CombatantId, Vital, damage_dealt};
+use crate::conditions::condition_modifiers;
 use crate::damage::{adjust_damage, shield_trigger};
 use crate::detection::{DetectionError, Detections, TargetingResult, resolve_targeting};
 use crate::dice::Dice;
-use crate::modifiers::{Modifier, ModifierError, Statistic};
+use crate::modifiers::{Modifier, ModifierError, Statistic, total};
 use crate::shield::ShieldBlock;
 
 use super::{
@@ -99,26 +100,50 @@ impl Encounter {
             }
             FlatGate::Roll => {}
         }
-        let natural = dice.d20();
-        let attack_modifiers = attack_modifiers(modifiers);
-        let total = attack_check_total(
-            natural,
-            attack_term,
-            map_term,
-            zero,
-            zero,
-            &attack_modifiers,
+        let attack_conditions = condition_modifiers(
+            &self.state(attacker)?.conditions,
+            Statistic::Attack,
+            Some(profile.attack_basis),
+            None,
         )
-        .map_err(EncounterError::AttackOverflow)?;
-        let armor_class = self.creature(target)?.armor_class;
+        .map_err(EncounterError::DamageOverflow)?;
+        let damage_conditions = condition_modifiers(
+            &self.state(attacker)?.conditions,
+            Statistic::Damage,
+            None,
+            Some(profile.damage_basis),
+        )
+        .map_err(EncounterError::DamageOverflow)?;
+        let armor_conditions = condition_modifiers(
+            &self.state(target)?.conditions,
+            Statistic::ArmorClass,
+            None,
+            None,
+        )
+        .map_err(EncounterError::DamageOverflow)?;
+        let armor_delta = total(&armor_conditions)
+            .map_err(EncounterError::DamageOverflow)?
+            .get(Statistic::ArmorClass);
+        let armor_class = self
+            .creature(target)?
+            .armor_class
+            .checked_add(armor_delta)
+            .ok_or(EncounterError::DamageOverflow(ModifierError::Overflow))?;
+        let natural = dice.d20();
+        let mut folded_attack = attack_conditions;
+        folded_attack.extend(attack_modifiers(modifiers));
+        let total = attack_check_total(natural, attack_term, map_term, zero, zero, &folded_attack)
+            .map_err(EncounterError::AttackOverflow)?;
         let degree = degree_of_success(natural, total, armor_class);
         let damage = if misses(degree) {
             0
         } else {
             let rolled = roll_strike_damage(dice, profile)?;
+            let mut damage_modifiers = modifiers.to_vec();
+            damage_modifiers.extend(damage_conditions);
             let dealt = damage_dealt(
                 rolled,
-                modifiers,
+                &damage_modifiers,
                 degree == DegreeOfSuccess::CriticalSuccess,
             )
             .map_err(EncounterError::DamageOverflow)?;

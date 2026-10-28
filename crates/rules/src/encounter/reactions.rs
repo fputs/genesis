@@ -599,6 +599,7 @@ pub(super) fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::SkillOverflow(_) => ReactiveError::NoReaction,
         EncounterError::CannotTarget => ReactiveError::CannotTarget,
         EncounterError::NonPositivePersistent => ReactiveError::NoReaction,
+        EncounterError::Condition(_) => ReactiveError::NoReaction,
     }
 }
 
@@ -673,5 +674,6 @@ pub(super) fn as_damage_overflow(error: EncounterError) -> ReactiveError {
         EncounterError::NonPositivePersistent => {
             ReactiveError::DamageOverflow(ModifierError::Overflow)
         }
+        EncounterError::Condition(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
     }
 }

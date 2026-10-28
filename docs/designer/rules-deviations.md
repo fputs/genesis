@@ -1,7 +1,7 @@
 # Genesis — Rules Deviations Log (intentional departures from RAW)
 
 Owner: Designer (rules lawyer). Baseline: PF2e Remaster Player Core (PC), verified on AoN 2026-10-20. Designer rulings of 2026-10-20 are applied. **FINAL.**
-Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills, 16 add-resistances-weaknesses-persistent.
+Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills, 16 add-resistances-weaknesses-persistent, 17 add-conditions-with-durations.
 
 ## Deviations
 
@@ -64,8 +64,9 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 | DEV-61 | The key attribute is the table attribute | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225). The GM may call for a different attribute | `Skill::attribute` is fixed | No GM | 15 |
 | DEV-62 | Two weaknesses of one type | https://2e.aonprd.com/Rules.aspx?ID=2317 (PC 408, Weakness) | Highest once, not the sum | The book adds each weakness once and does not say two values of one type stack | 16 |
 | DEV-63 | "Usually the highest" resistance | https://2e.aonprd.com/Rules.aspx?ID=2318 (PC 408, Resistance) | Always the highest | No GM choice | 16 |
+| DEV-73 | Prone restricts movement and grants greater cover | Prone, PC 445, https://2e.aonprd.com/Conditions.aspx?ID=88 | The condition applies its penalties. It does not change Stride, Step, Drop Prone, Stand, or Take Cover, and it does not grant cover | No Crawl in Phase 1. Posture stays caller-held | 17 |
 
-Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49. DEV-64 through DEV-72 are reserved by `add-spells-and-areas` (pull request 92). DEV-73 and later stay with `add-conditions-with-durations`.
+Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49. DEV-64 through DEV-72 are reserved by `add-spells-and-areas` (pull request 92). DEV-74 and later stay unused.
 
 ## v1 errors corrected (NOT deviations — v2 follows RAW)
 
