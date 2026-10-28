@@ -7,7 +7,7 @@
 
 use crate::check::degree_of_success;
 use crate::combatant::{CombatantId, Vital, damage_dealt};
-use crate::conditions::condition_modifiers;
+use crate::conditions::{condition_modifiers, prone_spell_attack_penalty};
 use crate::detection::{Detections, resolve_targeting};
 use crate::dice::Dice;
 use crate::grid::{Size, Square, distance};
@@ -203,7 +203,14 @@ impl Encounter {
             .spellcasting
             .ok_or(EncounterError::NoSpellcasting)?;
         let combined = self.spell_check_modifiers(caster, modifiers)?;
-        let spell_modifier = spell_attack_modifier(&casting, &combined).map_err(overflow)?;
+        let mut attack_modifiers = combined.clone();
+        if let Some(prone) =
+            prone_spell_attack_penalty(&self.state(caster)?.conditions).map_err(overflow)?
+        {
+            attack_modifiers.push(prone);
+        }
+        let spell_modifier =
+            spell_attack_modifier(&casting, &attack_modifiers).map_err(overflow)?;
         let spell_dc = spell_dc(&casting, &combined).map_err(overflow)?;
         let target_conditions = self.state(target)?.conditions.clone();
         let armor_conditions =

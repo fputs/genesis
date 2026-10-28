@@ -383,9 +383,8 @@ pub(crate) fn condition_modifiers(
             24,
         )?);
     }
-    if matches!(statistic, Statistic::Attack | Statistic::SpellAttack)
-        && present(list, ConditionKind::Prone)
-    {
+    // Prone is −2 circumstance to attack rolls. It is not a penalty to a spell DC.
+    if statistic == Statistic::Attack && present(list, ConditionKind::Prone) {
         modifiers.push(circumstance_penalty(
             statistic,
             ConditionId::PRONE,
@@ -394,6 +393,27 @@ pub(crate) fn condition_modifiers(
         )?);
     }
     Ok(modifiers)
+}
+
+/// Prone's −2 circumstance penalty for one spell attack roll.
+///
+/// [`condition_modifiers`] does not emit this for [`Statistic::SpellAttack`], so a spell
+/// DC built from that list does not take it. The returned modifier is tagged
+/// [`Statistic::SpellAttack`] so it folds with the attack's other circumstance penalties.
+///
+/// Player Core pg. 445, Prone.
+pub(crate) fn prone_spell_attack_penalty(
+    list: &[ConditionSlot],
+) -> Result<Option<Modifier>, ModifierError> {
+    if !present(list, ConditionKind::Prone) {
+        return Ok(None);
+    }
+    Ok(Some(circumstance_penalty(
+        Statistic::SpellAttack,
+        ConditionId::PRONE,
+        ModifierSource::ConditionProne,
+        25,
+    )?))
 }
 
 fn checks_and_dcs(statistic: Statistic) -> bool {

@@ -1609,3 +1609,73 @@ fn a_critical_failure_knockout_lands_at_dying_2() {
         Vital::Dying(DyingValue::new(2).expect("dying"))
     );
 }
+
+fn lay_prone(encounter: &mut Encounter, who: u32) {
+    encounter
+        .apply_condition(
+            id(who),
+            crate::conditions::ConditionKind::Prone,
+            None,
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("prone");
+}
+
+/// Player Core pg. 445, Prone. Player Core pg. 403, Spell DC.
+#[test]
+fn a_prone_casters_breathe_fire_dc_stays_17() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), with_reflex(foe(2, 20, 16), 0)],
+        &[3, 4, 16],
+    );
+    lay_prone(&mut encounter, 1);
+    let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
+    assert_eq!(outcome.saves[0].total, 16);
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::Failure);
+    assert_eq!(outcome.saves[0].damage, 7);
+    assert_eq!(hit_points(&encounter, 2), 13);
+}
+
+/// Player Core pg. 445, Prone. Player Core pg. 403, Spell DC.
+#[test]
+fn a_prone_casters_telekinetic_projectile_dc_stays_17() {
+    let (mut encounter, mut dice) =
+        opened(vec![caster(20, 16, trained()), pc(2, 0, 20, 18)], &[10]);
+    lay_prone(&mut encounter, 1);
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.spell_dc, 17);
+}
+
+/// Player Core pg. 445, Prone. Player Core pg. 403, Spell Attack Rolls.
+#[test]
+fn a_prone_caster_takes_minus_2_on_the_spell_attack() {
+    let (mut encounter, mut dice) =
+        opened(vec![caster(20, 16, trained()), pc(2, 0, 20, 18)], &[10]);
+    lay_prone(&mut encounter, 1);
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.total, 15);
+    assert_eq!(hit.spell_dc, 17);
+    assert_eq!(hit.degree, DegreeOfSuccess::Failure);
+}
