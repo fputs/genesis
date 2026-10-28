@@ -1112,9 +1112,14 @@ fn skill_offset(statistic: Statistic) -> usize {
         | Statistic::Damage
         | Statistic::Reflex
         | Statistic::Fortitude
-        | Statistic::Will
-        | Statistic::SpellAttack => 0,
+        | Statistic::Will => 0,
+        // Past the skill array, so a spell attack cannot alias Acrobatics at offset 0.
+        Statistic::SpellAttack => SKILL_STATISTIC_COUNT,
     }
+}
+
+fn spell_attack_ord() -> u8 {
+    7 + u8::try_from(SKILL_STATISTIC_COUNT).unwrap_or(u8::MAX)
 }
 
 fn statistic_ord(statistic: Statistic) -> u8 {
@@ -1126,7 +1131,7 @@ fn statistic_ord(statistic: Statistic) -> u8 {
         Statistic::Reflex => 4,
         Statistic::Fortitude => 5,
         Statistic::Will => 6,
-        Statistic::SpellAttack => 23,
+        Statistic::SpellAttack => spell_attack_ord(),
         skill => 7 + u8::try_from(skill_offset(skill)).unwrap_or(0),
     }
 }

@@ -127,7 +127,7 @@ impl Encounter {
     /// stored a dying value. A multiplied 0 never reaches this function.
     ///
     /// Player Core pg. 410, Getting Knocked Out.
-    fn place_save_knockout(&mut self, defender: CombatantId) {
+    pub(crate) fn place_save_knockout(&mut self, defender: CombatantId) {
         let Some(anchor) = self.open else {
             return;
         };

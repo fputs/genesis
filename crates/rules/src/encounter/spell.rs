@@ -5,16 +5,16 @@
 //! Player Core pg. 299, Cast a Spell. Player Core pg. 319, Breathe Fire.
 //! Player Core pg. 363, Telekinetic Projectile.
 
-use crate::check::degree_of_success;
+use crate::check::{DegreeOfSuccess, degree_of_success, resolve_check};
 use crate::combatant::{CombatantId, Vital};
 use crate::detection::{Detections, resolve_targeting};
 use crate::dice::Dice;
 use crate::grid::{Size, Square, distance};
 use crate::modifiers::{Modifier, ModifierError};
-use crate::save::Save;
+use crate::save::{Save, SaveError, SaveRoll, basic_save_amount, save_modifier};
 use crate::spell::{
-    Aim, AreaCreature, GeometryError, breathe_fire_cost, cone_membership, projectile_cost,
-    roll_2d6, spell_attack_modifier, spell_dc,
+    Aim, AreaCreature, breathe_fire_cost, fifteen_foot_cone, projectile_cost, roll_2d6,
+    spell_attack_modifier, spell_dc,
 };
 
 use super::strike::{FlatGate, flat_gate, misses};
@@ -111,7 +111,8 @@ impl Encounter {
         for creature in creatures {
             self.member_index(creature.id)?;
         }
-        let squares = cone_membership(origin, caster_size, aim, 15, creatures).map_err(geometry)?;
+        let squares =
+            fifteen_foot_cone(origin, caster_size, aim, creatures).map_err(EncounterError::Grid)?;
         let inside = |creature: &AreaCreature| squares.contains(&creature.square);
         for creature in creatures.iter().filter(|creature| inside(creature)) {
             if self.state(creature.id)?.vital != Vital::Dead
@@ -132,24 +133,31 @@ impl Encounter {
             .collect();
         living.sort();
         living.dedup();
-        self.finish_cast(caster, false)?;
+        let dc = self.caster_dc(caster, modifiers)?;
         if living.is_empty() {
+            self.finish_cast(caster, false)?;
             return Ok(BreatheFireOutcome {
                 cost: breathe_fire_cost(),
                 rolled_damage: None,
                 saves: Vec::new(),
             });
         }
-        let dc = self.caster_dc(caster, modifiers)?;
         let rolled = roll_2d6(dice);
-        let mut saves = Vec::with_capacity(living.len());
+        let mut planned = Vec::with_capacity(living.len());
         for id in living {
-            saves.push(self.basic_save(id, Save::Reflex, dc, rolled, modifiers, dice)?);
+            planned.push(self.plan_reflex_save(id, dc, rolled, modifiers, dice)?);
+        }
+        self.finish_cast(caster, false)?;
+        for (id, roll) in &planned {
+            if roll.damage > 0 {
+                self.apply_damage(*id, roll.damage, save_blow(roll.degree))?;
+                self.place_save_knockout(*id);
+            }
         }
         Ok(BreatheFireOutcome {
             cost: breathe_fire_cost(),
             rolled_damage: Some(rolled),
-            saves,
+            saves: planned.into_iter().map(|(_, roll)| roll).collect(),
         })
     }
 
@@ -195,6 +203,9 @@ impl Encounter {
         let spell_modifier = spell_attack_modifier(&casting, modifiers).map_err(overflow)?;
         let spell_dc = spell_dc(&casting, modifiers).map_err(overflow)?;
         let map = self.attack_trait_penalty(caster, super::Agility::NotAgile)?;
+        // Reject a full attack count before the flat check. finish_cast repeats the
+        // check when it increments, after the actions are spent; this earlier check
+        // is what keeps AttackCountOverflow from spending them.
         let _ = self
             .attack_count(caster)?
             .checked_add(1)
@@ -271,11 +282,62 @@ impl Encounter {
         spell_dc(&casting, modifiers).map_err(overflow)
     }
 
+    fn plan_reflex_save(
+        &self,
+        defender: CombatantId,
+        dc: i32,
+        amount: i32,
+        modifiers: &[Modifier],
+        dice: &mut impl Dice,
+    ) -> Result<(CombatantId, SaveRoll), EncounterError> {
+        let index = self.member_index(defender)?;
+        let member = self
+            .members
+            .get(index)
+            .ok_or(EncounterError::UnknownCombatant)?;
+        let vital = member.participant.state.vital;
+        let training = member
+            .participant
+            .creature
+            .saves
+            .ok_or(EncounterError::NoSavingThrows)?;
+        let unconscious = matches!(vital, Vital::Dying(_) | Vital::Unconscious);
+        let modifier =
+            save_modifier(&training, Save::Reflex, unconscious, modifiers).map_err(|error| {
+                match error {
+                    SaveError::ModifierOverflow(error) => EncounterError::SaveOverflow(error),
+                    SaveError::NegativeAmount => EncounterError::NegativeAmount,
+                    SaveError::DoubleOverflow(error) => EncounterError::SaveOverflow(error),
+                }
+            })?;
+        let check = resolve_check(dice, modifier, dc);
+        let damage = match basic_save_amount(amount, check.degree) {
+            Ok(damage) => damage,
+            Err(SaveError::DoubleOverflow(_)) => {
+                return Err(EncounterError::DamageOverflow(ModifierError::Overflow));
+            }
+            Err(SaveError::NegativeAmount) => return Err(EncounterError::NegativeAmount),
+            Err(SaveError::ModifierOverflow(error)) => {
+                return Err(EncounterError::SaveOverflow(error));
+            }
+        };
+        Ok((
+            defender,
+            SaveRoll {
+                natural: check.natural,
+                total: check.total,
+                degree: check.degree,
+                damage,
+            },
+        ))
+    }
+
     fn finish_cast(&mut self, id: CombatantId, attack: bool) -> Result<(), EncounterError> {
         self.spend_actions(id, 2)?;
         if !attack {
             return Ok(());
         }
+        // The projectile checks this sum before the roll. The add here is the increment.
         let index = self.member_index(id)?;
         let member = self
             .members
@@ -301,12 +363,11 @@ fn reject_duplicates(creatures: &[AreaCreature]) -> Result<(), EncounterError> {
     Ok(())
 }
 
-fn geometry(error: GeometryError) -> EncounterError {
-    match error {
-        GeometryError::UnsupportedCone => EncounterError::UnsupportedCone,
-        GeometryError::Grid(error) => EncounterError::Grid(error),
-        GeometryError::InvalidRadius | GeometryError::InvalidLength => {
-            EncounterError::UnsupportedCone
+fn save_blow(degree: DegreeOfSuccess) -> DegreeOfSuccess {
+    match degree {
+        DegreeOfSuccess::CriticalFailure => DegreeOfSuccess::CriticalSuccess,
+        DegreeOfSuccess::CriticalSuccess | DegreeOfSuccess::Success | DegreeOfSuccess::Failure => {
+            DegreeOfSuccess::Success
         }
     }
 }

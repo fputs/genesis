@@ -1235,3 +1235,43 @@ fn no_save_training_outside_the_cone_still_casts() {
     assert_eq!(actions(&encounter, 1), 1);
     assert_eq!(dice.remaining(), 1);
 }
+
+/// Player Core pg. 403, Spell DC.
+#[test]
+fn a_spell_dc_that_does_not_fit_spends_nothing() {
+    let (mut encounter, mut dice) = opened(
+        vec![with_casting(
+            pc(1, 5, 20, 16),
+            casting(1, i32::MAX, Proficiency::Trained),
+        )],
+        &[3],
+    );
+    let error = breathe(&mut encounter, &mut dice, &[]);
+    assert_eq!(
+        error,
+        Err(EncounterError::AttackOverflow(
+            crate::modifiers::ModifierError::Overflow
+        ))
+    );
+    assert_eq!(actions(&encounter, 1), 3);
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 404, Saving Throws.
+#[test]
+fn a_later_save_overflow_leaves_state_unchanged() {
+    let (mut encounter, mut dice) = opened(
+        vec![
+            caster(20, 16, trained()),
+            with_reflex(foe(2, 20, 16), 0),
+            with_reflex(foe(5, 20, 16), i32::MAX),
+        ],
+        &[3, 4, 10],
+    );
+    let error = breathe(&mut encounter, &mut dice, &[place(2, 1, 0), place(5, 2, 0)]);
+    assert!(matches!(error, Err(EncounterError::SaveOverflow(_))));
+    assert_eq!(actions(&encounter, 1), 3);
+    assert_eq!(hit_points(&encounter, 2), 20);
+    assert_eq!(hit_points(&encounter, 5), 20);
+    assert_eq!(vital(&encounter, 2), Vital::Alive);
+}

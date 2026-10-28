@@ -5,14 +5,6 @@
 //! Player Core pg. 299, Cast a Spell. Player Core pg. 403, Spell Attack Rolls.
 //! Player Core pg. 428, Areas.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "area helpers and the projectile cost are called by the encounter and by this crate's tests"
-    )
-)]
-
 use crate::check::{DcModifier, dc_from_modifier};
 use crate::combatant::CombatantId;
 use crate::grid::{AbsDelta, GridError, Size, Square, distance, grid_feet};
@@ -74,6 +66,13 @@ pub struct AreaCreature {
 /// Why an area query was rejected. A rejection returns no squares.
 ///
 /// Player Core pg. 428, Areas.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "burst, line, and emanation queries are covered by the unit tests"
+    )
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GeometryError {
     /// The radius was not a positive multiple of 5. Player Core pg. 428, Burst.
@@ -132,7 +131,7 @@ pub(crate) fn projectile_cost() -> ActionCost {
 /// 2, 4, 6, or 8. A sum that does not fit is [`ModifierError::Overflow`].
 ///
 /// Player Core pg. 403, Spell Attack Rolls. Player Core pg. 400, Bonuses.
-pub fn spell_attack_modifier(
+pub(crate) fn spell_attack_modifier(
     casting: &Spellcasting,
     modifiers: &[Modifier],
 ) -> Result<i32, ModifierError> {
@@ -148,7 +147,10 @@ pub fn spell_attack_modifier(
 /// Spell DC: 10 plus [`spell_attack_modifier`].
 ///
 /// Player Core pg. 403, Spell DC.
-pub fn spell_dc(casting: &Spellcasting, modifiers: &[Modifier]) -> Result<i32, ModifierError> {
+pub(crate) fn spell_dc(
+    casting: &Spellcasting,
+    modifiers: &[Modifier],
+) -> Result<i32, ModifierError> {
     let modifier = spell_attack_modifier(casting, modifiers)?;
     let dc = DcModifier::new(modifier).map_err(|_| ModifierError::Overflow)?;
     Ok(dc_from_modifier(dc))
@@ -168,23 +170,24 @@ pub(crate) fn roll_2d6(dice: &mut impl crate::dice::Dice) -> i32 {
 /// turn's diagonal counter are not read.
 ///
 /// Player Core pg. 428, Burst. Ruling R-13 is the cone; this is the same corner measurement.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "burst membership is covered by the unit tests")
+)]
 pub(crate) fn burst(origin: Square, radius_feet: i32) -> Result<Vec<Square>, GeometryError> {
     let radius = positive_multiple(radius_feet).ok_or(GeometryError::InvalidRadius)?;
-    let span = (radius_feet / 5)
-        .checked_add(3)
-        .ok_or(GeometryError::Grid(GridError::Overflow))?;
+    burst_at(origin, radius).map_err(GeometryError::Grid)
+}
+
+fn burst_at(origin: Square, radius: u32) -> Result<Vec<Square>, GridError> {
+    let steps = i32::try_from(radius / 5).map_err(|_| GridError::Overflow)?;
+    let span = steps.checked_add(3).ok_or(GridError::Overflow)?;
     let mut squares = Vec::new();
     for x in -span..=span {
         for y in -span..=span {
             let square = Square {
-                x: origin
-                    .x
-                    .checked_add(x)
-                    .ok_or(GeometryError::Grid(GridError::Overflow))?,
-                y: origin
-                    .y
-                    .checked_add(y)
-                    .ok_or(GeometryError::Grid(GridError::Overflow))?,
+                x: origin.x.checked_add(x).ok_or(GridError::Overflow)?,
+                y: origin.y.checked_add(y).ok_or(GridError::Overflow)?,
             };
             if farthest_corner(origin, square)? <= radius {
                 squares.push(square);
@@ -201,6 +204,13 @@ pub(crate) fn burst(origin: Square, radius_feet: i32) -> Result<Vec<Square>, Geo
 /// quadrant from the chosen corner. Ruling R-13.
 ///
 /// Player Core pg. 428, Cone.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "cone membership other than the cast's 15-foot template is covered by the unit tests"
+    )
+)]
 pub(crate) fn cone(
     origin: Square,
     aim: Aim,
@@ -209,6 +219,26 @@ pub(crate) fn cone(
     if length_feet != 15 {
         return Err(GeometryError::UnsupportedCone);
     }
+    fifteen_foot_squares(origin, aim).map_err(GeometryError::Grid)
+}
+
+/// The cast's 15-foot cone. Length is fixed, so a bad radius or line length cannot occur.
+///
+/// Player Core pg. 428, Cone. Ruling R-13.
+pub(crate) fn fifteen_foot_cone(
+    origin: Square,
+    caster_size: Size,
+    aim: Aim,
+    creatures: &[AreaCreature],
+) -> Result<Vec<Square>, GridError> {
+    supported_size(caster_size)?;
+    for creature in creatures {
+        supported_size(creature.size)?;
+    }
+    fifteen_foot_squares(origin, aim)
+}
+
+fn fifteen_foot_squares(origin: Square, aim: Aim) -> Result<Vec<Square>, GridError> {
     let mut squares = match aim {
         Aim::East | Aim::North | Aim::South | Aim::West => cardinal_cone(origin, aim)?,
         Aim::Northeast | Aim::Southeast | Aim::Southwest | Aim::Northwest => {
@@ -222,6 +252,13 @@ pub(crate) fn cone(
 /// Cone squares after a size check. An unsupported size returns no squares.
 ///
 /// Player Core pg. 421, Size, Space, and Reach. Player Core pg. 428, Cone.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the size check on a queried cone is covered by the unit tests"
+    )
+)]
 pub(crate) fn cone_membership(
     origin: Square,
     caster_size: Size,
@@ -241,6 +278,13 @@ pub(crate) fn cone_membership(
 /// The origin square is included only when `include_origin` is set.
 ///
 /// Player Core pg. 428, Emanation.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "emanation membership is covered by the unit tests"
+    )
+)]
 pub(crate) fn emanation(
     origin: Square,
     radius_feet: i32,
@@ -282,6 +326,10 @@ pub(crate) fn emanation(
 /// Four squares at 30 feet are that rule. The origin square is not included.
 ///
 /// Player Core pg. 428, Line. Player Core pg. 421, Diagonal Movement.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "line membership is covered by the unit tests")
+)]
 pub(crate) fn line(
     origin: Square,
     aim: Aim,
@@ -291,7 +339,7 @@ pub(crate) fn line(
     let steps = length_feet / 5;
     let mut squares = Vec::new();
     for step in 1..=steps {
-        let square = stepped(origin, aim, step)?;
+        let square = stepped(origin, aim, step).map_err(GeometryError::Grid)?;
         let feet =
             distance(origin, square, Size::Medium, Size::Medium).map_err(GeometryError::Grid)?;
         if feet <= length {
@@ -310,7 +358,7 @@ fn positive_multiple(feet: i32) -> Option<u32> {
     }
 }
 
-fn validate_size(size: Size) -> Result<(), GeometryError> {
+fn supported_size(size: Size) -> Result<(), GridError> {
     distance(
         Square { x: 0, y: 0 },
         Square { x: 0, y: 0 },
@@ -318,41 +366,29 @@ fn validate_size(size: Size) -> Result<(), GeometryError> {
         Size::Medium,
     )
     .map(|_| ())
-    .map_err(GeometryError::Grid)
 }
 
-fn farthest_corner(origin: Square, square: Square) -> Result<u32, GeometryError> {
+fn validate_size(size: Size) -> Result<(), GeometryError> {
+    supported_size(size).map_err(GeometryError::Grid)
+}
+
+fn farthest_corner(origin: Square, square: Square) -> Result<u32, GridError> {
     let mut best = 0u32;
     for (x, y) in corner_points(square)? {
-        let dx = x
-            .checked_sub(origin.x)
-            .ok_or(GeometryError::Grid(GridError::Overflow))?;
-        let dy = y
-            .checked_sub(origin.y)
-            .ok_or(GeometryError::Grid(GridError::Overflow))?;
+        let dx = x.checked_sub(origin.x).ok_or(GridError::Overflow)?;
+        let dy = y.checked_sub(origin.y).ok_or(GridError::Overflow)?;
         let feet = grid_feet(AbsDelta {
-            ax: dx
-                .checked_abs()
-                .ok_or(GeometryError::Grid(GridError::Overflow))?,
-            ay: dy
-                .checked_abs()
-                .ok_or(GeometryError::Grid(GridError::Overflow))?,
-        })
-        .map_err(GeometryError::Grid)?;
+            ax: dx.checked_abs().ok_or(GridError::Overflow)?,
+            ay: dy.checked_abs().ok_or(GridError::Overflow)?,
+        })?;
         best = best.max(feet);
     }
     Ok(best)
 }
 
-fn corner_points(square: Square) -> Result<[(i32, i32); 4], GeometryError> {
-    let east = square
-        .x
-        .checked_add(1)
-        .ok_or(GeometryError::Grid(GridError::Overflow))?;
-    let south = square
-        .y
-        .checked_add(1)
-        .ok_or(GeometryError::Grid(GridError::Overflow))?;
+fn corner_points(square: Square) -> Result<[(i32, i32); 4], GridError> {
+    let east = square.x.checked_add(1).ok_or(GridError::Overflow)?;
+    let south = square.y.checked_add(1).ok_or(GridError::Overflow)?;
     Ok([
         (square.x, square.y),
         (east, square.y),
@@ -361,7 +397,7 @@ fn corner_points(square: Square) -> Result<[(i32, i32); 4], GeometryError> {
     ])
 }
 
-fn cardinal_cone(origin: Square, aim: Aim) -> Result<Vec<Square>, GeometryError> {
+fn cardinal_cone(origin: Square, aim: Aim) -> Result<Vec<Square>, GridError> {
     const EAST: [(i32, i32); 7] = [(1, 0), (2, -1), (2, 0), (2, 1), (3, -1), (3, 0), (3, 1)];
     let mut squares = Vec::with_capacity(EAST.len());
     for (x, y) in EAST {
@@ -380,18 +416,16 @@ fn turn(x: i32, y: i32, aim: Aim) -> (i32, i32) {
     }
 }
 
-fn diagonal_cone(origin: Square, aim: Aim) -> Result<Vec<Square>, GeometryError> {
+fn diagonal_cone(origin: Square, aim: Aim) -> Result<Vec<Square>, GridError> {
     let (corner_x, corner_y) = match aim {
         Aim::Northeast => (1, 0),
         Aim::Southeast => (1, 1),
         Aim::Southwest => (0, 1),
         Aim::Northwest => (0, 0),
-        Aim::East | Aim::North | Aim::South | Aim::West => {
-            return Err(GeometryError::UnsupportedCone);
-        }
+        Aim::East | Aim::North | Aim::South | Aim::West => (0, 0),
     };
     let corner = offset(origin, corner_x, corner_y)?;
-    let burst = burst(corner, 15)?;
+    let burst = burst_at(corner, 15)?;
     Ok(burst
         .into_iter()
         .filter(|square| in_quadrant(origin, *square, aim))
@@ -408,7 +442,7 @@ fn in_quadrant(origin: Square, square: Square, aim: Aim) -> bool {
     }
 }
 
-fn stepped(origin: Square, aim: Aim, step: i32) -> Result<Square, GeometryError> {
+fn stepped(origin: Square, aim: Aim, step: i32) -> Result<Square, GridError> {
     let (x, y) = match aim {
         Aim::East => (step, 0),
         Aim::West => (-step, 0),
@@ -422,16 +456,10 @@ fn stepped(origin: Square, aim: Aim, step: i32) -> Result<Square, GeometryError>
     offset(origin, x, y)
 }
 
-fn offset(origin: Square, x: i32, y: i32) -> Result<Square, GeometryError> {
+fn offset(origin: Square, x: i32, y: i32) -> Result<Square, GridError> {
     Ok(Square {
-        x: origin
-            .x
-            .checked_add(x)
-            .ok_or(GeometryError::Grid(GridError::Overflow))?,
-        y: origin
-            .y
-            .checked_add(y)
-            .ok_or(GeometryError::Grid(GridError::Overflow))?,
+        x: origin.x.checked_add(x).ok_or(GridError::Overflow)?,
+        y: origin.y.checked_add(y).ok_or(GridError::Overflow)?,
     })
 }
 
