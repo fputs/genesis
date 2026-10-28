@@ -22,9 +22,10 @@ The same participants and the same scripted dice SHALL produce the same order an
 
 ### Requirement: Initiative is one Perception total
 
-Each combatant SHALL add one d20 to that creature's Perception modifier. The ranking SHALL use that total. A natural 20 or a natural 1 SHALL NOT change the total. Dice SHALL be drawn in ascending CombatantId order.
+Each combatant SHALL add one d20 to that creature's Perception modifier, including tracked penalties on Perception. The ranking SHALL use that total. A natural 20 or a natural 1 SHALL NOT change the total. With no such penalty the total is the d20 plus Perception. Dice SHALL be drawn in ascending CombatantId order.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2423 (Player Core pg. 435, Step 1: Roll Initiative)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
 
 #### Scenario: Perception is added to the d20
 
@@ -57,6 +58,12 @@ Each combatant SHALL add one d20 to that creature's Perception modifier. The ran
 - **GIVEN** CombatantId(5) listed before CombatantId(1), Perception +0 and +5, and scripted naturals 10 then 14
 - **WHEN** initiative is rolled
 - **THEN** CombatantId(1) has total 15 and CombatantId(5) has total 14
+
+#### Scenario: Frightened 2 and sickened 1 lower initiative by 2
+
+- **GIVEN** one combatant with Perception modifier +5, frightened 2, sickened 1, and a scripted natural 10
+- **WHEN** initiative is rolled
+- **THEN** that combatant's total is 13
 
 ### Requirement: A bad roster rolls nothing
 
@@ -157,21 +164,6 @@ On an equal total, an enemy SHALL act before a PC. Same-Side ties SHALL use the 
 - **GIVEN** PC 0, enemy 1, PC 2, enemy 3, PC 4, and enemy 5, each with Perception +0, and scripted naturals 10, 10, 12, 12, 8, 8 in CombatantId order
 - **WHEN** initiative is rolled
 - **THEN** the order is CombatantId(3), CombatantId(2), CombatantId(1), CombatantId(0), CombatantId(5), CombatantId(4)
-
-### Requirement: The start step changes nothing for an Alive creature
-
-The Alive start step SHALL run before actions are regained. It SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded.
-
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
-
-#### Scenario: An alive start rolls nothing
-
-- **GIVEN** an Alive creature at 12 Hit Points and a scripted natural 8
-- **WHEN** that creature's turn starts
-- **THEN** the scripted 8 is still unused
-- **AND** Hit Points stay 12
-- **AND** wounded stays 0
-- **AND** the creature has 3 actions
 
 ### Requirement: A turn regains 3 actions and 1 reaction
 
@@ -281,9 +273,10 @@ A combatant that is not Alive SHALL have 0 actions and no reaction. Dead combata
 
 ### Requirement: Ending a turn drops actions and keeps the reaction
 
-Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent reaction ready. The end step SHALL run once. `end_turn` SHALL take the injected dice. With no persistent damage, the end step SHALL NOT roll a die and SHALL NOT change Hit Points, temporary Hit Points, or wounded. `end_turn` with no open turn SHALL return TurnNotOpen and SHALL NOT roll.
+Ending a turn SHALL set actions to 0 and SHALL keep an unspent reaction ready. The end step SHALL run once. end_turn SHALL take injected dice. An ordinary end SHALL deal persistent damage, then its flat check, then decrement. A due until-end instance SHALL be removed before the decrement. With no persistent damage, the end step SHALL NOT roll and SHALL NOT change Hit Points, temporary Hit Points, or wounded. The decrement SHALL NOT roll. No open turn SHALL return TurnNotOpen and SHALL NOT roll.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
 
 #### Scenario: Ending early drops leftover actions and keeps the reaction
 
@@ -303,6 +296,23 @@ Ending a turn SHALL set that combatant's actions to 0 and SHALL keep an unspent 
 - **THEN** the error is TurnNotOpen
 - **AND** every combatant still has 0 actions
 - **AND** the scripted 8 is unused
+
+#### Scenario: Ending the turn lowers frightened and leaves Hit Points
+
+- **GIVEN** an open turn, the active creature frightened 2 and sickened 1, no persistent damage, current Hit Points 12, and a scripted natural 8
+- **WHEN** the turn ends with that die
+- **THEN** frightened is 1
+- **AND** sickened is 1
+- **AND** Hit Points stay 12
+- **AND** the scripted 8 is still unused
+
+#### Scenario: The persistent hook runs before frightened decreases
+
+- **GIVEN** an open turn, Hit Points 20, empty defenses, persistent Fire 5, frightened 2, and a scripted natural 10
+- **WHEN** the turn ends with that die
+- **THEN** Hit Points are 15
+- **AND** frightened is 1
+- **AND** persistent Fire 5 remains
 
 ### Requirement: Spending the last action leaves the turn open
 
@@ -472,9 +482,12 @@ A dead combatant SHALL remain in the order and SHALL NOT start a turn. The next 
 
 ### Requirement: Strike spends one action against baked Armor Class
 
-On an open Alive turn, a Strike SHALL spend 1 action. It SHALL roll one d20 once the target is affected, add the strike's attack bonus and the multiple attack penalty, and compare that total with the target's baked Armor Class. A lost flat check rolls no attack d20. No square and no reach SHALL be required. The degree SHALL use that baked Armor Class. A target whose vital is neither Alive nor Dead keeps that baked Armor Class until wire-dying-into-turns replaces this result (DEV-36).
+On an open Alive turn, a Strike SHALL spend 1 action. It SHALL roll one d20 once the target is affected, add the strike's attack bonus and the multiple attack penalty, and compare that total with Armor Class. A lost flat check rolls no attack d20. No square and no reach SHALL be required. Armor Class SHALL be the baked value plus the target's condition modifiers. A caller Armor Class modifier SHALL NOT apply. A not-alive target keeps that result until wire-dying-into-turns (DEV-36).
 
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=58 (Player Core pg. 445, Off-Guard)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
 
 #### Scenario: The first Strike totals the d20 plus the attack bonus
 
@@ -547,6 +560,27 @@ On an open Alive turn, a Strike SHALL spend 1 action. It SHALL roll one d20 once
 - **WHEN** the Strike is resolved
 - **THEN** the total is 10
 - **AND** the degree is failure
+
+#### Scenario: Frightened 2 on the target changes the degree
+
+- **GIVEN** an open turn, attack bonus +0, baked Armor Class 16, 0 damage dice, the target frightened 2, and a scripted natural 14
+- **WHEN** the Strike is resolved
+- **THEN** the total is 14
+- **AND** the degree is success
+
+#### Scenario: Frightened 2 and sickened 1 do not sum on Armor Class
+
+- **GIVEN** an open turn, attack bonus +0, baked Armor Class 15, 0 damage dice, the target frightened 2 and sickened 1, and a scripted natural 12
+- **WHEN** the Strike is resolved
+- **THEN** the total is 12
+- **AND** the degree is failure
+
+#### Scenario: Frightened 2 and off-guard both lower Armor Class
+
+- **GIVEN** an open turn, attack bonus +0, baked Armor Class 18, 0 damage dice, the target frightened 2 and off-guard, and a scripted natural 14
+- **WHEN** the Strike is resolved
+- **THEN** the total is 14
+- **AND** the degree is success
 
 ### Requirement: Strike passes caller modifiers through the attack total
 
@@ -1269,3 +1303,175 @@ Recall Knowledge SHALL spend 1 action on the actor's open Alive turn and SHALL N
 - **GIVEN** a combatant id that is not in the encounter and a scripted natural 10
 - **WHEN** a skill check is resolved
 - **THEN** the error is UnknownCombatant and the scripted 10 is unused
+
+### Requirement: The start step ticks round durations
+
+The start step SHALL run before actions are regained. It SHALL decrease round durations clocked to that creature, including a dead creature whose slot is skipped. It SHALL NOT roll a die or change Hit Points, temporary Hit Points, or wounded. With no such duration it SHALL NOT change conditions.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2428 (Player Core pg. 435, Step 1: Start Your Turn)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2242 (Player Core pg. 302, Durations)
+
+#### Scenario: An alive start rolls nothing
+
+- **GIVEN** an Alive creature at 12 Hit Points and a scripted natural 8
+- **WHEN** that creature's turn starts
+- **THEN** the scripted 8 is still unused
+- **AND** Hit Points stay 12
+- **AND** wounded stays 0
+- **AND** the creature has 3 actions
+
+#### Scenario: A 3-round duration decreases on the clock's next start
+
+- **GIVEN** CombatantId(1) and CombatantId(2), both Alive, Perception +0, scripted initiative naturals 15 then 10, and sickened 1 for 3 rounds on CombatantId(2) clocked to CombatantId(1), applied before any turn
+- **WHEN** CombatantId(1)'s turn starts
+- **THEN** 2 rounds remain and sickened 1 is still present
+- **AND** Hit Points are unchanged
+- **AND** no condition die is rolled
+
+#### Scenario: The bearer's start does not decrease another clock
+
+- **GIVEN** the same pair, with sickened 1 for 3 rounds on CombatantId(2) clocked to CombatantId(1), and CombatantId(1)'s turn has ended
+- **WHEN** CombatantId(2)'s turn starts
+- **THEN** 3 rounds remain
+
+#### Scenario: A skipped dead slot still ticks its round clock
+
+- **GIVEN** the order CombatantId(1), CombatantId(2), CombatantId(3), CombatantId(2) already dead, and sickened 1 for 2 rounds on CombatantId(3) clocked to CombatantId(2)
+- **WHEN** CombatantId(1)'s turn starts and ends, and the next turn starts
+- **THEN** the open turn is CombatantId(3)
+- **AND** CombatantId(2) did not start a turn
+- **AND** 1 round remains
+
+### Requirement: Apply marks until the end of the next turn
+
+Applying until the end of a creature's next turn while that creature's turn is open SHALL leave the condition in place when that turn ends, and SHALL remove it when that creature's following turn ends. Applying it while that turn is not open SHALL remove it at the end of that creature's next turn.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2455 (Player Core pg. 442, Appendix entry, Redundant Conditions)
+
+#### Scenario: An open turn's end is not the next end
+
+- **GIVEN** CombatantId(1)'s turn is open, and CombatantId(2) has no conditions
+- **WHEN** off-guard is applied to CombatantId(2) until the end of CombatantId(1)'s next turn, and CombatantId(1)'s turn ends
+- **THEN** off-guard remains
+- **WHEN** CombatantId(1)'s following turn ends
+- **THEN** off-guard is absent
+
+#### Scenario: A closed turn's next end removes it
+
+- **GIVEN** CombatantId(2)'s turn is open, and CombatantId(1)'s turn is not
+- **WHEN** off-guard is applied to CombatantId(2) until the end of CombatantId(1)'s next turn, and CombatantId(1)'s next turn ends
+- **THEN** off-guard is absent
+
+### Requirement: The attacker's conditions adjust the attack and damage
+
+A Strike SHALL add the attacker's modifiers for its attack basis to the attack, and for its damage basis to the damage. Enfeebled SHALL penalize a Strength melee attack and Strength damage. A Dexterity melee attack SHALL NOT take enfeebled. Strength damage on that attack SHALL. A ranged attack SHALL include clumsy and SHALL NOT include enfeebled. Damage SHALL NOT include frightened or clumsy.
+
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=71 (Player Core pg. 443, Enfeebled)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=61 (Player Core pg. 442, Clumsy)
+**Source**: https://2e.aonprd.com/Conditions.aspx?ID=76 (Player Core pg. 444, Frightened)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2282 (Player Core pg. 400, Penalties)
+
+#### Scenario: Frightened 2 lowers the attack total by 2
+
+- **GIVEN** an open turn, Strength melee, attack bonus +6, Armor Class 16, 0 damage dice, the attacker frightened 2, and a scripted natural 10
+- **WHEN** the Strike is resolved
+- **THEN** the total is 14
+- **AND** the degree is failure
+
+#### Scenario: Frightened 2 and enfeebled 2 stay at minus 2
+
+- **GIVEN** an open turn, Strength melee, attack bonus +8, Armor Class 16, 0 damage dice, the attacker frightened 2 and enfeebled 2, and a scripted natural 10
+- **WHEN** the Strike is resolved
+- **THEN** the total is 16
+- **AND** the degree is success
+
+#### Scenario: Clumsy 2 does not lower a Strength melee attack
+
+- **GIVEN** an open turn, Strength melee, attack bonus +6, Armor Class 16, 0 damage dice, the attacker clumsy 2, and a scripted natural 10
+- **WHEN** the Strike is resolved
+- **THEN** the total is 16
+- **AND** the degree is success
+
+#### Scenario: Clumsy 2 lowers a Dexterity melee attack
+
+- **GIVEN** an open turn, Dexterity melee, attack bonus +6, Armor Class 16, 0 damage dice, the attacker clumsy 2, and a scripted natural 10
+- **WHEN** the Strike is resolved
+- **THEN** the total is 14
+- **AND** the degree is failure
+
+#### Scenario: Enfeebled 2 does not lower a Dexterity melee attack
+
+- **GIVEN** an open turn, a Dexterity melee attack, Strength damage, attack bonus +6, Armor Class 16, 0 damage dice, the attacker enfeebled 2, and a scripted natural 10
+- **WHEN** the Strike is resolved
+- **THEN** the total is 16
+- **AND** the degree is success
+
+#### Scenario: Enfeebled 2 lowers Dexterity melee damage
+
+- **GIVEN** an open turn, a Dexterity melee attack, Strength damage, attack bonus +10, Armor Class 11, the attacker enfeebled 2, a scripted natural 10, and damage 1d8+0 showing 4
+- **WHEN** the Strike is resolved
+- **THEN** the total is 20
+- **AND** the degree is success
+- **AND** the damage is 2
+
+#### Scenario: Clumsy 2 lowers a ranged attack
+
+- **GIVEN** an open turn, a ranged strike, attack bonus +6, Armor Class 16, 0 damage dice, the attacker clumsy 2, and a scripted natural 10
+- **WHEN** the Strike is resolved
+- **THEN** the total is 14
+- **AND** the degree is failure
+
+#### Scenario: Enfeebled 2 lowers Strength melee damage
+
+- **GIVEN** an open turn, Strength melee, attack bonus +10, Armor Class 11, the attacker enfeebled 2, a scripted natural 10, and damage 1d8+0 showing 4
+- **WHEN** the Strike is resolved
+- **THEN** the degree is success
+- **AND** the damage is 2
+
+#### Scenario: Enfeebled 2 does not lower ranged damage
+
+- **GIVEN** an open turn, a ranged strike, attack bonus +10, Armor Class 11, the attacker enfeebled 2, a scripted natural 10, and damage 1d8+0 showing 4
+- **WHEN** the Strike is resolved
+- **THEN** the degree is success
+- **AND** the damage is 4
+
+### Requirement: The returned turn decrements once
+
+The end of the turn a creature returns to SHALL decrement frightened and SHALL expire a due negative until-end condition, once. It SHALL NOT run the persistent hook again. The next ordinary end SHALL decrement again.
+
+**Source**: https://2e.aonprd.com/Actions.aspx?ID=2294 (Player Core pg. 416, Delay)
+**Source**: R-14 in docs/designer/rules-rulings.md. Delay, Player Core pg. 416.
+
+#### Scenario: Frightened drops at the end of the returned turn
+
+- **GIVEN** CombatantId(1) frightened 2, and CombatantId(2), both Alive, Perception +0, scripted initiative naturals 15 then 10
+- **WHEN** CombatantId(1)'s turn starts and CombatantId(1) Delays
+- **THEN** frightened is 2
+- **WHEN** CombatantId(2)'s turn ends, CombatantId(1) returns, and that turn ends
+- **THEN** frightened is 1
+- **WHEN** CombatantId(1)'s next ordinary turn ends
+- **THEN** frightened is absent
+
+### Requirement: Death clears condition instances
+
+Becoming Dead SHALL clear that creature's condition instances, as persistent damage is cleared. A skipped dead slot SHALL NOT run the end decrement. A skipped dead slot SHALL still tick round durations at the start.
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2329 (Player Core pg. 411, Death)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, Step 3: End Your Turn)
+
+#### Scenario: Death clears frightened
+
+- **GIVEN** uses_dying_rules false, CombatantId(2) Alive at 4 Hit Points with frightened 2, CombatantId(1)'s turn open, a Strength melee attack, Strength damage, attack bonus +10, Armor Class 11, a scripted natural 10, and damage 1d8+0 showing 4
+- **WHEN** CombatantId(1) Strikes CombatantId(2)
+- **THEN** CombatantId(2) is Dead
+- **AND** frightened is absent
+
+#### Scenario: A skipped dead slot does not decrement
+
+- **GIVEN** the order CombatantId(1), CombatantId(2), CombatantId(3), CombatantId(2) already Dead with no condition instances, CombatantId(1) frightened 2, and a scripted natural 8
+- **WHEN** CombatantId(1)'s turn ends and the next turn starts
+- **THEN** the open turn is CombatantId(3)
+- **AND** CombatantId(1) is frightened 1
+- **AND** CombatantId(2) did not end a turn
+- **AND** the scripted 8 is unused
