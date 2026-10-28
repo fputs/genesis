@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Skill checks and Recall Knowledge. A skill check spends nothing. Recall Knowledge spends one action and returns the degree. ([#91](https://github.com/fputs/genesis/pull/91))
 - ORC notice in `LICENSES/ORC-NOTICE` for the license reference, Licensed Material, Reserved Material, and Attribution, and the note that Genesis does not host player-made campaigns. ([#85](https://github.com/fputs/genesis/pull/85))
 - One draft pull request carries a change from the spec commit through tests, code, and archive. Spec approval is a review line `spec-approved: <sha>`. One `OpenSpec-Refactor` kebab line can cover a crates-only refactor, and the Unreleased bullet is still required. ([#84](https://github.com/fputs/genesis/pull/84))
 - Fortitude, Reflex, and Will saves, including the basic-save damage multiplier. ([#81](https://github.com/fputs/genesis/pull/81))
@@ -31,6 +32,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** A creature build carries optional `skills` training, `Statistic` adds the sixteen skills, and an encounter rolls `skill_check` and `recall_knowledge`. ([#91](https://github.com/fputs/genesis/pull/91))
 - **BREAKING:** The rules crate root exports the encounter commands and the types those commands need. Helper names are crate-private. Fight results are unchanged. ([#87](https://github.com/fputs/genesis/pull/87))
 - Split the encounter module into turns, strike, reactions, delay and ready, and vitals, with no change to fight behavior. ([#88](https://github.com/fputs/genesis/pull/88))
 - An `OpenSpec-Refactor` pull request may move an in-file `#[cfg(test)]` block verbatim into a new test file. The spec-drift job still does not parse Rust or treat that move as an edit of an existing test file. ([#86](https://github.com/fputs/genesis/pull/86))

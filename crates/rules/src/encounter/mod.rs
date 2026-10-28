@@ -165,6 +165,10 @@ pub enum EncounterError {
     NoSavingThrows,
     /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
     SaveOverflow(ArithmeticOverflow),
+    /// The creature has no skill training. Player Core pg. 405, Skill Checks.
+    NoSkills,
+    /// The skill modifier does not fit a check modifier. Player Core pg. 405, Skill Checks.
+    SkillOverflow(ArithmeticOverflow),
     /// The target is undetected, so it cannot be chosen. Nothing is spent and no die is drawn.
     ///
     /// Player Core pg. 447, Undetected. Player Core pg. 418, Strike.
@@ -299,6 +303,7 @@ pub struct Encounter {
 
 mod delay_ready;
 mod reactions;
+mod skills;
 mod strike;
 mod turns;
 mod vitals;

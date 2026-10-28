@@ -48,6 +48,7 @@ fn creature(
         aid_rank: None,
         uses_dying_rules: Some(dying),
         saves: None,
+        skills: None,
     };
     derive(&CharacterBuild::try_new(parts).expect("build"))
 }
@@ -277,6 +278,7 @@ fn aided(
         aid_rank: rank,
         uses_dying_rules: Some(false),
         saves: None,
+        skills: None,
     };
     participant(
         value,
@@ -403,6 +405,7 @@ fn standard_pair(reach: i32, actor_hp: i32, actor_ac: i32, actor_side: Side) -> 
 mod delay_ready_tests;
 mod reactions_tests;
 mod save_tests;
+mod skill_tests;
 mod strike_tests;
 mod target_delay_tests;
 mod turns_tests;

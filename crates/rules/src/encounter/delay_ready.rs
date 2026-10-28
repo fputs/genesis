@@ -995,6 +995,10 @@ pub(super) fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::SaveOverflow(error) => {
             ReadyError::Encounter(ReadyEncounter::SaveOverflow(error))
         }
+        EncounterError::NoSkills => ReadyError::Encounter(ReadyEncounter::NoSkills),
+        EncounterError::SkillOverflow(error) => {
+            ReadyError::Encounter(ReadyEncounter::SkillOverflow(error))
+        }
         EncounterError::CannotTarget => ReadyError::CannotTarget,
     }
 }

@@ -109,6 +109,7 @@ fn body(spec: Body) -> Participant {
         aid_rank: None,
         uses_dying_rules: Some(spec.dying_rules),
         saves: spec.saves,
+        skills: None,
     })
     .expect("build");
     let mut person = participant(spec.id, Side::Pc, derive(&built));

@@ -373,6 +373,10 @@ pub enum ReadyEncounter {
     NoSavingThrows,
     /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
     SaveOverflow(ArithmeticOverflow),
+    /// The creature has no skill training. Player Core pg. 405, Skill Checks.
+    NoSkills,
+    /// The skill modifier does not fit a check modifier. Player Core pg. 405, Skill Checks.
+    SkillOverflow(ArithmeticOverflow),
 }
 
 /// Which stored action a fire check is comparing.
