@@ -67,6 +67,7 @@ fn melee() -> MeleeStrike {
         damage_bonus: 0,
         reach_feet: ReachFeet::new(5).expect("reach"),
         agile: false,
+        damage_type: crate::damage::DamageType::Slashing,
     }
 }
 
@@ -109,6 +110,8 @@ fn body(spec: Body) -> Participant {
         aid_rank: None,
         uses_dying_rules: Some(spec.dying_rules),
         saves: spec.saves,
+        skills: None,
+        defenses: crate::damage::DamageDefenses::empty(),
     })
     .expect("build");
     let mut person = participant(spec.id, Side::Pc, derive(&built));
@@ -877,7 +880,9 @@ fn a_creature_may_save_against_itself() {
 fn delay_then_reopen(people: Vec<Participant>, initiative: &[u8]) -> Encounter {
     let mut encounter = opened(people, initiative);
     assert_eq!(encounter.start_turn().expect("first"), id(1));
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     assert_eq!(encounter.start_turn().expect("second"), id(2));
     encounter.delay(id(2)).expect("delay");
     assert_eq!(encounter.start_turn().expect("reopen"), id(1));

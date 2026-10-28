@@ -14,9 +14,6 @@ permissions:
 jobs:
   spec-approved:
     runs-on: ubuntu-latest
-    concurrency:
-      group: spec-approved-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
     env:
       LC_ALL: C
     steps:

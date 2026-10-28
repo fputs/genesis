@@ -7,6 +7,7 @@ use crate::check::{
     multiple_attack_penalty,
 };
 use crate::combatant::{CombatantId, Vital, damage_dealt};
+use crate::damage::adjust_damage;
 use crate::detection::{Detections, resolve_targeting};
 use crate::dice::Dice;
 use crate::dying::InitiativeMove;
@@ -169,6 +170,7 @@ impl Encounter {
         trigger: ReadyTrigger,
         cost: ActionCost,
         activity: ReadyActivity,
+        dice: &mut impl Dice,
     ) -> Result<(), ReadyError> {
         let actor_index = self.member_index(actor).map_err(ready_from_encounter)?;
         let subject = trigger.subject();
@@ -209,7 +211,7 @@ impl Encounter {
             .get_mut(actor_index)
             .ok_or(ReadyError::UnknownCombatant)?;
         member.ready = Some(stored);
-        if let Err(error) = self.end_turn() {
+        if let Err(error) = self.end_turn(dice) {
             if let Some(member) = self.members.get_mut(actor_index) {
                 member.ready = None;
             }
@@ -718,11 +720,22 @@ impl Encounter {
             self.spend_reaction(readier).map_err(ready_from_encounter)?;
             0
         } else {
+            let defenses = self
+                .creature(strike.target)
+                .map_err(ready_from_encounter)?
+                .defenses
+                .clone();
             let rolled = roll_strike_damage(dice, &strike.profile).map_err(ready_from_encounter)?;
             let dealt = damage_dealt(rolled, &[], degree == DegreeOfSuccess::CriticalSuccess)
                 .map_err(ReadyError::DamageOverflow)?;
-            self.commit_ready_blow(readier, strike.target, dealt, degree)?;
-            dealt
+            let adjusted = adjust_damage(dealt, strike.profile.damage_type, &defenses)
+                .map_err(ReadyError::DamageOverflow)?;
+            if adjusted > 0 {
+                self.commit_ready_blow(readier, strike.target, adjusted, degree)?;
+            } else {
+                self.spend_reaction(readier).map_err(ready_from_encounter)?;
+            }
+            adjusted
         };
         self.clear_ready(readier)?;
         Ok(ReadySuccess::Strike(ReadyStrike {
@@ -995,6 +1008,13 @@ pub(super) fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::SaveOverflow(error) => {
             ReadyError::Encounter(ReadyEncounter::SaveOverflow(error))
         }
+        EncounterError::NoSkills => ReadyError::Encounter(ReadyEncounter::NoSkills),
+        EncounterError::SkillOverflow(error) => {
+            ReadyError::Encounter(ReadyEncounter::SkillOverflow(error))
+        }
         EncounterError::CannotTarget => ReadyError::CannotTarget,
+        EncounterError::NonPositivePersistent => {
+            ReadyError::Encounter(ReadyEncounter::NonPositivePersistent)
+        }
     }
 }

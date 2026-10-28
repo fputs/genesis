@@ -9,7 +9,8 @@
 //! ```
 //! use rules::{
 //!     begin_encounter, derive, new_combatant_state, BuildParts, CharacterBuild, CombatantId,
-//!     DieCount, Faces, MeleeStrike, Participant, ReachFeet, SeededDice, Side,
+//!     DamageDefenses, DamageType, DieCount, Faces, MeleeStrike, Participant, ReachFeet,
+//!     SeededDice, Side,
 //! };
 //!
 //! let build = CharacterBuild::try_new(BuildParts {
@@ -24,6 +25,7 @@
 //!         damage_bonus: 0,
 //!         reach_feet: ReachFeet::new(5).expect("reach"),
 //!         agile: false,
+//!         damage_type: DamageType::Slashing,
 //!     },
 //!     shield: None,
 //!     stealth_dc: None,
@@ -31,6 +33,8 @@
 //!     aid_rank: None,
 //!     uses_dying_rules: None,
 //!     saves: None,
+//!     skills: None,
+//!     defenses: DamageDefenses::empty(),
 //! })
 //! .expect("build");
 //! let creature = derive(&build);
@@ -50,7 +54,7 @@
 //! assert_eq!(encounter.round(), 1);
 //! assert_eq!(encounter.order(), &[id]);
 //! assert_eq!(encounter.start_turn().expect("start"), id);
-//! encounter.end_turn().expect("end");
+//! encounter.end_turn(&mut dice).expect("end");
 //! ```
 //!
 //! The public names are this set.
@@ -77,6 +81,8 @@
 //!     ConditionSlot,
 //!     CoverBenefit,
 //!     Creature,
+//!     DamageDefenses,
+//!     DamageType,
 //!     Detection,
 //!     DetectionError,
 //!     Detections,
@@ -131,6 +137,7 @@
 //!     ReadySuccess,
 //!     ReadyTrigger,
 //!     Relation,
+//!     Resistance,
 //!     ResolvedReaction,
 //!     Save,
 //!     SaveRoll,
@@ -139,6 +146,9 @@
 //!     ShieldBlock,
 //!     ShieldTemplate,
 //!     Side,
+//!     Skill,
+//!     SkillRoll,
+//!     Skills,
 //!     Size,
 //!     SourceId,
 //!     Square,
@@ -153,6 +163,7 @@
 //!     Terrain,
 //!     TurnSlot,
 //!     Vital,
+//!     Weakness,
 //!     begin_encounter,
 //!     derive,
 //!     new_combatant_state,
@@ -168,7 +179,9 @@
 //! let _ = rules::Encounter::state;
 //! let _ = rules::Encounter::creature;
 //! let _ = rules::Encounter::start_turn;
-//! let _ = rules::Encounter::end_turn;
+//! let _: fn(&mut rules::Encounter, &mut rules::SeededDice) -> Result<(), rules::EncounterError> =
+//!     rules::Encounter::end_turn;
+//! let _ = rules::Encounter::gain_persistent_damage;
 //! let _ = rules::Encounter::spend_actions;
 //! let _ = rules::Encounter::spend_free_action;
 //! let _ = rules::Encounter::spend_reaction;
@@ -226,7 +239,14 @@
 //! ) -> Result<rules::SaveRoll, rules::EncounterError> = rules::Encounter::basic_save;
 //! let _ = rules::Encounter::delay;
 //! let _ = rules::Encounter::return_from_delay;
-//! let _ = rules::Encounter::ready;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::ReadyTrigger,
+//!     rules::ActionCost,
+//!     rules::ReadyActivity,
+//!     &mut rules::SeededDice,
+//! ) -> Result<(), rules::ReadyError> = rules::Encounter::ready;
 //! let _ = rules::Encounter::readied_attack_penalty;
 //! let _: fn(
 //!     &mut rules::Encounter,
@@ -245,6 +265,22 @@
 //! let _ = rules::Encounter::step;
 //! let _ = rules::Encounter::drop_prone;
 //! let _ = rules::Encounter::stand;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::Skill,
+//!     i32,
+//!     &[rules::Modifier],
+//!     &mut rules::SeededDice,
+//! ) -> Result<rules::SkillRoll, rules::EncounterError> = rules::Encounter::skill_check;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::Skill,
+//!     i32,
+//!     &[rules::Modifier],
+//!     &mut rules::SeededDice,
+//! ) -> Result<rules::SkillRoll, rules::EncounterError> = rules::Encounter::recall_knowledge;
 //! ```
 //!
 //! Hit points and a condition id stay readable.
@@ -875,12 +911,25 @@
 //! ```compile_fail,E0432
 //! use rules::validate_speed;
 //! ```
+//!
+//! `skill_modifier` is not a crate-root name.
+//!
+//! ```compile_fail,E0432
+//! use rules::skill_modifier;
+//! ```
+//!
+//! `skill_dc` is not a crate-root name.
+//!
+//! ```compile_fail,E0432
+//! use rules::skill_dc;
+//! ```
 
 #![forbid(unsafe_code)]
 
 mod aid;
 mod check;
 mod combatant;
+mod damage;
 mod detection;
 mod dice;
 mod dying;
@@ -892,6 +941,7 @@ mod reactive;
 mod ready;
 mod save;
 mod shield;
+mod skill;
 
 pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank};
 pub use check::{ArithmeticOverflow, DegreeOfSuccess};
@@ -900,6 +950,7 @@ pub use combatant::{
     DieCountError, DyingValue, DyingValueError, HpError, MeleeStrike, ReachError, ReachFeet,
     ShieldTemplate, TemplateError, Vital, derive, new_combatant_state,
 };
+pub use damage::{DamageDefenses, DamageType, Resistance, Weakness};
 pub use detection::{Concealment, Detection, DetectionError, Detections, Relation};
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
 pub use dying::InitiativeMove;
@@ -929,6 +980,7 @@ pub use ready::{
 };
 pub use save::{LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveRoll, SavingThrows};
 pub use shield::ShieldBlock;
+pub use skill::{Skill, SkillRoll, Skills};
 
 #[cfg(test)]
 mod facade_check;

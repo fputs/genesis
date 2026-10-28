@@ -41,6 +41,7 @@ fn creature(
             damage_bonus: 0,
             reach_feet: ReachFeet::new(5).expect("reach"),
             agile: false,
+            damage_type: crate::damage::DamageType::Slashing,
         },
         shield,
         stealth_dc: None,
@@ -48,6 +49,8 @@ fn creature(
         aid_rank: None,
         uses_dying_rules: Some(dying),
         saves: None,
+        skills: None,
+        defenses: crate::damage::DamageDefenses::empty(),
     };
     derive(&CharacterBuild::try_new(parts).expect("build"))
 }
@@ -100,6 +103,7 @@ fn profile(attack: i32, agility: Agility, dice: u8, face: u8, bonus: i32) -> Str
         damage_dice: DieCount::new(i32::from(dice)).expect("dice"),
         damage_faces: faces(face),
         damage_bonus: bonus,
+        damage_type: crate::damage::DamageType::Slashing,
     }
 }
 
@@ -202,10 +206,10 @@ fn order_of(ids: &[u32]) -> Vec<CombatantId> {
 
 fn raised_defender(rolls: &[u8]) -> (Encounter, ScriptedDice) {
     let target = participant(2, Side::Pc, creature(20, 18, 0, false, Some(plate())));
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), target], rolls);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), target], rolls);
     assert_eq!(encounter.start_turn().expect("defender"), id(2));
     encounter.raise_shield(id(2)).expect("raise");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("striker"), id(1));
     (encounter, dice)
 }
@@ -270,6 +274,7 @@ fn aided(
             damage_bonus: 0,
             reach_feet: ReachFeet::new(5).expect("reach"),
             agile: false,
+            damage_type: crate::damage::DamageType::Slashing,
         },
         shield: None,
         stealth_dc: None,
@@ -277,6 +282,8 @@ fn aided(
         aid_rank: rank,
         uses_dying_rules: Some(false),
         saves: None,
+        skills: None,
+        defenses: crate::damage::DamageDefenses::empty(),
     };
     participant(
         value,
@@ -400,9 +407,11 @@ fn standard_pair(reach: i32, actor_hp: i32, actor_ac: i32, actor_side: Side) -> 
     ]
 }
 
+mod damage_tests;
 mod delay_ready_tests;
 mod reactions_tests;
 mod save_tests;
+mod skill_tests;
 mod strike_tests;
 mod target_delay_tests;
 mod turns_tests;

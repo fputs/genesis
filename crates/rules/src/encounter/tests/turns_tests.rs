@@ -248,9 +248,13 @@ fn the_next_start_sets_3_rather_than_adding_leftovers() {
     assert_eq!(encounter.start_turn().expect("first"), id(1));
     encounter.spend_actions(id(1), 1).expect("spend");
     assert_eq!(actions(&encounter, 1), 2);
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     encounter.start_turn().expect("other");
-    encounter.end_turn().expect("end other");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end other");
     assert_eq!(encounter.start_turn().expect("next"), id(1));
     assert_eq!(actions(&encounter, 1), 3);
 }
@@ -261,7 +265,9 @@ fn a_spent_reaction_is_ready_again_next_turn() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10)], &[10]);
     encounter.start_turn().expect("start");
     encounter.spend_reaction(id(1)).expect("spend");
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     encounter.start_turn().expect("next");
     assert!(reaction(&encounter, 1));
     encounter.spend_reaction(id(1)).expect("first");
@@ -277,7 +283,9 @@ fn an_unused_reaction_is_still_one_reaction() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10)], &[10]);
     encounter.start_turn().expect("start");
     assert!(reaction(&encounter, 1));
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     encounter.start_turn().expect("next");
     encounter.spend_reaction(id(1)).expect("first");
     assert_eq!(
@@ -332,7 +340,7 @@ fn a_not_alive_turn_opens_with_no_actions() {
     assert_eq!(hit_points(&encounter, 2), 0);
     assert_ne!(vital(&encounter, 2), Vital::Alive);
     assert_ne!(vital(&encounter, 2), Vital::Dead);
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("next"), id(2));
     assert_eq!(actions(&encounter, 2), 0);
     assert!(!reaction(&encounter, 2));
@@ -365,7 +373,7 @@ fn a_not_alive_turn_opens_with_no_actions() {
     assert!(!reaction(&encounter, 2));
     assert_eq!(actions(&encounter, 2), 0);
     assert_eq!(dice.remaining(), 1);
-    encounter.end_turn().expect("close");
+    encounter.end_turn(&mut dice).expect("close");
     assert_eq!(encounter.turn_open(), None);
     assert_eq!(actions(&encounter, 2), 0);
 }
@@ -403,9 +411,9 @@ fn an_active_creature_that_stops_being_alive_cannot_keep_acting() {
     assert_eq!(actions(&encounter, 1), 2);
     assert!(reaction(&encounter, 1));
     assert_eq!(dice.remaining(), 1);
-    encounter.end_turn().expect("first end");
+    encounter.end_turn(&mut dice).expect("first end");
     assert_eq!(
-        encounter.end_turn().expect_err("second end"),
+        encounter.end_turn(&mut dice).expect_err("second end"),
         EncounterError::TurnNotOpen
     );
     assert_eq!(encounter.round(), 1);
@@ -429,12 +437,12 @@ fn a_dead_combatant_cannot_spend_a_reaction() {
 /// Player Core, "Step 3: End Your Turn".
 #[test]
 fn ending_early_drops_leftover_actions_and_keeps_the_reaction() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 12, 10)], &[10, 8]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 12, 10)], &[10, 8]);
     encounter.start_turn().expect("start");
     encounter.spend_actions(id(1), 1).expect("spend");
     assert_eq!(actions(&encounter, 1), 2);
     assert!(reaction(&encounter, 1));
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(actions(&encounter, 1), 0);
     assert!(reaction(&encounter, 1));
     assert_eq!(hit_points(&encounter, 1), 12);
@@ -446,13 +454,14 @@ fn ending_early_drops_leftover_actions_and_keeps_the_reaction() {
 /// Player Core, "Step 3: End Your Turn".
 #[test]
 fn end_before_a_start_returns_an_error() {
-    let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[10, 8]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[10, 8, 8]);
     assert_eq!(
-        encounter.end_turn().expect_err("end"),
+        encounter.end_turn(&mut dice).expect_err("end"),
         EncounterError::TurnNotOpen
     );
     assert_eq!(actions(&encounter, 1), 0);
     assert_eq!(actions(&encounter, 2), 0);
+    assert_eq!(dice.remaining(), 1);
 }
 
 /// Player Core, "Step 2: Act".
@@ -467,9 +476,13 @@ fn spending_the_last_action_leaves_the_turn_open() {
     assert_eq!(encounter.turn_open(), Some(id(1)));
     assert_eq!(actions(&encounter, 1), 0);
     assert!(reaction(&encounter, 1));
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     assert_eq!(
-        encounter.end_turn().expect_err("second"),
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect_err("second"),
         EncounterError::TurnNotOpen
     );
     assert_eq!(encounter.round(), 1);
@@ -580,9 +593,13 @@ fn another_creature_spends_a_reaction_during_the_turn() {
 fn the_second_round_starts_with_the_first_living_combatant() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[10, 8]);
     assert_eq!(encounter.start_turn().expect("one"), id(1));
-    encounter.end_turn().expect("end one");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end one");
     assert_eq!(encounter.start_turn().expect("two"), id(2));
-    encounter.end_turn().expect("end two");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end two");
     assert_eq!(encounter.round(), 2);
     assert_eq!(encounter.start_turn().expect("again"), id(1));
 }
@@ -596,9 +613,13 @@ fn after_2_ends_a_dead_3_wraps_to_1_in_round_2() {
     );
     assert_eq!(encounter.order(), order_of(&[1, 2, 3]).as_slice());
     assert_eq!(encounter.start_turn().expect("one"), id(1));
-    encounter.end_turn().expect("end one");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end one");
     assert_eq!(encounter.start_turn().expect("two"), id(2));
-    encounter.end_turn().expect("end two");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end two");
     assert_eq!(encounter.round(), 1);
     assert_eq!(encounter.start_turn().expect("wrap"), id(1));
     assert_eq!(encounter.round(), 2);
@@ -618,11 +639,15 @@ fn a_round_at_the_u32_maximum_does_not_advance() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10), pc(2, 0, 20, 10)], &[10, 8]);
     let order = encounter.order().to_vec();
     encounter.start_turn().expect("one");
-    encounter.end_turn().expect("end one");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end one");
     assert_eq!(encounter.start_turn().expect("two"), id(2));
     encounter.set_round_for_test(u32::MAX);
     assert_eq!(
-        encounter.end_turn().expect_err("overflow"),
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect_err("overflow"),
         EncounterError::RoundOverflow
     );
     assert_eq!(encounter.round(), u32::MAX);
@@ -639,7 +664,9 @@ fn a_dead_combatant_in_the_middle_is_skipped() {
     );
     assert_eq!(encounter.order(), order_of(&[1, 2, 3]).as_slice());
     assert_eq!(encounter.start_turn().expect("first"), id(1));
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     assert_eq!(encounter.start_turn().expect("next"), id(3));
     assert_eq!(encounter.round(), 1);
     assert_eq!(actions(&encounter, 2), 0);
@@ -664,7 +691,9 @@ fn two_dead_combatants_in_a_row_wrap_back_to_the_living_one() {
     assert_eq!(encounter.order(), order_of(&[1, 2, 3, 4]).as_slice());
     assert_eq!(encounter.start_turn().expect("living"), id(2));
     assert_eq!(encounter.round(), 1);
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     assert_eq!(encounter.start_turn().expect("wrap"), id(2));
     assert_eq!(encounter.round(), 2);
     assert_eq!(actions(&encounter, 1), 0);
@@ -678,7 +707,9 @@ fn the_only_living_combatant_starts_the_next_round() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 10), dead(pc(2, 0, 20, 10))], &[10, 8]);
     assert_eq!(encounter.order(), order_of(&[1, 2]).as_slice());
     assert_eq!(encounter.start_turn().expect("first"), id(1));
-    encounter.end_turn().expect("end");
+    encounter
+        .end_turn(&mut crate::dice::ScriptedDice::new([]))
+        .expect("end");
     assert_eq!(encounter.start_turn().expect("again"), id(1));
     assert_eq!(encounter.round(), 2);
 }

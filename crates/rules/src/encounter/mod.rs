@@ -63,6 +63,8 @@ pub struct StrikeProfile {
     pub damage_faces: Faces,
     /// Flat damage added to the dice. Player Core, "Damage Rolls".
     pub damage_bonus: i32,
+    /// The type of this Strike's damage. Player Core pg. 407, Damage Types.
+    pub damage_type: crate::damage::DamageType,
 }
 
 /// Why an encounter action was rejected.
@@ -165,10 +167,18 @@ pub enum EncounterError {
     NoSavingThrows,
     /// The save modifier does not fit a check modifier. Player Core pg. 404, Saving Throws.
     SaveOverflow(ArithmeticOverflow),
+    /// The creature has no skill training. Player Core pg. 405, Skill Checks.
+    NoSkills,
+    /// The skill modifier does not fit a check modifier. Player Core pg. 405, Skill Checks.
+    SkillOverflow(ArithmeticOverflow),
     /// The target is undetected, so it cannot be chosen. Nothing is spent and no die is drawn.
     ///
     /// Player Core pg. 447, Undetected. Player Core pg. 418, Strike.
     CannotTarget,
+    /// Persistent damage was gained with an amount below 1. Nothing is stored and no die is drawn.
+    ///
+    /// Player Core pg. 445, Persistent Damage.
+    NonPositivePersistent,
 }
 
 /// Where the round sits between turns.
@@ -299,6 +309,7 @@ pub struct Encounter {
 
 mod delay_ready;
 mod reactions;
+mod skills;
 mod strike;
 mod turns;
 mod vitals;

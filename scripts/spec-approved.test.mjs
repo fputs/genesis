@@ -937,10 +937,14 @@ test("A failed pull request lookup fails closed", async () => {
   });
 });
 
-test("A new push cancels the previous run", () => {
-  const job = jobBlock(readFileSync(workflowPath, "utf8"), "spec-approved");
-  assert.match(job, /group: spec-approved-\$\{\{ github\.event\.pull_request\.number \}\}/);
-  assert.match(job, /cancel-in-progress:\s*true/);
+test("The spec-approved job declares no concurrency", () => {
+  const yaml = readFileSync(workflowPath, "utf8");
+  const job = jobBlock(yaml, "spec-approved");
+  const header = yaml.slice(0, yaml.indexOf("jobs:"));
+  assert.equal(job.includes("concurrency:"), false);
+  assert.equal(header.includes("concurrency:"), false);
+  assert.equal(yaml.includes("cancel-in-progress"), false);
+  assert.equal(yaml.includes("queue:"), false);
 });
 
 test("The digest is sha-256 of the canonical bytes", async () => {

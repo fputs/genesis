@@ -881,6 +881,7 @@ mod tests {
                 damage_bonus: 4,
                 reach_feet: ReachFeet::new(5).expect("reach 5"),
                 agile: false,
+                damage_type: crate::damage::DamageType::Slashing,
             },
             shield: None,
             stealth_dc: None,
@@ -888,6 +889,8 @@ mod tests {
             aid_rank: None,
             uses_dying_rules: None,
             saves: None,
+            skills: None,
+            defenses: crate::damage::DamageDefenses::empty(),
         };
         let creature = derive(&CharacterBuild::try_new(parts).expect("valid build"));
         let mut state = new_combatant_state(CombatantId(1), &creature);

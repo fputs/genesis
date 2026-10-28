@@ -158,7 +158,7 @@ fn a_legal_shield_block_changes_shield_hit_points() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.raise_shield(id(1)).expect("raise");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("attacker"), id(2));
     let outcome = rolled(
         encounter
@@ -195,7 +195,7 @@ fn the_same_aid_twice_matches() {
         );
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-        encounter.end_turn().expect("end");
+        encounter.end_turn(&mut dice).expect("end");
         assert_eq!(encounter.start_turn().expect("ally"), id(2));
         let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
         assert_eq!(dice.remaining(), 0);
@@ -509,7 +509,7 @@ fn a_participant_starts_not_prepared() {
 /// Player Core, "Step 1: Start Your Turn".
 #[test]
 fn another_turn_does_not_clear_preparation() {
-    let (mut encounter, dice) = begin(
+    let (mut encounter, mut dice) = begin(
         vec![
             aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
             aided(2, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
@@ -518,7 +518,7 @@ fn another_turn_does_not_clear_preparation() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     assert_eq!(
         preparation(&encounter, 1),
@@ -540,9 +540,9 @@ fn your_next_turn_clears_preparation() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
-    encounter.end_turn().expect("end ally");
+    encounter.end_turn(&mut dice).expect("end ally");
     assert_eq!(encounter.start_turn().expect("next"), id(1));
     assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
     assert_eq!(actions(&encounter, 1), 3);
@@ -556,7 +556,7 @@ fn your_next_turn_clears_preparation() {
 /// Player Core, "Step 1: Start Your Turn".
 #[test]
 fn an_unused_preparation_expires_at_the_next_start() {
-    let (mut encounter, dice) = begin(
+    let (mut encounter, mut dice) = begin(
         vec![
             aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
             aided(2, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
@@ -565,9 +565,9 @@ fn an_unused_preparation_expires_at_the_next_start() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
-    encounter.end_turn().expect("end ally");
+    encounter.end_turn(&mut dice).expect("end ally");
     assert_eq!(encounter.start_turn().expect("next"), id(1));
     assert_eq!(preparation(&encounter, 1), AidPreparation::NotPrepared);
     assert!(reaction(&encounter, 1));
@@ -587,7 +587,7 @@ fn a_successful_aid_clears_preparation() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     let first = encounter.aid(id(1), id(2), &mut dice).expect("aid");
     assert_eq!(first.total, 17);
@@ -629,7 +629,7 @@ fn aiding_a_different_ally_is_notthepreparedally() {
 /// Player Core, "Step 1: Start Your Turn".
 #[test]
 fn round_overflow_keeps_preparation() {
-    let (mut encounter, dice) = begin(
+    let (mut encounter, mut dice) = begin(
         vec![
             aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
             pc(2, 0, 20, 11),
@@ -638,10 +638,10 @@ fn round_overflow_keeps_preparation() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     encounter.round = 4_294_967_295;
-    let error = encounter.end_turn().expect_err("overflow");
+    let error = encounter.end_turn(&mut dice).expect_err("overflow");
     assert_eq!(error, EncounterError::RoundOverflow);
     assert_eq!(
         preparation(&encounter, 1),
@@ -663,7 +663,7 @@ fn a_success_returns_plus_1() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     let hp = hit_points(&encounter, 2);
     assert_eq!(actions(&encounter, 1), 0);
@@ -695,7 +695,7 @@ fn a_master_critical_success_returns_plus_3() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
     assert_eq!(outcome.total, 25);
@@ -717,7 +717,7 @@ fn a_legendary_critical_success_returns_plus_4() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
     assert_eq!(outcome.total, 25);
@@ -739,7 +739,7 @@ fn a_failure_returns_zero() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
     assert_eq!(outcome.total, 11);
@@ -763,7 +763,7 @@ fn a_critical_failure_returns_minus_1() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     let outcome = encounter.aid(id(1), id(2), &mut dice).expect("aid");
     assert_eq!(outcome.total, 5);
@@ -790,7 +790,7 @@ fn aid_against_a_dead_ally_is_rejected() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     set_prepared(&mut encounter, 1, 2);
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("third"), id(3));
     assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
     assert!(reaction(&encounter, 1));
@@ -824,7 +824,7 @@ fn an_ally_who_dies_after_preparation_is_rejected() {
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
     assert_eq!(actions(&encounter, 1), 2);
     encounter.set_vital_for_test(id(2), Vital::Dead);
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("third"), id(3));
     let error = encounter.aid(id(1), id(2), &mut dice).expect_err("died");
     assert_eq!(error, EncounterError::AllyDead);
@@ -1046,7 +1046,7 @@ fn ready_from_encounter_surfaces_allydead() {
 /// Player Core, "Reactions in Encounters".
 #[test]
 fn a_trigger_that_never_fires_spends_nothing() {
-    let (mut encounter, dice) = begin(
+    let (mut encounter, mut dice) = begin(
         vec![
             aided(1, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
             aided(2, Side::Pc, 0, Some(7), Some(AidRank::BelowMaster)),
@@ -1056,9 +1056,9 @@ fn a_trigger_that_never_fires_spends_nothing() {
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
     assert!(reaction(&encounter, 1));
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
-    encounter.end_turn().expect("end ally");
+    encounter.end_turn(&mut dice).expect("end ally");
     assert_eq!(encounter.start_turn().expect("next"), id(1));
     assert_eq!(dice.remaining(), 1);
     assert!(reaction(&encounter, 1));
@@ -1100,7 +1100,7 @@ fn aid_does_not_change_the_attack_count() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     assert_eq!(encounter.attack_count(id(1)).expect("count"), 0);
     encounter.aid(id(1), id(2), &mut dice).expect("aid");
@@ -1154,7 +1154,7 @@ fn an_unknown_ally_rolls_nothing() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert!(reaction(&encounter, 1));
     assert!(encounter.turn_open().is_none());
     let error = encounter.aid(id(1), id(9), &mut dice).expect_err("unknown");
@@ -1176,7 +1176,7 @@ fn aid_with_no_open_turn_is_turnnotopen() {
     );
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert!(reaction(&encounter, 1));
     assert!(encounter.turn_open().is_none());
     let error = encounter.aid(id(1), id(2), &mut dice).expect_err("closed");
@@ -1204,7 +1204,7 @@ fn turnnotopen_wins_over_notconscious() {
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
     encounter.set_vital_for_test(id(1), Vital::Unconscious);
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert!(encounter.turn_open().is_none());
     let error = encounter.aid(id(1), id(2), &mut dice).expect_err("closed");
     assert_eq!(error, EncounterError::TurnNotOpen);
@@ -1243,7 +1243,7 @@ fn a_dying_aider_returns_notconscious() {
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
     encounter.set_vital_for_test(id(1), Vital::Dying(dying_value()));
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     assert!(reaction(&encounter, 1));
     let error = encounter.aid(id(1), id(2), &mut dice).expect_err("dying");
@@ -1267,7 +1267,7 @@ fn a_dead_aider_returns_notconscious() {
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
     encounter.set_vital_for_test(id(1), Vital::Dead);
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
     assert!(reaction(&encounter, 1));
     let error = encounter.aid(id(1), id(2), &mut dice).expect_err("dead");
@@ -1422,6 +1422,7 @@ fn a_reaction_spent_by_shield_block_still_reports_aidoverflow() {
             damage_bonus: 0,
             reach_feet: ReachFeet::new(5).expect("reach"),
             agile: false,
+            damage_type: crate::damage::DamageType::Slashing,
         },
         shield: Some(shield),
         stealth_dc: None,
@@ -1429,6 +1430,8 @@ fn a_reaction_spent_by_shield_block_still_reports_aidoverflow() {
         aid_rank: Some(AidRank::BelowMaster),
         uses_dying_rules: Some(false),
         saves: None,
+        skills: None,
+        defenses: crate::damage::DamageDefenses::empty(),
     };
     let aider = participant(
         1,
@@ -1442,9 +1445,9 @@ fn a_reaction_spent_by_shield_block_still_reports_aidoverflow() {
     assert_eq!(encounter.start_turn().expect("start"), id(1));
     encounter.prepare_to_aid(id(1), id(2)).expect("prepare");
     encounter.raise_shield(id(1)).expect("raise");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("ally"), id(2));
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("attacker"), id(3));
     encounter
         .strike(
@@ -2512,7 +2515,7 @@ fn a_reactive_strike_off_your_turn_leaves_the_count() {
             &mut dice,
         )
         .expect("second");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("next"), id(2));
     assert_eq!(encounter.attack_count(id(1)).expect("count"), 2);
     assert_eq!(actions(&encounter, 1), 0);

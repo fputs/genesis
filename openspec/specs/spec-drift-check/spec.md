@@ -761,7 +761,7 @@ The repository SHALL contain table-driven tests that build one temporary git rep
 
 ### Requirement: Edited spec-drift workflow
 
-`.github/workflows/spec-drift-edited.yml` SHALL run `node --test scripts/spec-drift-check.test.mjs` before `node scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`. Its only job SHALL be named exactly `spec-drift`. It SHALL set `permissions: contents: read`. Its job-level concurrency SHALL be the shared spec-drift group, with `cancel-in-progress: true`.
+`.github/workflows/spec-drift-edited.yml` SHALL run `node --test scripts/spec-drift-check.test.mjs` before `node scripts/spec-drift-check.mjs` on pull_request `edited` targeting `main`. Its only job SHALL be named exactly `spec-drift`. It SHALL set `permissions: contents: read`. That job SHALL NOT declare a concurrency block.
 
 #### Scenario: The edited workflow reuses the spec-drift job name
 
@@ -771,8 +771,7 @@ The repository SHALL contain table-driven tests that build one temporary git rep
 - **AND** its only job is named `spec-drift`
 - **AND** that job runs `node --test scripts/spec-drift-check.test.mjs` before `node scripts/spec-drift-check.mjs`
 - **AND** permissions are `contents: read`
-- **AND** that job's concurrency group is `spec-drift-${{ github.event.pull_request.number || github.sha }}`
-- **AND** `cancel-in-progress` is true
+- **AND** that job does not declare a concurrency block
 - **AND** the workflow has no workflow-level concurrency group
 
 ### Requirement: Git locale is C
@@ -880,27 +879,6 @@ A reference that is not exactly the prefix, one U+0020, and one kebab id SHALL f
 - **THEN** the job fails
 - **AND** the log includes `spec-drift: invalid change id add-dice-and-checks extra`
 - **AND** the log does not include `spec-drift: code change missing OpenSpec-Change`
-
-### Requirement: Shared spec-drift concurrency
-
-The `spec-drift` job in `.github/workflows/ci.yml` and in `.github/workflows/spec-drift-edited.yml` SHALL share job-level group `spec-drift-${{ github.event.pull_request.number || github.sha }}` with `cancel-in-progress: true`. The newest run in the group SHALL survive, and older pending or running runs SHALL be cancelled. The Cargo job SHALL NOT use that group. A push SHALL NOT join a pull request group.
-
-#### Scenario: Both spec-drift jobs share a pull request group
-
-- **GIVEN** `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml`
-- **WHEN** the `spec-drift` job in each file is read
-- **THEN** each job sets concurrency group `spec-drift-${{ github.event.pull_request.number || github.sha }}`
-- **AND** each sets `cancel-in-progress: true`
-- **AND** `ci.yml` does not set that group at workflow level
-- **AND** the Cargo `ci` job has no concurrency key
-- **AND** `spec-drift-edited.yml` has no workflow-level concurrency group
-
-#### Scenario: A push does not join a pull request group
-
-- **GIVEN** a push event has no pull request number
-- **WHEN** the `ci.yml` spec-drift concurrency group is evaluated
-- **THEN** the group uses `github.sha`
-- **AND** it is not a pull request group
 
 ### Requirement: Fixture cleanup retries ENOTEMPTY
 
@@ -1374,3 +1352,47 @@ On an OpenSpec-Refactor pull request, an in-file `#[cfg(test)]` block in a non-t
 - **WHEN** review checks the move
 - **THEN** that new test is not a change to the moved asserting logic
 - **AND** the moved block is allowed
+
+### Requirement: Spec-drift declares no concurrency
+
+The `spec-drift` job in `.github/workflows/ci.yml` and in `.github/workflows/spec-drift-edited.yml` SHALL NOT declare a concurrency block. `ci.yml` SHALL NOT declare workflow-level concurrency. The Cargo `ci` job SHALL NOT gain a concurrency key. A push SHALL NOT cancel an in-progress pull request `spec-drift` run.
+
+#### Scenario: The spec-drift jobs declare no concurrency
+
+- **GIVEN** `.github/workflows/ci.yml` and `.github/workflows/spec-drift-edited.yml`
+- **WHEN** each `spec-drift` job is read
+- **THEN** neither job contains a `concurrency:` line
+- **AND** neither file contains `cancel-in-progress` or `queue:`
+- **AND** `ci.yml` has no workflow-level concurrency block
+
+#### Scenario: A push does not cancel a pull request run
+
+- **GIVEN** the `spec-drift` job in `.github/workflows/ci.yml` has no concurrency block
+- **WHEN** a push to `main` starts while a pull request `spec-drift` job is in progress
+- **THEN** the pull request job is not cancelled
+
+#### Scenario: The Cargo job has no concurrency key
+
+- **GIVEN** `.github/workflows/ci.yml`
+- **WHEN** the Cargo `ci` job is read
+- **THEN** that job has no concurrency key
+- **AND** the workflow has no workflow-level concurrency block
+
+### Requirement: A same-sha burst cancels nothing
+
+A `synchronize`, an `edited`, and a review `submitted` on one head sha SHALL NOT leave a cancelled required check on that sha. The required checks are `ci`, `pr-hygiene`, `spec-drift`, and `spec-approved`. The `ci` job, both `spec-drift` jobs, the `pr-hygiene` workflow, and the `spec-approved` job SHALL NOT declare a concurrency block.
+
+#### Scenario: Three same-sha events leave no cancelled check
+
+- **GIVEN** one head sha
+- **AND** `synchronize`, then `edited`, then `pull_request_review` `submitted` arrive while earlier runs are still going
+- **AND** `.github/workflows/ci.yml`, `.github/workflows/spec-drift-edited.yml`, `.github/workflows/pr-hygiene.yml`, and `.github/workflows/spec-approved.yml` declare no concurrency block on `ci`, `spec-drift`, `pr-hygiene`, or `spec-approved`
+- **WHEN** those runs finish
+- **THEN** no required check on that sha has conclusion cancelled
+
+#### Scenario: No required check declares concurrency
+
+- **GIVEN** `.github/workflows/ci.yml`, `.github/workflows/spec-drift-edited.yml`, `.github/workflows/pr-hygiene.yml`, and `.github/workflows/spec-approved.yml`
+- **WHEN** each file is read
+- **THEN** none of the four files contains a `concurrency:` line
+- **AND** none of the four files contains `cancel-in-progress` or `queue:`

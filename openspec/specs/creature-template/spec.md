@@ -84,12 +84,13 @@ Folding a list of contributions SHALL start from zero and SHALL return a Creatur
 
 ### Requirement: Derived statistics and one melee strike
 
-derive SHALL put the authored Hit Points, Armor Class, Perception modifier, and Speed in feet on the Creature, and SHALL include exactly one melee strike. The strike SHALL record attack bonus, damage dice, die faces, damage bonus, reach in feet, and an agile flag. Those numbers SHALL NOT be recomputed from level or from roster size.
+derive SHALL put the authored Hit Points, Armor Class, Perception modifier, and Speed in feet on the Creature, and SHALL include exactly one melee strike. The strike SHALL record attack bonus, damage dice, die faces, damage bonus, reach in feet, an agile flag, and one damage type. Those numbers SHALL NOT be recomputed from level or from roster size.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core, Hit Points)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2319 (Player Core pg. 410, Hit Points, Healing, and Dying)
 **Source**: https://2e.aonprd.com/Actions.aspx?ID=2306 (Player Core pg. 418, Strike)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2301 (Player Core pg. 406, Damage Rolls)
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, agile)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2308 (Player Core pg. 407, Damage Types)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2289 (Player Core pg. 402, Multiple Attack Penalty)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2345 (Player Core pg. 420, Speed)
 
 #### Scenario: Authored numbers are kept
@@ -100,15 +101,15 @@ derive SHALL put the authored Hit Points, Armor Class, Perception modifier, and 
 
 #### Scenario: Strike fields are kept
 
-- **GIVEN** a melee strike with attack bonus +7, damage 1d8+4, reach 5 feet, and agile false
+- **GIVEN** a melee strike with attack bonus +7, damage 1d8+4, reach 5 feet, agile false, and damage type Slashing
 - **WHEN** derive is called
-- **THEN** the Creature's strike has attack bonus +7, 1 die of 8 faces, bonus +4, reach 5, and agile false
+- **THEN** the Creature's strike has attack bonus +7, 1 die of 8 faces, bonus +4, reach 5, agile false, and damage type Slashing
 
 #### Scenario: The agile flag is kept
 
-- **GIVEN** a melee strike with agile true, attack bonus +6, damage 1d6+2, and reach 5 feet
+- **GIVEN** a melee strike with agile true, attack bonus +6, damage 1d6+2, reach 5 feet, and damage type Piercing
 - **WHEN** derive is called
-- **THEN** the agile flag is true and the other strike numbers are unchanged
+- **THEN** the agile flag is true, the damage type is Piercing, and the other strike numbers are unchanged
 
 ### Requirement: Shield bonus is stored per shield
 
@@ -391,9 +392,9 @@ uses_dying_rules SHALL be a build input and SHALL default to false when omitted.
 
 ### Requirement: Penalties leave at least 1 damage
 
-When penalties on an attack reduce a damage total to 0 or below, the roll SHALL deal 1 damage. That floor SHALL apply only to penalties on an attack and SHALL be applied before critical doubling, so the smallest critical hit SHALL deal 2 damage. RAW does not state that order; this change applies DEV-14. An overflowing total SHALL return a typed error and SHALL NOT change Hit Points. Resistance has a separate floor of 0, stays out of scope, and SHALL NOT be applied.
+When penalties on an attack reduce a damage total to 0 or below, the roll SHALL deal 1 damage. That floor SHALL apply only to penalties on an attack and SHALL be applied before critical doubling, so the smallest critical hit SHALL deal 2 damage. RAW does not state that order; this change applies DEV-14. An overflowing total SHALL return a typed error and SHALL NOT change Hit Points. Resistance is applied after that roll and MAY reduce the result to 0.
 
-**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, penalties on an attack)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2302 (Player Core pg. 406, Step 1: Roll Damage Dice)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2307 (Player Core pg. 407, Doubling and Halving)
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2318 (Player Core pg. 408, resistance floor of 0)
 **Source**: DEV-14. RAW does not state whether the floor is before or after doubling; this change applies it first.
@@ -517,3 +518,41 @@ derive SHALL copy optional save training and SHALL NOT roll. Authored Armor Clas
 - **WHEN** the contributions are folded in that order
 
 - **THEN** the Creature's Fortitude training is trained, level 1, and Constitution modifier +2
+
+### Requirement: derive copies skill training
+
+derive SHALL copy optional skill training and SHALL NOT roll. Authored Armor Class, Perception, the strike, and saves SHALL stay authored. None SHALL stay none. A later contribution SHALL replace training. Skill attributes SHALL NOT be read from saves (DEV-59, proposed).
+
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2134 (Player Core pg. 225, Key Attribute)
+**Source**: https://2e.aonprd.com/Rules.aspx?ID=2300 (Player Core pg. 405, Skill Checks)
+
+#### Scenario: Skill training leaves Armor Class authored
+
+- **GIVEN** a build with Armor Class 18, Perception modifier +5, attack bonus +7, and Athletics trained at level 1 with Strength modifier +2
+- **WHEN** derive is called
+- **THEN** Armor Class is 18, Perception is +5, and the strike attack bonus is +7
+- **AND** the Athletics training is level 1, Strength modifier +2, and trained
+
+#### Scenario: Omitted skill training stays omitted
+
+- **GIVEN** a build with no skill training and a scripted natural 10
+- **WHEN** derive is called
+- **THEN** the Creature has no skill training and the scripted 10 is unused
+
+#### Scenario: The same skill build twice matches
+
+- **GIVEN** two equal builds, each with Acrobatics expert at level 5 and Dexterity modifier -1
+- **WHEN** derive is called on each
+- **THEN** the two Creatures' skill training are equal
+
+#### Scenario: A later contribution replaces skill training
+
+- **GIVEN** a base contribution with untrained Athletics at level 1 and Strength modifier +0, and a later contribution with trained Athletics at level 1 and Strength modifier +2
+- **WHEN** the contributions are folded in that order
+- **THEN** the Creature's Athletics training is trained, level 1, and Strength modifier +2
+
+#### Scenario: Skill Dexterity is not the save Dexterity
+
+- **GIVEN** a build whose saves have Dexterity modifier +1 and whose skills have Dexterity modifier +4, with Acrobatics untrained at level 1
+- **WHEN** derive is called
+- **THEN** the save Dexterity modifier is +1 and the skill Dexterity modifier is +4
