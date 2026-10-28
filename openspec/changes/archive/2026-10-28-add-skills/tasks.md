@@ -63,4 +63,4 @@ Write section 2 before filling the production bodies. Commit those tests before 
 
 ## 5. Archive
 
-- [ ] 5.1 This is the last commit, right before merge, and only after Architect and QA have both passed that head. Run `openspec archive add-skills --yes` with that exact commit subject. Check this box only in that commit. Do not archive the spec draft. Verify the change is under `openspec/changes/archive/` and is no longer active, and that the archive commit does not edit `CHANGELOG.md`
+- [x] 5.1 This is the last commit, right before merge, and only after Architect and QA have both passed that head. Run `openspec archive add-skills --yes` with that exact commit subject. Check this box only in that commit. Do not archive the spec draft. Verify the change is under `openspec/changes/archive/` and is no longer active, and that the archive commit does not edit `CHANGELOG.md`
