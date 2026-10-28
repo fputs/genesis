@@ -179,6 +179,20 @@ pub enum EncounterError {
     ///
     /// Player Core pg. 445, Persistent Damage.
     NonPositivePersistent,
+    /// The creature has no spellcasting entry. Player Core pg. 403, Spell Attack Rolls.
+    NoSpellcasting,
+    /// The target is farther than the spell's range. Nothing is spent and no die is drawn.
+    ///
+    /// Player Core pg. 363, Telekinetic Projectile. Player Core pg. 426, Range and Reach.
+    OutOfSpellRange,
+    /// The cone length is not the 15-foot template. No squares are returned.
+    ///
+    /// Player Core pg. 428, Cone.
+    UnsupportedCone,
+    /// The same creature was listed twice. Nothing is spent and no die is drawn.
+    ///
+    /// Player Core pg. 428, Areas.
+    DuplicateAreaTarget,
 }
 
 /// Where the round sits between turns.
@@ -310,10 +324,12 @@ pub struct Encounter {
 mod delay_ready;
 mod reactions;
 mod skills;
+mod spell;
 mod strike;
 mod turns;
 mod vitals;
 
+pub use spell::{BreatheFireOutcome, SpellAttackHit, SpellAttackOutcome};
 pub use turns::begin_encounter;
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, Aid, Delay, Ready, and saving throws.
+//! Pathfinder Remaster dice, checks, modifiers, grid movement, positioning, detection, creature templates, encounters, dying, shields, reactive strikes, Aid, Delay, Ready, saving throws, skills, damage types, and spells.
 //!
 //! Callers inject [`Dice`]. [`derive`] does not roll.
 //! `ScriptedDice` is compiled for tests and the `test-support` feature.
@@ -35,6 +35,7 @@
 //!     saves: None,
 //!     skills: None,
 //!     defenses: DamageDefenses::empty(),
+//!     spellcasting: None,
 //! })
 //! .expect("build");
 //! let creature = derive(&build);
@@ -70,8 +71,11 @@
 //!     AidOutcome,
 //!     AidPreparation,
 //!     AidRank,
+//!     Aim,
+//!     AreaCreature,
 //!     ArithmeticOverflow,
 //!     BonusType,
+//!     BreatheFireOutcome,
 //!     BuildParts,
 //!     CharacterBuild,
 //!     CombatantId,
@@ -151,6 +155,9 @@
 //!     Skills,
 //!     Size,
 //!     SourceId,
+//!     SpellAttackHit,
+//!     SpellAttackOutcome,
+//!     Spellcasting,
 //!     Square,
 //!     SquareEvent,
 //!     Statistic,
@@ -281,6 +288,29 @@
 //!     &[rules::Modifier],
 //!     &mut rules::SeededDice,
 //! ) -> Result<rules::SkillRoll, rules::EncounterError> = rules::Encounter::recall_knowledge;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::Square,
+//!     rules::Size,
+//!     rules::Aim,
+//!     &[rules::AreaCreature],
+//!     &[rules::Modifier],
+//!     &mut rules::SeededDice,
+//! ) -> Result<rules::BreatheFireOutcome, rules::EncounterError> = rules::Encounter::breathe_fire;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::CombatantId,
+//!     rules::Square,
+//!     rules::Square,
+//!     rules::Size,
+//!     rules::Size,
+//!     &[rules::Modifier],
+//!     &rules::Detections,
+//!     &mut rules::SeededDice,
+//! ) -> Result<rules::SpellAttackOutcome, rules::EncounterError> =
+//!     rules::Encounter::telekinetic_projectile;
 //! ```
 //!
 //! Hit points and a condition id stay readable.
@@ -942,6 +972,7 @@ mod ready;
 mod save;
 mod shield;
 mod skill;
+mod spell;
 
 pub use aid::{AidCircumstance, AidOutcome, AidPreparation, AidRank};
 pub use check::{ArithmeticOverflow, DegreeOfSuccess};
@@ -955,8 +986,9 @@ pub use detection::{Concealment, Detection, DetectionError, Detections, Relation
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
 pub use dying::InitiativeMove;
 pub use encounter::{
-    Agility, Encounter, EncounterError, LostStrike, Participant, Side, StrikeDelivery,
-    StrikeOutcome, StrikeProfile, TurnSlot, begin_encounter,
+    Agility, BreatheFireOutcome, Encounter, EncounterError, LostStrike, Participant, Side,
+    SpellAttackHit, SpellAttackOutcome, StrikeDelivery, StrikeOutcome, StrikeProfile, TurnSlot,
+    begin_encounter,
 };
 pub use modifiers::{
     BonusType, ConditionId, Modifier, ModifierError, PenaltyType, SourceId, Statistic,
@@ -981,6 +1013,7 @@ pub use ready::{
 pub use save::{LEVEL_RANGE, Level, LevelError, Proficiency, Save, SaveRoll, SavingThrows};
 pub use shield::ShieldBlock;
 pub use skill::{Skill, SkillRoll, Skills};
+pub use spell::{Aim, AreaCreature, Spellcasting};
 
 #[cfg(test)]
 mod facade_check;

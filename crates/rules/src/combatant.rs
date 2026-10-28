@@ -181,6 +181,8 @@ pub struct BuildParts {
     pub skills: Option<crate::skill::Skills>,
     /// Immunities, weaknesses, and resistances. Player Core pg. 408, Immunity, Weakness, and Resistance.
     pub defenses: crate::damage::DamageDefenses,
+    /// Optional spellcasting. `None` cannot cast. Player Core pg. 403, Spell Attack Rolls.
+    pub spellcasting: Option<crate::spell::Spellcasting>,
 }
 
 /// Immutable inputs for one character. No setters, and no combatant id.
@@ -308,6 +310,8 @@ pub(crate) struct Contribution {
     pub damage_type: Option<crate::damage::DamageType>,
     /// Replaces defenses when `Some`. Player Core pg. 408, Immunity, Weakness, and Resistance.
     pub defenses: Option<crate::damage::DamageDefenses>,
+    /// Replaces spellcasting when `Some`. Player Core pg. 403, Spell Attack Rolls.
+    pub spellcasting: Option<crate::spell::Spellcasting>,
 }
 
 /// Copies the authored numbers as the first layer.
@@ -335,6 +339,7 @@ pub(crate) fn base_contribution(build: &CharacterBuild) -> Contribution {
         skills: parts.skills,
         damage_type: Some(parts.strike.damage_type),
         defenses: Some(parts.defenses.clone()),
+        spellcasting: parts.spellcasting,
     }
 }
 
@@ -378,6 +383,7 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
     let mut skills = None;
     let mut damage_type = None;
     let mut defenses = None;
+    let mut spellcasting = None;
 
     for layer in ordered {
         hit_points = hit_points
@@ -437,6 +443,9 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
         if layer.defenses.is_some() {
             defenses.clone_from(&layer.defenses);
         }
+        if let Some(value) = layer.spellcasting {
+            spellcasting = Some(value);
+        }
     }
 
     let damage_dice = DieCount::new(damage_dice).map_err(|_| FoldError::DamageDie)?;
@@ -467,6 +476,7 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
         saves,
         skills,
         defenses: defenses.unwrap_or_else(crate::damage::DamageDefenses::empty),
+        spellcasting,
     })
 }
 
@@ -486,6 +496,7 @@ fn creature_from_validated(build: &CharacterBuild) -> Creature {
         saves: parts.saves,
         skills: parts.skills,
         defenses: parts.defenses.clone(),
+        spellcasting: parts.spellcasting,
     }
 }
 
@@ -531,6 +542,10 @@ pub struct Creature {
     pub skills: Option<crate::skill::Skills>,
     /// Immunities, weaknesses, and resistances. Player Core pg. 408, Immunity, Weakness, and Resistance.
     pub defenses: crate::damage::DamageDefenses,
+    /// Spellcasting copied from the build. `None` cannot cast.
+    ///
+    /// Player Core pg. 403, Spell Attack Rolls.
+    pub spellcasting: Option<crate::spell::Spellcasting>,
 }
 
 /// A dying value of 1, 2, or 3. Dying 4 or higher is death and is not stored.
@@ -888,7 +903,47 @@ mod tests {
             saves: None,
             skills: None,
             defenses: crate::damage::DamageDefenses::empty(),
+            spellcasting: None,
         }
+    }
+
+    /// Player Core pg. 403, Spell Attack Rolls.
+    #[test]
+    fn omitted_spellcasting_stays_omitted() {
+        let dice = crate::dice::ScriptedDice::new([8]);
+        let creature = derive(&build(fighter_parts()));
+        assert!(creature.spellcasting.is_none());
+        assert_eq!(dice.remaining(), 1);
+    }
+
+    /// Player Core pg. 403, Spell Attack Rolls.
+    #[test]
+    fn a_present_entry_is_copied() {
+        let mut parts = fighter_parts();
+        let entry = crate::spell::Spellcasting {
+            level: crate::save::Level::new(1).expect("level"),
+            attribute: 4,
+            proficiency: crate::save::Proficiency::Trained,
+        };
+        parts.spellcasting = Some(entry);
+        let creature = derive(&build(parts));
+        assert_eq!(creature.spellcasting, Some(entry));
+        assert_eq!(creature.armor_class, 18);
+        assert_eq!(creature.perception, 5);
+        assert_eq!(creature.strike.attack_bonus, 7);
+    }
+
+    /// Player Core pg. 403, Spell Attack Rolls.
+    #[test]
+    fn the_same_spellcasting_build_twice_matches() {
+        let mut parts = fighter_parts();
+        parts.spellcasting = Some(crate::spell::Spellcasting {
+            level: crate::save::Level::new(1).expect("level"),
+            attribute: 4,
+            proficiency: crate::save::Proficiency::Trained,
+        });
+        let built = build(parts);
+        assert_eq!(derive(&built), derive(&built));
     }
 
     fn build(parts: BuildParts) -> CharacterBuild {

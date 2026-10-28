@@ -51,6 +51,7 @@ fn creature(
         saves: None,
         skills: None,
         defenses: crate::damage::DamageDefenses::empty(),
+        spellcasting: None,
     };
     derive(&CharacterBuild::try_new(parts).expect("build"))
 }
@@ -284,6 +285,7 @@ fn aided(
         saves: None,
         skills: None,
         defenses: crate::damage::DamageDefenses::empty(),
+        spellcasting: None,
     };
     participant(
         value,
@@ -412,6 +414,7 @@ mod delay_ready_tests;
 mod reactions_tests;
 mod save_tests;
 mod skill_tests;
+mod spell_tests;
 mod strike_tests;
 mod target_delay_tests;
 mod turns_tests;

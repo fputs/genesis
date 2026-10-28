@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Cast a Spell for Breathe Fire and Telekinetic Projectile: a spell attack modifier and spell DC, 15-foot cones, and burst, line, and emanation membership on the existing grid. ([#92](https://github.com/fputs/genesis/pull/92))
 - Skill checks and Recall Knowledge. A skill check spends nothing. Recall Knowledge spends one action and returns the degree. ([#91](https://github.com/fputs/genesis/pull/91))
 - Damage types on a damage instance, immunity then the highest weakness then the highest resistance, and persistent damage at the end of the creature's turn with a DC 15 flat check. ([#93](https://github.com/fputs/genesis/pull/93))
 - ORC notice in `LICENSES/ORC-NOTICE` for the license reference, Licensed Material, Reserved Material, and Attribution, and the note that Genesis does not host player-made campaigns. ([#85](https://github.com/fputs/genesis/pull/85))

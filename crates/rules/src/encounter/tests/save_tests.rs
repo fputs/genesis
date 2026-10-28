@@ -112,6 +112,7 @@ fn body(spec: Body) -> Participant {
         saves: spec.saves,
         skills: None,
         defenses: crate::damage::DamageDefenses::empty(),
+        spellcasting: None,
     })
     .expect("build");
     let mut person = participant(spec.id, Side::Pc, derive(&built));

@@ -458,6 +458,7 @@ mod tests {
             saves: None,
             skills: None,
             defenses: crate::damage::DamageDefenses::empty(),
+            spellcasting: None,
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))
     }

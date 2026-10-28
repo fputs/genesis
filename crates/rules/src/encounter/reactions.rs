@@ -599,6 +599,10 @@ pub(super) fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::SkillOverflow(_) => ReactiveError::NoReaction,
         EncounterError::CannotTarget => ReactiveError::CannotTarget,
         EncounterError::NonPositivePersistent => ReactiveError::NoReaction,
+        EncounterError::NoSpellcasting => ReactiveError::NoReaction,
+        EncounterError::OutOfSpellRange => ReactiveError::NoReaction,
+        EncounterError::UnsupportedCone => ReactiveError::NoReaction,
+        EncounterError::DuplicateAreaTarget => ReactiveError::NoReaction,
     }
 }
 
@@ -671,6 +675,12 @@ pub(super) fn as_damage_overflow(error: EncounterError) -> ReactiveError {
         EncounterError::SkillOverflow(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::CannotTarget => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::NonPositivePersistent => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
+        EncounterError::NoSpellcasting => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::OutOfSpellRange => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::UnsupportedCone => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::DuplicateAreaTarget => {
             ReactiveError::DamageOverflow(ModifierError::Overflow)
         }
     }
