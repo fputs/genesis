@@ -104,6 +104,8 @@ fn profile(attack: i32, agility: Agility, dice: u8, face: u8, bonus: i32) -> Str
         damage_faces: faces(face),
         damage_bonus: bonus,
         damage_type: crate::damage::DamageType::Slashing,
+        attack_basis: crate::conditions::AttackBasis::StrengthMelee,
+        damage_basis: crate::conditions::DamageBasis::Strength,
     }
 }
 
@@ -407,6 +409,7 @@ fn standard_pair(reach: i32, actor_hp: i32, actor_ac: i32, actor_side: Side) -> 
     ]
 }
 
+mod conditions_tests;
 mod damage_tests;
 mod delay_ready_tests;
 mod reactions_tests;

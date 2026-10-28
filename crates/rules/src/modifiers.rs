@@ -99,6 +99,26 @@ impl ConditionId {
     ///
     /// Player Core pg. 446, Unconscious.
     pub const UNCONSCIOUS: Self = Self(4);
+
+    /// Off-guard. The private id inside Armor Class modifiers uses this value.
+    ///
+    /// Player Core pg. 445, Off-Guard.
+    pub const OFF_GUARD: Self = Self(1);
+
+    /// Prone's attack penalty. Its Armor Class penalty uses [`Self::OFF_GUARD`].
+    ///
+    /// Player Core pg. 445, Prone.
+    pub const PRONE: Self = Self(5);
+
+    /// Clumsy. A status penalty equal to the value on Dexterity-based rolls.
+    ///
+    /// Player Core pg. 442, Clumsy.
+    pub const CLUMSY: Self = Self(6);
+
+    /// Enfeebled. A status penalty equal to the value on Strength-based rolls.
+    ///
+    /// Player Core pg. 443, Enfeebled.
+    pub const ENFEEBLED: Self = Self(7);
 }
 
 /// The statistic a modifier applies to. Two statistics do not share a stack.
@@ -178,7 +198,7 @@ enum ModifierKind {
 /// attack check's circumstance penalty, and the other producers in this module use a
 /// reserved variant, so no `SourceId` a caller can construct names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum ModifierSource {
+pub(crate) enum ModifierSource {
     Caller(SourceId),
     MultipleAttackPenalty,
     Prone,
@@ -194,6 +214,18 @@ enum ModifierSource {
     RangePenalty,
     /// The attack check total's circumstance penalty. Player Core, Penalties.
     AttackCircumstance,
+    /// Tracked frightened. Player Core pg. 444, Frightened.
+    ConditionFrightened,
+    /// Tracked sickened. Player Core pg. 446, Sickened.
+    ConditionSickened,
+    /// Tracked clumsy. Player Core pg. 442, Clumsy.
+    ConditionClumsy,
+    /// Tracked enfeebled. Player Core pg. 443, Enfeebled.
+    ConditionEnfeebled,
+    /// Tracked off-guard, including prone's Armor Class penalty. Player Core pg. 445, Off-Guard.
+    ConditionOffGuard,
+    /// Tracked prone's attack penalty. Player Core pg. 445, Prone.
+    ConditionProne,
 }
 
 impl ModifierSource {
@@ -210,7 +242,13 @@ impl ModifierSource {
             | Self::UnconsciousReflex
             | Self::RaisedShield
             | Self::RangePenalty
-            | Self::AttackCircumstance => None,
+            | Self::AttackCircumstance
+            | Self::ConditionFrightened
+            | Self::ConditionSickened
+            | Self::ConditionClumsy
+            | Self::ConditionEnfeebled
+            | Self::ConditionOffGuard
+            | Self::ConditionProne => None,
         }
     }
 }
@@ -303,7 +341,7 @@ impl Modifier {
         )
     }
 
-    fn penalty_from(
+    pub(crate) fn penalty_from(
         ty: PenaltyType,
         value: i32,
         source: ModifierSource,
@@ -1047,6 +1085,12 @@ fn source_ord(source: ModifierSource) -> (u8, u32) {
         ModifierSource::AttackCircumstance => (9, 0),
         ModifierSource::UnconsciousReflex => (10, 0),
         ModifierSource::RaisedShield => (11, 0),
+        ModifierSource::ConditionFrightened => (12, 0),
+        ModifierSource::ConditionSickened => (13, 0),
+        ModifierSource::ConditionClumsy => (14, 0),
+        ModifierSource::ConditionEnfeebled => (15, 0),
+        ModifierSource::ConditionOffGuard => (16, 0),
+        ModifierSource::ConditionProne => (17, 0),
     }
 }
 
@@ -1157,7 +1201,7 @@ fn kind_ord(kind: ModifierKind) -> u8 {
     }
 }
 
-const OFF_GUARD: ConditionId = ConditionId(1);
+const OFF_GUARD: ConditionId = ConditionId::OFF_GUARD;
 
 /// Cover granted to Armor Class.
 ///
@@ -4313,6 +4357,12 @@ mod tests {
             ModifierSource::AttackCircumstance => (9, 0),
             ModifierSource::UnconsciousReflex => (10, 0),
             ModifierSource::RaisedShield => (11, 0),
+            ModifierSource::ConditionFrightened => (12, 0),
+            ModifierSource::ConditionSickened => (13, 0),
+            ModifierSource::ConditionClumsy => (14, 0),
+            ModifierSource::ConditionEnfeebled => (15, 0),
+            ModifierSource::ConditionOffGuard => (16, 0),
+            ModifierSource::ConditionProne => (17, 0),
         }
     }
 

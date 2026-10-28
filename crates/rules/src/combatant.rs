@@ -598,6 +598,12 @@ pub enum ConditionSlot {
         /// The positive amount stored for that type. Player Core pg. 445, Persistent Damage.
         amount: i32,
     },
+    /// One frightened, sickened, off-guard, prone, clumsy, or enfeebled instance.
+    ///
+    /// [`Self::try_new`] is the constructor. The payload fields are crate-private.
+    ///
+    /// Player Core pg. 442, Appendix entry, Redundant Conditions.
+    Instance(crate::conditions::Instance),
 }
 
 /// Runtime combat data, keyed by [`CombatantId`]. Never written back onto the build or the creature.

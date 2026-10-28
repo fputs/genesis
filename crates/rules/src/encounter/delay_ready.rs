@@ -63,7 +63,7 @@ impl Encounter {
     /// does not advance the round.
     ///
     /// Player Core, Delay. Player Core, "Step 1: Start Your Turn".
-    pub fn delay(&mut self, id: CombatantId) -> Result<(), EncounterError> {
+    pub fn delay(&mut self, id: CombatantId, dice: &mut impl Dice) -> Result<(), EncounterError> {
         let _known = self.member_index(id)?;
         let Some(active) = self.open else {
             return Err(EncounterError::TurnNotOpen);
@@ -83,6 +83,9 @@ impl Encounter {
             return Err(EncounterError::TriggerNotMet);
         }
         let advance = self.plan_advance(TurnAdvance::Delay)?;
+        // R-14: persistent damage and its flat check run now. Frightened and a negative
+        // until-end condition wait for the end of the turn this creature returns to.
+        self.resolve_persistent(id, dice)?;
         self.end_of_turn_step(id);
         self.close_actions(id);
         self.set_slot(id, TurnSlot::Delayed)?;
@@ -1016,5 +1019,6 @@ pub(super) fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::NonPositivePersistent => {
             ReadyError::Encounter(ReadyEncounter::NonPositivePersistent)
         }
+        EncounterError::Condition(error) => ReadyError::Encounter(ReadyEncounter::Condition(error)),
     }
 }

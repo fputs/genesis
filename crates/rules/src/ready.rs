@@ -379,6 +379,8 @@ pub enum ReadyEncounter {
     SkillOverflow(ArithmeticOverflow),
     /// Persistent damage was gained with an amount below 1. Player Core pg. 445, Persistent Damage.
     NonPositivePersistent,
+    /// A condition value or duration was rejected. Player Core pg. 442, Condition Values.
+    Condition(crate::conditions::ConditionError),
 }
 
 /// Which stored action a fire check is comparing.

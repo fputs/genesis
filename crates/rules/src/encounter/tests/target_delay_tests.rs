@@ -29,9 +29,13 @@ fn target_delay_follows_the_slot_apart_from_the_wrap() {
         super::super::TargetDelay::NotDelayed
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay 1");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 1");
     open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay 2");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 2");
     open(&mut encounter, 3);
     close(&mut encounter);
     assert_eq!(encounter.round(), 1);
