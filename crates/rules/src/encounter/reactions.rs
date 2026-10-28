@@ -467,6 +467,8 @@ impl Encounter {
         state.temp_rounds = updated.temp_rounds;
         state.vital = updated.vital;
         state.initiative_move = updated.initiative_move;
+        // Death clears every condition on the copy. That clear has to land here.
+        state.conditions.clone_from(&updated.conditions);
         Ok(())
     }
 

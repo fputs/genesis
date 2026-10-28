@@ -672,6 +672,27 @@ fn a_natural_1_keeps_fire() {
     assert_eq!(persistent(&encounter, 1), vec![(DamageType::Fire, 5)]);
 }
 
+/// A failed persistent entry stays when another type's flat check succeeds.
+///
+/// `ConditionSlot` has only `PersistentDamage`, so this is the stand-in for a
+/// non-persistent slot surviving the end step: retain removes the succeeded type
+/// and leaves the one that failed.
+///
+/// Player Core pg. 445, Multiple Persistent Damage Conditions.
+#[test]
+fn a_failed_persistent_entry_survives_a_successful_check() {
+    let (mut encounter, mut dice) = solo(pc(1, 0, 20, 11), &[10, 14, 15]);
+    encounter
+        .gain_persistent_damage(id(1), DamageType::Fire, 5)
+        .expect("fire");
+    encounter
+        .gain_persistent_damage(id(1), DamageType::Bleed, 3)
+        .expect("bleed");
+    encounter.end_turn(&mut dice).expect("end");
+    assert_eq!(hit_points(&encounter, 1), 12);
+    assert_eq!(persistent(&encounter, 1), vec![(DamageType::Bleed, 3)]);
+}
+
 /// Player Core pg. 445, Multiple Persistent Damage Conditions.
 #[test]
 fn bleed_is_checked_before_fire() {
@@ -712,6 +733,79 @@ fn dying_3_and_persistent_bleed_2_draws_no_flat_check() {
     assert_eq!(vital(&encounter, 1), Vital::Dead);
     assert!(persistent(&encounter, 1).is_empty());
     assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core, "Step 2: Act". Player Core pg. 445, Persistent Damage.
+#[test]
+fn a_round_overflow_leaves_persistent_damage_unrolled() {
+    let (mut encounter, mut dice) = solo(pc(1, 0, 20, 11), &[10, 14]);
+    encounter.set_round_for_test(u32::MAX);
+    encounter
+        .gain_persistent_damage(id(1), DamageType::Fire, 5)
+        .expect("gain");
+    assert_eq!(
+        encounter.end_turn(&mut dice).expect_err("overflow"),
+        EncounterError::RoundOverflow
+    );
+    assert_eq!(hit_points(&encounter, 1), 20);
+    assert_eq!(persistent(&encounter, 1), vec![(DamageType::Fire, 5)]);
+    assert_eq!(encounter.turn_open(), Some(id(1)));
+    assert_eq!(dice.remaining(), 1);
+}
+
+/// Player Core pg. 411, Death. Player Core pg. 418, Strike.
+#[test]
+fn a_strike_kill_clears_persistent_damage() {
+    let (mut encounter, mut dice) = opened(enemy(2, 0, 8, 11), &[20, 1, 11, 8]);
+    encounter
+        .gain_persistent_damage(id(2), DamageType::Fire, 3)
+        .expect("gain");
+    strike_hit(
+        &mut encounter,
+        &mut dice,
+        &profile(0, Agility::NotAgile, 1, 8, 0),
+        ShieldBlock::Declined,
+    )
+    .expect("hit");
+    assert_eq!(vital(&encounter, 2), Vital::Dead);
+    assert!(persistent(&encounter, 2).is_empty());
+}
+
+/// Player Core pg. 411, Death. Player Core pg. 138, Reactive Strike.
+#[test]
+fn a_reactive_kill_clears_persistent_damage() {
+    let target = combatant(2, Side::Pc, 0, 8, 18, false);
+    let (mut encounter, mut dice) = begin(
+        vec![super::with_reach(pc(1, 0, 20, 18), 5), target],
+        &[10, 8, 10, 8],
+    );
+    encounter
+        .gain_persistent_damage(id(2), DamageType::Fire, 3)
+        .expect("gain");
+    let mut attack = profile(8, Agility::NotAgile, 1, 8, 0);
+    attack.damage_type = DamageType::Slashing;
+    super::react(
+        &mut encounter,
+        &mut dice,
+        1,
+        2,
+        ActionCost::Actions {
+            count: 1,
+            traits: &[ActionTrait::Manipulate],
+        },
+        ActionIdentity::Other,
+        None,
+        ReactiveStrike::Available,
+        (0, 0),
+        (0, 1),
+        crate::grid::Size::Medium,
+        crate::grid::Size::Medium,
+        attack,
+        &[],
+    )
+    .expect("reactive");
+    assert_eq!(vital(&encounter, 2), Vital::Dead);
+    assert!(persistent(&encounter, 2).is_empty());
 }
 
 /// Player Core pg. 411, Death.

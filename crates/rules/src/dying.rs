@@ -183,10 +183,14 @@ pub(crate) fn apply_healing(
     state.vital = Vital::Alive;
     state.initiative_move = None;
     if hit_points == maximum {
-        state.conditions.retain(|slot| match slot {
-            ConditionSlot::PersistentDamage { damage_type, .. } => {
-                *damage_type != DamageType::Bleed
-            }
+        state.conditions.retain(|slot| {
+            !matches!(
+                slot,
+                ConditionSlot::PersistentDamage {
+                    damage_type: DamageType::Bleed,
+                    ..
+                }
+            )
         });
     }
     Ok(())
@@ -306,6 +310,8 @@ fn die(state: &mut CombatantState) {
     state.temp_rounds = 0;
     state.vital = Vital::Dead;
     state.initiative_move = None;
+    // Death clears every condition slot. add-conditions-with-durations uses this
+    // same full clear, so do not narrow it to persistent damage.
     state.conditions.clear();
 }
 

@@ -3671,6 +3671,37 @@ fn a_readied_fire_hit_adds_weakness_5() {
     assert_eq!(hit_points(&encounter, 2), 9);
 }
 
+/// Player Core pg. 417, Ready. Player Core pg. 411, Death.
+#[test]
+fn a_readied_strike_kill_clears_persistent_damage() {
+    let target = pc(2, 0, 6, 18);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), target], &[15, 10, 10, 6]);
+    open(&mut encounter, 1);
+    encounter
+        .gain_persistent_damage(id(2), crate::damage::DamageType::Fire, 4)
+        .expect("gain");
+    let mut attack = profile(8, Agility::NotAgile, 1, 8, 0);
+    attack.damage_type = crate::damage::DamageType::Slashing;
+    encounter
+        .ready(
+            id(1),
+            begins(2, ObservedAction::Strike),
+            cost(1),
+            ReadyActivity::Strike {
+                target: id(2),
+                profile: attack,
+                range: StrikeRange::Melee,
+            },
+            &mut dice,
+        )
+        .expect("ready");
+    open(&mut encounter, 2);
+    let strike = strike_numbers(&fire_begins(&mut encounter, 2, &mut dice));
+    assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(vital(&encounter, 2), Vital::Dead);
+    assert!(encounter.state(id(2)).expect("state").conditions.is_empty());
+}
+
 /// Player Core, "Ready".
 #[test]
 fn a_dying_creature_trying_to_ready_is_notconscious() {
