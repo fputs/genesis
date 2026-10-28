@@ -4,7 +4,7 @@
 
 ### Requirement: Encounter commands stay public
 
-The crate root SHALL export `begin_encounter` and `Encounter`. Methods that are public today SHALL stay public. `end_turn` SHALL take the injected dice. `gain_persistent_damage` SHALL be public. No other method signature SHALL change. A command's result SHALL stay that method's current return type.
+The crate root SHALL export `begin_encounter` and `Encounter`. Methods that are public today SHALL stay public. `end_turn` SHALL take the injected dice. `gain_persistent_damage` SHALL be public. `ready` SHALL also take the injected dice, because Ready ends the creature's turn and the end-of-turn persistent-damage step must roll. No other method signature SHALL change. A command's result SHALL stay that method's current return type.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, End Your Turn)
 
