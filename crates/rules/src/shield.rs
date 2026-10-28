@@ -320,6 +320,7 @@ mod tests {
                 damage_bonus: 0,
                 reach_feet: ReachFeet::new(5).expect("reach"),
                 agile: false,
+                damage_type: crate::damage::DamageType::Slashing,
             },
             shield,
             stealth_dc: None,
@@ -328,6 +329,7 @@ mod tests {
             uses_dying_rules: Some(dying),
             saves: None,
             skills: None,
+            defenses: crate::damage::DamageDefenses::empty(),
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))
     }
@@ -371,6 +373,7 @@ mod tests {
             damage_dice: DieCount::new(1).expect("dice"),
             damage_faces: faces(dice),
             damage_bonus: bonus,
+            damage_type: crate::damage::DamageType::Slashing,
         }
     }
 
@@ -483,7 +486,9 @@ mod tests {
         encounter
             .shield_block(id(1), 15, DegreeOfSuccess::Success)
             .expect("break the shield");
-        encounter.end_turn().expect("end");
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect("end");
         encounter.start_turn().expect("next turn");
         let error = encounter.raise_shield(id(1)).expect_err("broken");
         assert_eq!(error, EncounterError::Broken);
@@ -618,10 +623,10 @@ mod tests {
     fn ending_the_turn_keeps_the_shield_raised() {
         let first = participant(1, creature(20, 11, 0, false, Some(steel())));
         let second = participant(2, creature(20, 11, 0, false, None));
-        let (mut encounter, dice) = begin(vec![first, second], &[10, 8]);
+        let (mut encounter, mut dice) = begin(vec![first, second], &[10, 8]);
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter.end_turn(&mut dice).expect("end");
         let state = encounter.state(id(1)).expect("state");
         let defender = encounter.creature(id(1)).expect("creature");
         assert!(state.shield_raised);
@@ -640,9 +645,13 @@ mod tests {
         let (mut encounter, _) = begin(vec![first, second], &[10, 8]);
         encounter.start_turn().expect("start");
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect("end");
         assert_eq!(encounter.start_turn().expect("other"), id(2));
-        encounter.end_turn().expect("end other");
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect("end other");
         let state = encounter.state(id(1)).expect("state");
         let defender = encounter.creature(id(1)).expect("creature");
         assert!(state.shield_raised);
@@ -657,9 +666,13 @@ mod tests {
         let (mut encounter, _) = begin(vec![first, second], &[10, 8]);
         encounter.start_turn().expect("start");
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect("end");
         encounter.start_turn().expect("other");
-        encounter.end_turn().expect("end other");
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect("end other");
         assert_eq!(encounter.start_turn().expect("next"), id(1));
         let state = encounter.state(id(1)).expect("state");
         let defender = encounter.creature(id(1)).expect("creature");
@@ -678,10 +691,14 @@ mod tests {
         let (mut encounter, _) = begin(vec![first, second], &[10, 8]);
         encounter.start_turn().expect("start");
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect("end");
         assert_eq!(encounter.start_turn().expect("other"), id(2));
         encounter.set_round_for_test(4_294_967_295);
-        let error = encounter.end_turn().expect_err("overflow");
+        let error = encounter
+            .end_turn(&mut crate::dice::ScriptedDice::new([]))
+            .expect_err("overflow");
         assert_eq!(error, EncounterError::RoundOverflow);
         assert_eq!(encounter.round(), 4_294_967_295);
         assert_eq!(encounter.turn_open(), Some(id(2)));
@@ -1551,7 +1568,7 @@ mod tests {
         let (mut encounter, mut dice) = begin(vec![defender, attacker], &[10, 8, 11, 8]);
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter.end_turn(&mut dice).expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
         encounter
             .strike(
@@ -1626,7 +1643,7 @@ mod tests {
         let (mut encounter, mut dice) = begin(vec![defender, attacker], &[10, 8, 11, 8]);
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter.end_turn(&mut dice).expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
         let outcome = rolled(
             encounter
@@ -1660,7 +1677,7 @@ mod tests {
         let attacker = participant(2, creature(20, 11, 0, false, None));
         let (mut encounter, mut dice) = begin(vec![defender, attacker], &[10, 8, 11, 8]);
         assert_eq!(encounter.start_turn().expect("start"), id(1));
-        encounter.end_turn().expect("end");
+        encounter.end_turn(&mut dice).expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
         let outcome = rolled(
             encounter
@@ -1723,7 +1740,7 @@ mod tests {
         let (mut encounter, mut dice) = begin(vec![defender, attacker], &[10, 8, 11, 8, 11, 8]);
         assert_eq!(encounter.start_turn().expect("start"), id(1));
         encounter.raise_shield(id(1)).expect("raise");
-        encounter.end_turn().expect("end");
+        encounter.end_turn(&mut dice).expect("end");
         assert_eq!(encounter.start_turn().expect("attacker"), id(2));
         encounter
             .strike(

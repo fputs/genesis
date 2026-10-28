@@ -8,6 +8,7 @@ use crate::check::{
     multiple_attack_penalty,
 };
 use crate::combatant::{CombatantId, Vital, damage_dealt};
+use crate::damage::{adjust_damage, shield_trigger};
 use crate::detection::{DetectionError, Detections, TargetingResult, resolve_targeting};
 use crate::dice::Dice;
 use crate::modifiers::{Modifier, ModifierError, Statistic};
@@ -78,9 +79,13 @@ impl Encounter {
     ) -> Result<StrikeDelivery, EncounterError> {
         self.prepare_strike(attacker, target)?;
         let delayed_target = self.delayed_target(target)?;
+        let damage_type = profile.damage_type;
+        let defenses = self.creature(target)?.defenses.clone();
         if let ShieldBlock::Requested = block {
             self.reject_requested_block(target)?;
-            self.block_is_ready(target)?;
+            if shield_trigger(damage_type, &defenses) {
+                self.block_is_ready(target)?;
+            }
         }
         let map = self.attack_trait_penalty(attacker, profile.agility)?;
         let attack_term = bounded_term(profile.attack_bonus)?;
@@ -117,12 +122,18 @@ impl Encounter {
                 degree == DegreeOfSuccess::CriticalSuccess,
             )
             .map_err(EncounterError::DamageOverflow)?;
-            match block {
-                ShieldBlock::Declined => self.apply_damage(target, dealt, degree)?,
-                ShieldBlock::Requested => self.shield_block(target, dealt, degree)?,
+            let adjusted = adjust_damage(dealt, damage_type, &defenses)
+                .map_err(EncounterError::DamageOverflow)?;
+            if adjusted > 0 {
+                if shield_trigger(damage_type, &defenses) && matches!(block, ShieldBlock::Requested)
+                {
+                    self.shield_block(target, adjusted, degree)?;
+                } else {
+                    self.apply_damage(target, adjusted, degree)?;
+                }
+                self.place_delayed_knockout(target, attacker, delayed_target);
             }
-            self.place_delayed_knockout(target, attacker, delayed_target);
-            dealt
+            adjusted
         };
         self.finish_strike(attacker)?;
         Ok(StrikeDelivery::Rolled(StrikeOutcome {

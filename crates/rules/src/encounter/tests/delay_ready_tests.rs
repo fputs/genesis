@@ -82,7 +82,8 @@ fn open(encounter: &mut Encounter, value: u32) {
 }
 
 fn close(encounter: &mut Encounter) {
-    encounter.end_turn().expect("end");
+    let mut unused = ScriptedDice::new([]);
+    encounter.end_turn(&mut unused).expect("end");
 }
 
 fn lay(encounter: &mut Encounter, value: u32, vital_state: Vital, hp: i32) {
@@ -148,8 +149,9 @@ fn grid(places: &[ReactionPlace]) -> ReactionField<'_> {
 }
 
 fn ready_on(encounter: &mut Encounter, actor: u32, trigger: ReadyTrigger, activity: ReadyActivity) {
+    let mut unused = ScriptedDice::new([]);
     encounter
-        .ready(id(actor), trigger, cost(1), activity)
+        .ready(id(actor), trigger, cost(1), activity, &mut unused)
         .expect("ready");
 }
 
@@ -221,6 +223,7 @@ fn slow(value: u32) -> crate::encounter::Participant {
             damage_bonus: 0,
             reach_feet: ReachFeet::new(5).expect("reach"),
             agile: false,
+            damage_type: crate::damage::DamageType::Slashing,
         },
         shield: None,
         stealth_dc: None,
@@ -229,6 +232,7 @@ fn slow(value: u32) -> crate::encounter::Participant {
         uses_dying_rules: Some(false),
         saves: None,
         skills: None,
+        defenses: crate::damage::DamageDefenses::empty(),
     };
     participant(
         value,
@@ -1446,11 +1450,17 @@ fn the_next_start_clears_the_ready() {
 /// Player Core, "Ready".
 #[test]
 fn a_two_action_activity_is_rejected() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
     assert_eq!(
         encounter
-            .ready(id(1), reach(2), cost(2), melee(2, Agility::NotAgile, 0, 0))
+            .ready(
+                id(1),
+                reach(2),
+                cost(2),
+                melee(2, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("two"),
         ReadyError::NotASingleAction
     );
@@ -1462,11 +1472,11 @@ fn a_two_action_activity_is_rejected() {
 /// Player Core, "Ready". Player Core, Delay.
 #[test]
 fn delay_cannot_be_readied() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
     assert_eq!(
         encounter
-            .ready(id(1), reach(2), cost(1), ReadyActivity::NoFire)
+            .ready(id(1), reach(2), cost(1), ReadyActivity::NoFire, &mut dice)
             .expect_err("delay"),
         ReadyError::TriggeredFreeAction
     );
@@ -1478,14 +1488,20 @@ fn delay_cannot_be_readied() {
 /// Player Core, "Ready".
 #[test]
 fn a_readied_strike_cannot_name_a_third_creature() {
-    let (mut encounter, dice) = begin(
+    let (mut encounter, mut dice) = begin(
         vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18), pc(3, 0, 20, 18)],
         &[15, 10, 5, 10],
     );
     open(&mut encounter, 1);
     assert_eq!(
         encounter
-            .ready(id(1), reach(2), cost(1), melee(3, Agility::NotAgile, 0, 0))
+            .ready(
+                id(1),
+                reach(2),
+                cost(1),
+                melee(3, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("third"),
         ReadyError::NotTheTriggerSubject
     );
@@ -1496,10 +1512,16 @@ fn a_readied_strike_cannot_name_a_third_creature() {
 /// Player Core, "Ready".
 #[test]
 fn an_unknown_creature_is_rejected_first() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 10]);
     assert_eq!(
         encounter
-            .ready(id(9), reach(1), cost(1), melee(1, Agility::NotAgile, 0, 0))
+            .ready(
+                id(9),
+                reach(1),
+                cost(1),
+                melee(1, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("unknown"),
         ReadyError::UnknownCombatant
     );
@@ -1510,10 +1532,16 @@ fn an_unknown_creature_is_rejected_first() {
 /// Player Core, "Ready".
 #[test]
 fn an_unknown_subject_is_rejected_before_a_closed_turn() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 10]);
     assert_eq!(
         encounter
-            .ready(id(1), reach(9), cost(1), melee(9, Agility::NotAgile, 0, 0))
+            .ready(
+                id(1),
+                reach(9),
+                cost(1),
+                melee(9, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("subject"),
         ReadyError::UnknownCombatant
     );
@@ -1524,11 +1552,17 @@ fn an_unknown_subject_is_rejected_before_a_closed_turn() {
 /// Player Core, "Ready".
 #[test]
 fn a_trigger_about_the_readier_is_rejected() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 10]);
     open(&mut encounter, 1);
     assert_eq!(
         encounter
-            .ready(id(1), reach(1), cost(1), melee(1, Agility::NotAgile, 0, 0))
+            .ready(
+                id(1),
+                reach(1),
+                cost(1),
+                melee(1, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("self"),
         ReadyError::TriggerSubjectIsSelf
     );
@@ -1540,7 +1574,7 @@ fn a_trigger_about_the_readier_is_rejected() {
 /// Player Core, "Ready".
 #[test]
 fn one_action_left_is_rejected_before_a_round_past_the_maximum() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     encounter.set_round_for_test(u32::MAX);
     open(&mut encounter, 1);
     close(&mut encounter);
@@ -1548,7 +1582,13 @@ fn one_action_left_is_rejected_before_a_round_past_the_maximum() {
     encounter.spend_actions(id(2), 2).expect("spend");
     assert_eq!(
         encounter
-            .ready(id(2), reach(1), cost(1), melee(1, Agility::NotAgile, 0, 0))
+            .ready(
+                id(2),
+                reach(1),
+                cost(1),
+                melee(1, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("actions"),
         ReadyError::InsufficientActions
     );
@@ -1561,14 +1601,20 @@ fn one_action_left_is_rejected_before_a_round_past_the_maximum() {
 /// Player Core, "Ready".
 #[test]
 fn ready_at_the_maximum_round_changes_nothing() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     encounter.set_round_for_test(u32::MAX);
     open(&mut encounter, 1);
     close(&mut encounter);
     open(&mut encounter, 2);
     assert_eq!(
         encounter
-            .ready(id(2), reach(1), cost(1), melee(1, Agility::NotAgile, 0, 0))
+            .ready(
+                id(2),
+                reach(1),
+                cost(1),
+                melee(1, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("round"),
         ReadyError::RoundOverflow
     );
@@ -2712,6 +2758,7 @@ fn dismiss_drops_to_no_cover() {
             reach(2),
             crate::positioning::dismiss_cost(),
             ReadyActivity::Dismiss,
+            &mut dice,
         )
         .expect("ready");
     let resolved = offer_cover(
@@ -2820,6 +2867,7 @@ fn a_step_into_reach_fires() {
             reach(2),
             crate::positioning::dismiss_cost(),
             ReadyActivity::Dismiss,
+            &mut dice,
         )
         .expect("ready");
     let resolved = offer_cover(
@@ -3588,15 +3636,87 @@ fn a_readied_move_clears_the_ready() {
     assert_eq!(dice.remaining(), 1);
 }
 
+/// Player Core pg. 417, Ready. Player Core pg. 408, Weakness.
+#[test]
+fn a_readied_fire_hit_adds_weakness_5() {
+    let mut target = pc(2, 0, 20, 18);
+    target
+        .creature
+        .defenses
+        .weaknesses
+        .push(crate::damage::Weakness {
+            damage_type: crate::damage::DamageType::Fire,
+            value: 5,
+        });
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), target], &[15, 10, 10, 6]);
+    open(&mut encounter, 1);
+    let mut attack = profile(8, Agility::NotAgile, 1, 8, 0);
+    attack.damage_type = crate::damage::DamageType::Fire;
+    encounter
+        .ready(
+            id(1),
+            begins(2, ObservedAction::Strike),
+            cost(1),
+            ReadyActivity::Strike {
+                target: id(2),
+                profile: attack,
+                range: StrikeRange::Melee,
+            },
+            &mut dice,
+        )
+        .expect("ready");
+    open(&mut encounter, 2);
+    let strike = strike_numbers(&fire_begins(&mut encounter, 2, &mut dice));
+    assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(hit_points(&encounter, 2), 9);
+}
+
+/// Player Core pg. 417, Ready. Player Core pg. 411, Death.
+#[test]
+fn a_readied_strike_kill_clears_persistent_damage() {
+    let target = pc(2, 0, 6, 18);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), target], &[15, 10, 10, 6]);
+    open(&mut encounter, 1);
+    encounter
+        .gain_persistent_damage(id(2), crate::damage::DamageType::Fire, 4)
+        .expect("gain");
+    let mut attack = profile(8, Agility::NotAgile, 1, 8, 0);
+    attack.damage_type = crate::damage::DamageType::Slashing;
+    encounter
+        .ready(
+            id(1),
+            begins(2, ObservedAction::Strike),
+            cost(1),
+            ReadyActivity::Strike {
+                target: id(2),
+                profile: attack,
+                range: StrikeRange::Melee,
+            },
+            &mut dice,
+        )
+        .expect("ready");
+    open(&mut encounter, 2);
+    let strike = strike_numbers(&fire_begins(&mut encounter, 2, &mut dice));
+    assert_eq!(strike.degree, DegreeOfSuccess::Success);
+    assert_eq!(vital(&encounter, 2), Vital::Dead);
+    assert!(encounter.state(id(2)).expect("state").conditions.is_empty());
+}
+
 /// Player Core, "Ready".
 #[test]
 fn a_dying_creature_trying_to_ready_is_notconscious() {
-    let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
+    let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
     lay(&mut encounter, 1, dying_at(1), 0);
     assert_eq!(
         encounter
-            .ready(id(1), reach(2), cost(1), melee(2, Agility::NotAgile, 0, 0),)
+            .ready(
+                id(1),
+                reach(2),
+                cost(1),
+                melee(2, Agility::NotAgile, 0, 0),
+                &mut dice
+            )
             .expect_err("ready"),
         ReadyError::NotConscious
     );

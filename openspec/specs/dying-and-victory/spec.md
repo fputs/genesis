@@ -10,7 +10,7 @@ Resolves knockout, dying, recovery, temporary Hit Points, and which Side has won
 A creature with uses_dying_rules that drops from above 0 Hit Points to 0 SHALL gain dying 1, or dying 2 when that blow is critical, plus its wounded value, and SHALL set current Hit Points to 0 in that same step. That blow SHALL NOT also apply damage-while-dying. The Creature SHALL stay unchanged. All damage is lethal (DEV-29): there is no nonlethal result, and the blow's critical flag is the only critical signal.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2324 (Player Core pg. 410, Getting Knocked Out)
-**Source**: DEV-29. Nonlethal, persistent damage, death effects, save critical-failure dying 2, and regeneration are not modeled.
+**Source**: DEV-29. Nonlethal, death effects, save critical-failure dying 2, and regeneration are not modeled. Persistent damage is modeled by damage-defenses.
 
 #### Scenario: A non-critical blow to 0 sets dying 1
 
