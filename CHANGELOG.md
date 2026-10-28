@@ -10,6 +10,7 @@ v1 history lives on the `v1-reference` branch.
 ## [Unreleased]
 
 ### Added
+- Conditions with durations: frightened, sickened, off-guard, prone, clumsy, and enfeebled, with round and until-end durations and an end-of-turn decrement after persistent damage. ([#94](https://github.com/fputs/genesis/pull/94))
 - Cast a Spell for Breathe Fire and Telekinetic Projectile: a spell attack modifier and spell DC, 15-foot cones, and burst, line, and emanation membership on the existing grid. ([#92](https://github.com/fputs/genesis/pull/92))
 - Skill checks and Recall Knowledge. A skill check spends nothing. Recall Knowledge spends one action and returns the degree. ([#91](https://github.com/fputs/genesis/pull/91))
 - Damage types on a damage instance, immunity then the highest weakness then the highest resistance, and persistent damage at the end of the creature's turn with a DC 15 flat check. ([#93](https://github.com/fputs/genesis/pull/93))
@@ -34,6 +35,7 @@ v1 history lives on the `v1-reference` branch.
 
 ### Changed
 
+- **BREAKING:** `ConditionSlot::Instance`, `StrikeProfile.attack_basis`, `StrikeProfile.damage_basis`, `delay` taking the injected dice, `apply_condition`, `reduce_condition`, `remove_condition`, and `EncounterError::Condition`. ([#94](https://github.com/fputs/genesis/pull/94))
 - **BREAKING:** A creature build carries optional `skills` training, `Statistic` adds the sixteen skills, and an encounter rolls `skill_check` and `recall_knowledge`. ([#91](https://github.com/fputs/genesis/pull/91))
 - **BREAKING:** A strike carries a damage type, a creature carries defenses, `ConditionSlot` stores persistent damage, and `end_turn` and `ready` take the injected dice. ([#93](https://github.com/fputs/genesis/pull/93))
 - **BREAKING:** The rules crate root exports the encounter commands and the types those commands need. Helper names are crate-private. Fight results are unchanged. ([#87](https://github.com/fputs/genesis/pull/87))

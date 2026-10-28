@@ -62,11 +62,12 @@ fn persistent(encounter: &Encounter, value: u32) -> Vec<(DamageType, i32)> {
         .expect("state")
         .conditions
         .iter()
-        .map(|slot| match slot {
+        .filter_map(|slot| match slot {
             ConditionSlot::PersistentDamage {
                 damage_type,
                 amount,
-            } => (*damage_type, *amount),
+            } => Some((*damage_type, *amount)),
+            ConditionSlot::Instance(_) => None,
         })
         .collect()
 }

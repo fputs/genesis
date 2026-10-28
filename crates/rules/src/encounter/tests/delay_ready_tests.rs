@@ -349,7 +349,9 @@ fn the_same_delay_twice_matches() {
             &[15, 10, 8],
         );
         open(&mut encounter, 1);
-        encounter.delay(id(1)).expect("delay");
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect("delay");
         open(&mut encounter, 2);
         close(&mut encounter);
         encounter.return_from_delay(&[id(1)]).expect("return");
@@ -378,7 +380,9 @@ fn delay_spends_nothing_and_closes_the_turn() {
         &[15, 10, 5, 8],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(actions(&encounter, 1), 0);
     assert!(reaction(&encounter, 1));
     assert_eq!(encounter.turn_open(), None);
@@ -394,7 +398,9 @@ fn an_action_already_spent_is_not_the_start() {
     open(&mut encounter, 1);
     encounter.spend_actions(id(1), 1).expect("spend");
     assert_eq!(
-        encounter.delay(id(1)).expect_err("delay"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("delay"),
         EncounterError::TriggerNotMet
     );
     assert_eq!(actions(&encounter, 1), 2);
@@ -409,7 +415,9 @@ fn a_spent_reaction_is_not_the_start() {
     open(&mut encounter, 1);
     encounter.spend_reaction(id(1)).expect("spend");
     assert_eq!(
-        encounter.delay(id(1)).expect_err("delay"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("delay"),
         EncounterError::TriggerNotMet
     );
     assert_eq!(actions(&encounter, 1), 3);
@@ -422,7 +430,9 @@ fn a_spent_reaction_is_not_the_start() {
 fn an_unknown_creature_is_not_a_closed_turn() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18)], &[10]);
     assert_eq!(
-        encounter.delay(id(9)).expect_err("unknown"),
+        encounter
+            .delay(id(9), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("unknown"),
         EncounterError::UnknownCombatant
     );
     assert_eq!(slot(&encounter, 1), TurnSlot::Normal);
@@ -433,7 +443,9 @@ fn an_unknown_creature_is_not_a_closed_turn() {
 fn delay_before_a_start_is_turnnotopen() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18)], &[10]);
     assert_eq!(
-        encounter.delay(id(1)).expect_err("closed"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("closed"),
         EncounterError::TurnNotOpen
     );
     assert_eq!(actions(&encounter, 1), 0);
@@ -448,7 +460,9 @@ fn delaying_on_another_turn_is_notyourturn() {
     open(&mut encounter, 2);
     assert!(reaction(&encounter, 1));
     assert_eq!(
-        encounter.delay(id(1)).expect_err("other"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("other"),
         EncounterError::NotYourTurn
     );
     assert_eq!(encounter.turn_open(), Some(id(2)));
@@ -463,7 +477,9 @@ fn a_dying_creature_is_notconscious() {
     assert_eq!(actions(&encounter, 1), 0);
     assert!(!reaction(&encounter, 1));
     assert_eq!(
-        encounter.delay(id(1)).expect_err("dying"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("dying"),
         EncounterError::NotConscious
     );
     assert_eq!(actions(&encounter, 1), 0);
@@ -480,7 +496,9 @@ fn round_overflow_does_not_delay() {
     open(&mut encounter, 2);
     assert_eq!(actions(&encounter, 2), 3);
     assert!(reaction(&encounter, 2));
-    encounter.delay(id(2)).expect("delay");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(encounter.round(), u32::MAX);
     assert_eq!(encounter.turn_open(), None);
     assert_eq!(slot(&encounter, 2), TurnSlot::Delayed);
@@ -501,7 +519,9 @@ fn start_turn_at_round_4294967295_is_roundoverflow() {
     open(&mut encounter, 1);
     close(&mut encounter);
     open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(
         encounter.start_turn().expect_err("overflow"),
         EncounterError::RoundOverflow
@@ -531,7 +551,9 @@ fn next_start_during_a_pending_wrap_keeps_the_round() {
     open(&mut encounter, 1);
     close(&mut encounter);
     open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(encounter.next_start().expect("next"), id(1));
     assert_eq!(encounter.round(), 1);
     assert_eq!(encounter.turn_open(), None);
@@ -543,7 +565,9 @@ fn next_start_during_a_pending_wrap_keeps_the_round() {
 fn next_start_during_a_returned_turn_is_turninprogress() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -585,12 +609,16 @@ fn next_start_on_an_empty_roster_is_nocreature() {
 fn a_second_delay_after_return_writes_nothing() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
     assert_eq!(
-        encounter.delay(id(1)).expect_err("again"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("again"),
         EncounterError::TriggerNotMet
     );
     assert_eq!(encounter.order(), order_of(&[2, 1]).as_slice());
@@ -613,7 +641,9 @@ fn ready_ending_the_turn_blocks_delay() {
         melee(2, Agility::NotAgile, 0, 0),
     );
     assert_eq!(
-        encounter.delay(id(1)).expect_err("closed"),
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect_err("closed"),
         EncounterError::TurnNotOpen
     );
     assert_ne!(slot(&encounter, 1), TurnSlot::Delayed);
@@ -629,7 +659,9 @@ fn return_acts_after_the_creature_who_just_ended() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -656,11 +688,15 @@ fn two_returns_at_one_end_go_by_the_lower_id() {
         &[20, 15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay 1");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 1");
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 3);
-    encounter.delay(id(3)).expect("delay 3");
+    encounter
+        .delay(id(3), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 3");
     open(&mut encounter, 4);
     close(&mut encounter);
     encounter
@@ -690,11 +726,15 @@ fn an_enemy_returns_before_a_pc() {
         &[20, 15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay 1");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 1");
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 3);
-    encounter.delay(id(3)).expect("delay 3");
+    encounter
+        .delay(id(3), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 3");
     open(&mut encounter, 4);
     close(&mut encounter);
     assert_eq!(initiative(&encounter, 1), 20);
@@ -717,7 +757,9 @@ fn return_leaves_temporary_hit_points_as_the_start_left_them() {
         &[15, 10, 8],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -741,11 +783,15 @@ fn the_later_returned_creature_is_not_ticked() {
         &[20, 15, 10, 5, 8],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay 1");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 1");
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 3);
-    encounter.delay(id(3)).expect("delay 3");
+    encounter
+        .delay(id(3), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 3");
     open(&mut encounter, 4);
     close(&mut encounter);
     encounter
@@ -789,7 +835,9 @@ fn a_lowered_shield_stays_down() {
     close(&mut encounter);
     open(&mut encounter, 1);
     assert!(!encounter.state(id(1)).expect("state").shield_raised);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -810,7 +858,9 @@ fn a_full_round_without_returning_plays_the_next_turn_in_place() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 3);
@@ -833,7 +883,9 @@ fn a_full_round_without_returning_plays_the_next_turn_in_place() {
 fn a_sole_creatures_next_start_is_the_new_turn() {
     let (mut encounter, _) = begin(vec![ticks(pc(1, 0, 9, 18), 4, 2)], &[10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 1);
     assert_eq!(encounter.round(), 2);
     assert_eq!(initiative(&encounter, 1), 10);
@@ -853,7 +905,9 @@ fn returning_after_the_last_creature_acts_in_this_round() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 3);
@@ -881,7 +935,9 @@ fn a_mid_round_return_keeps_the_next_turn_in_this_round() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -928,7 +984,9 @@ fn the_first_strike_after_return_has_no_penalty() {
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -958,7 +1016,9 @@ fn a_dying_creatures_missed_turn_opens_with_no_actions() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     lay(&mut encounter, 1, dying_at(1), 0);
     open(&mut encounter, 2);
     close(&mut encounter);
@@ -981,7 +1041,9 @@ fn a_dead_creatures_missed_turn_is_skipped() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     lay(&mut encounter, 1, Vital::Dead, 0);
     open(&mut encounter, 2);
     close(&mut encounter);
@@ -1006,7 +1068,9 @@ fn a_delayed_creature_knocked_out_moves_before_that_turn() {
         &[15, 10, 10, 8],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     encounter
         .strike(
@@ -1047,7 +1111,9 @@ fn a_readied_strike_knocks_a_delayed_creature_out_before_the_readier() {
         melee(2, Agility::NotAgile, 1, 1),
     );
     open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(slot(&encounter, 2), TurnSlot::Delayed);
     assert_eq!(encounter.order(), order_of(&[1, 2]).as_slice());
     let strike = strike_numbers(&fire_begins(&mut encounter, 2, &mut dice));
@@ -1069,7 +1135,9 @@ fn a_readied_strike_knocks_a_delayed_creature_out_before_the_readier() {
 fn return_follows_a_turn_that_ready_ended() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     ready_on(
         &mut encounter,
@@ -1094,7 +1162,9 @@ fn a_missed_return_clears_a_stored_ready() {
         &[15, 10, 5, 10],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     encounter.set_ready_for_test(
         id(1),
         StoredReady {
@@ -1121,7 +1191,9 @@ fn a_missed_return_clears_a_stored_ready() {
 fn return_during_a_turn_writes_nothing() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert_eq!(
         encounter.return_from_delay(&[id(1)]).expect_err("open"),
@@ -1136,7 +1208,9 @@ fn return_during_a_turn_writes_nothing() {
 fn a_duplicate_return_writes_nothing() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     assert_eq!(
@@ -1153,7 +1227,9 @@ fn a_duplicate_return_writes_nothing() {
 fn a_dying_delayed_creature_cannot_return() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     lay(&mut encounter, 1, dying_at(1), 0);
@@ -1169,7 +1245,9 @@ fn a_dying_delayed_creature_cannot_return() {
 fn a_spend_while_delayed_leaves_the_reaction_ready() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18)], &[10, 8]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     assert_eq!(
         encounter.spend_reaction(id(1)).expect_err("spend"),
         EncounterError::Delayed
@@ -1183,7 +1261,9 @@ fn a_spend_while_delayed_leaves_the_reaction_ready() {
 fn return_leaves_one_reaction() {
     let (mut encounter, _) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -1210,7 +1290,9 @@ fn a_shield_block_while_delayed_spends_nothing() {
     open(&mut encounter, 2);
     close(&mut encounter);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert_eq!(
         encounter
@@ -1237,7 +1319,9 @@ fn a_shield_block_while_delayed_spends_nothing() {
 fn a_reactive_strike_while_delayed_spends_nothing() {
     let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     let error = encounter
         .reactive_strike(
@@ -1274,7 +1358,9 @@ fn aid_while_delayed_spends_nothing() {
         &[15, 10, 10],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     set_prepared(&mut encounter, 1, 2);
     open(&mut encounter, 2);
     assert_eq!(
@@ -1298,7 +1384,9 @@ fn a_delayed_creature_is_rejected_before_the_shield_is_read() {
         &[15, 10, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert_eq!(
         encounter
@@ -1631,7 +1719,9 @@ fn ready_at_the_maximum_round_changes_nothing() {
 fn a_returned_creature_may_ready() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");
@@ -1939,7 +2029,9 @@ fn a_delay_does_not_rewrite_a_stored_count() {
     let (mut encounter, mut dice) =
         begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     encounter
         .strike(
@@ -2660,7 +2752,9 @@ fn no_stored_ready_is_rejected_before_a_dead_target() {
 fn the_wrong_action_is_rejected_before_a_delayed_readier() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     encounter.set_ready_for_test(
         id(1),
         StoredReady {
@@ -2693,7 +2787,9 @@ fn the_wrong_action_is_rejected_before_a_delayed_readier() {
 fn a_delayed_readier_is_rejected_before_the_trigger_is_matched() {
     let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     encounter.set_ready_for_test(
         id(1),
         StoredReady {
@@ -3201,7 +3297,9 @@ fn a_dying_defender_is_targetnotconscious_on_both_block_paths() {
 fn shield_block_on_a_delayed_creature_with_no_shield_is_delayed() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 30, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert_eq!(
         encounter
@@ -3225,7 +3323,9 @@ fn shield_block_on_a_delayed_creature_with_a_lowered_shield_is_delayed() {
         &[15, 10],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert!(!encounter.state(id(1)).expect("state").shield_raised);
     assert_eq!(
@@ -3363,7 +3463,9 @@ fn aid_checks_delayed_after_not_conscious() {
             &[15, 10, 10],
         );
         open(&mut encounter, 1);
-        encounter.delay(id(1)).expect("delay");
+        encounter
+            .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+            .expect("delay");
         lay(&mut encounter, 1, dying_at(1), 0);
         open(&mut encounter, 2);
         assert_eq!(
@@ -3381,7 +3483,9 @@ fn aid_checks_delayed_after_not_conscious() {
         &[15, 10, 10],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert_eq!(
         encounter.aid(id(1), id(2), &mut dice).expect_err("aid"),
@@ -3399,7 +3503,9 @@ fn aid_checks_delayed_after_not_conscious() {
 fn reactive_strike_checks_delayed_before_reach() {
     let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     lay(&mut encounter, 1, dying_at(1), 0);
     assert_eq!(
         encounter
@@ -3424,7 +3530,9 @@ fn reactive_strike_checks_delayed_before_reach() {
     );
     let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     assert_eq!(
         encounter
@@ -3456,7 +3564,9 @@ fn reactive_strike_checks_delayed_before_reach() {
 fn ready_firing_checks_delayed_before_the_trigger() {
     let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     encounter.set_ready_for_test(
         id(1),
         StoredReady {
@@ -3478,7 +3588,9 @@ fn ready_firing_checks_delayed_before_the_trigger() {
     assert_eq!(one(&resolved), &Err(ReadyError::NotConscious));
     let (mut encounter, mut dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     encounter.set_ready_for_test(
         id(1),
         StoredReady {
@@ -3509,9 +3621,13 @@ fn later_returners_get_skipstarthook() {
         &[15, 10, 5],
     );
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay 1");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 1");
     open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay 2");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay 2");
     open(&mut encounter, 3);
     close(&mut encounter);
     encounter
@@ -3530,7 +3646,9 @@ fn return_right_after_delay_writes_nothing() {
     open(&mut encounter, 1);
     close(&mut encounter);
     open(&mut encounter, 2);
-    encounter.delay(id(2)).expect("delay");
+    encounter
+        .delay(id(2), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     let before = encounter.clone();
     assert_eq!(
         encounter.return_from_delay(&[id(2)]).expect_err("return"),
@@ -3576,7 +3694,9 @@ fn ready_cost_is_two_concentrate_actions() {
 fn a_returned_turn_ends_as_normal() {
     let (mut encounter, dice) = begin(vec![pc(1, 0, 20, 18), pc(2, 0, 20, 18)], &[15, 10]);
     open(&mut encounter, 1);
-    encounter.delay(id(1)).expect("delay");
+    encounter
+        .delay(id(1), &mut crate::dice::ScriptedDice::new([]))
+        .expect("delay");
     open(&mut encounter, 2);
     close(&mut encounter);
     encounter.return_from_delay(&[id(1)]).expect("return");

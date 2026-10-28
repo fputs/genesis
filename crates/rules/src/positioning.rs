@@ -1006,7 +1006,30 @@ mod tests {
         assert_eq!(changed.square, at(3, 4));
         assert_eq!(state.actions_remaining, 2);
         assert!(!state.reaction_ready);
+        assert!(state.conditions.is_empty());
         assert_held(&dice);
+    }
+
+    /// Player Core pg. 445, Prone.
+    #[test]
+    fn a_prone_condition_does_not_change_drop_prone() {
+        let mut state = actions_left(2);
+        state.conditions.push(
+            crate::combatant::ConditionSlot::try_new(
+                crate::conditions::ConditionKind::Prone,
+                None,
+                crate::conditions::ConditionDuration::UntilRemoved,
+            )
+            .expect("prone"),
+        );
+        let changed = drop_prone(Posture::Standing, at(3, 4), Mobility::Free, None).expect("prone");
+        assert_eq!(changed.posture, Posture::Prone);
+        assert_eq!(changed.square, at(3, 4));
+        assert_eq!(state.conditions.len(), 1);
+        assert_eq!(
+            state.conditions[0].kind(),
+            Some(crate::conditions::ConditionKind::Prone)
+        );
     }
 
     /// Player Core, "Drop Prone".

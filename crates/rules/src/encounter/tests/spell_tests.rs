@@ -1257,6 +1257,88 @@ fn a_spell_dc_that_does_not_fit_spends_nothing() {
     assert_eq!(dice.remaining(), 1);
 }
 
+/// Player Core pg. 444, Frightened. Player Core pg. 404, Saving Throws.
+#[test]
+fn frightened_2_lowers_the_reflex_save_by_2() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), with_reflex(foe(2, 20, 16), 0)],
+        &[3, 4, 10],
+    );
+    encounter
+        .apply_condition(
+            id(2),
+            crate::conditions::ConditionKind::Frightened,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let outcome = breathe(&mut encounter, &mut dice, &[place(2, 1, 0)]).expect("cast");
+    assert_eq!(outcome.saves[0].total, 8);
+    assert_eq!(outcome.saves[0].degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 444, Frightened. Player Core pg. 403, Spell Attack Rolls.
+#[test]
+fn frightened_2_lowers_the_spell_attack_by_2() {
+    let (mut encounter, mut dice) =
+        opened(vec![caster(20, 16, trained()), pc(2, 0, 20, 18)], &[10]);
+    encounter
+        .apply_condition(
+            id(1),
+            crate::conditions::ConditionKind::Frightened,
+            Some(2),
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("frightened");
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.total, 15);
+    assert_eq!(hit.spell_dc, 17);
+    assert_eq!(hit.degree, DegreeOfSuccess::Failure);
+}
+
+/// Player Core pg. 445, Off-Guard. Player Core pg. 363, Telekinetic Projectile.
+#[test]
+fn off_guard_lowers_the_spell_attack_armor_class() {
+    let (mut encounter, mut dice) = opened(
+        vec![caster(20, 16, trained()), pc(2, 0, 20, 18)],
+        &[10, 3, 4],
+    );
+    encounter
+        .apply_condition(
+            id(2),
+            crate::conditions::ConditionKind::OffGuard,
+            None,
+            crate::conditions::ConditionDuration::UntilRemoved,
+        )
+        .expect("off-guard");
+    let hit = rolled(
+        shoot(
+            &mut encounter,
+            &mut dice,
+            2,
+            (0, 0),
+            (1, 0),
+            &[],
+            &Detections::new(),
+        )
+        .expect("cast"),
+    );
+    assert_eq!(hit.total, 17);
+    assert_eq!(hit.degree, DegreeOfSuccess::Success);
+    assert_eq!(hit.damage, 7);
+}
+
 /// Player Core pg. 404, Saving Throws.
 #[test]
 fn a_later_save_overflow_leaves_state_unchanged() {

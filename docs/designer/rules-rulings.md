@@ -84,3 +84,11 @@ R-02 closed by #81 (add-saving-throws). The halving minimum is now implemented f
 - Diagonal, aiming northeast: 6 squares (1, -1), (2, -1), (3, -1), (1, -2), (2, -2), (1, -3). That is one quadrant of a 15-foot burst from the chosen corner, and the origin square is excluded. Southeast, southwest, and northwest are that quadrant turned.
 - Remaster note, not a second ruling: standard or greater cover applies against an area, and lesser cover does not (Player Core p.428, https://2e.aonprd.com/Rules.aspx?ID=2384). Cover on areas stays out of this change. Cover that already exists is an Armor Class bonus in positioning.
 - A 30-foot diagonal line of four squares, at 5 then 15 then 20 then 30 feet, is the 5-10-5-10 count (Player Core p.421, https://2e.aonprd.com/Rules.aspx?ID=2357). That measurement is RAW, not a deviation.
+
+## R-14 Delay runs some end-of-turn effects immediately (Designer, PR #94, 2026-10-27)
+
+- Delay (Player Core p.416, https://2e.aonprd.com/Actions.aspx?ID=2294): negative effects that would happen at the end of your turn happen immediately when you Delay. A beneficial effect that lasts through the end of your turn also ends. You do not run those effects a second time when you later act.
+- Ruling: On Delay, (a) negative end-of-turn effects run immediately, which is the persistent-damage hook and its flat check; (b) a beneficial effect lasting through the end of the turn ends; (c) frightened does not decrement, and a negative condition that lasts until the end of your turn, or until the end of your next turn, does not expire. Those run at the end of the turn the creature returns to, once per actual turn.
+- Reason: a creature cannot Delay to dodge a negative or to extend a benefit.
+- Scenarios: off-guard until the end of the creature's own next turn stays through Delay and is gone when the returned turn ends. Frightened 2 stays 2 on Delay and drops to 1 at the end of the returned turn. Persistent fire 2 ticks at Delay. A creature that never returns follows the existing Delay spec.
+- This is a ruling, not a deviation. The core set has no beneficial condition. (b) is stated so a later beneficial duration follows it.

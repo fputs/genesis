@@ -8,6 +8,7 @@
 
 use crate::check::{DegreeOfSuccess, resolve_check};
 use crate::combatant::{CombatantId, Vital};
+use crate::conditions::condition_modifiers;
 use crate::dice::Dice;
 use crate::dying::{InitiativeMove, apply_resolved_blow};
 use crate::modifiers::{Modifier, ModifierError};
@@ -83,14 +84,25 @@ impl Encounter {
             return Err(EncounterError::NoSavingThrows);
         };
         let unconscious = matches!(vital, Vital::Dying(_) | Vital::Unconscious);
+        let tracked = condition_modifiers(
+            &member.participant.state.conditions,
+            save.statistic(),
+            None,
+            None,
+        )
+        .map_err(|_| {
+            EncounterError::SaveOverflow(crate::check::ArithmeticOverflow::SumDoesNotFit)
+        })?;
+        let mut save_modifiers = tracked;
+        save_modifiers.extend_from_slice(modifiers);
         let modifier =
-            save_modifier(&training, save, unconscious, modifiers).map_err(
-                |error| match error {
+            save_modifier(&training, save, unconscious, &save_modifiers).map_err(|error| {
+                match error {
                     SaveError::ModifierOverflow(error) => EncounterError::SaveOverflow(error),
                     SaveError::NegativeAmount => EncounterError::NegativeAmount,
                     SaveError::DoubleOverflow(error) => EncounterError::SaveOverflow(error),
-                },
-            )?;
+                }
+            })?;
         let check = resolve_check(dice, modifier, dc);
         let damage = match basic_save_amount(amount, check.degree) {
             Ok(damage) => damage,

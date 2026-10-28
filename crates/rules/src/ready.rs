@@ -387,6 +387,8 @@ pub enum ReadyEncounter {
     UnsupportedCone,
     /// The same creature was listed twice. Player Core pg. 428, Areas.
     DuplicateAreaTarget,
+    /// A condition value or duration was rejected. Player Core pg. 442, Condition Values.
+    Condition(crate::conditions::ConditionError),
 }
 
 /// Which stored action a fire check is comparing.

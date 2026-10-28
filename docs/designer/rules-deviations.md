@@ -1,7 +1,7 @@
 # Genesis — Rules Deviations Log (intentional departures from RAW)
 
 Owner: Designer (rules lawyer). Baseline: PF2e Remaster Player Core (PC), verified on AoN 2026-10-20. Designer rulings of 2026-10-20 are applied. **FINAL.**
-Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills, 16 add-resistances-weaknesses-persistent, 17 add-spells-and-areas.
+Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills, 16 add-resistances-weaknesses-persistent, 17 add-spells-and-areas, 17 add-conditions-with-durations.
 
 ## Deviations
 
@@ -73,8 +73,9 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 | DEV-70 | Disruption | https://2e.aonprd.com/Actions.aspx?ID=2256 (PC 138) | The cast does not call `resolve_reactions` and is not voided | Reactions stay the caller's existing call | 17 |
 | DEV-71 | Rank 1 only | https://2e.aonprd.com/Spells.aspx?ID=1457 (PC 319); https://2e.aonprd.com/Spells.aspx?ID=1718 (PC 363) | Both spells deal 2d6. Breathe Fire does not add 2d6 per rank. The cantrip does not heighten to half level rounded up | No rank argument in this slice | 17 |
 | DEV-72 | Line of effect | https://2e.aonprd.com/Rules.aspx?ID=2384 (PC 428) | No line-of-effect test on the cone or the projectile | No walls in this slice | 17 |
+| DEV-73 | Prone restricts movement and grants greater cover | Prone, PC 445, https://2e.aonprd.com/Conditions.aspx?ID=88 | The condition applies its penalties. It does not change Stride, Step, Drop Prone, Stand, or Take Cover, and it does not grant cover | No Crawl in Phase 1. Posture stays caller-held | 17 |
 
-Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49. DEV-73 and later stay with `add-conditions-with-durations`.
+Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49. DEV-74 and later stay unused.
 
 ## v1 errors corrected (NOT deviations — v2 follows RAW)
 

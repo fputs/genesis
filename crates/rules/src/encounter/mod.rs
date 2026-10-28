@@ -65,6 +65,10 @@ pub struct StrikeProfile {
     pub damage_bonus: i32,
     /// The type of this Strike's damage. Player Core pg. 407, Damage Types.
     pub damage_type: crate::damage::DamageType,
+    /// Which ability the attack roll uses. Player Core pg. 442, Clumsy.
+    pub attack_basis: crate::conditions::AttackBasis,
+    /// Whether damage adds Strength. Player Core pg. 443, Enfeebled.
+    pub damage_basis: crate::conditions::DamageBasis,
 }
 
 /// Why an encounter action was rejected.
@@ -193,6 +197,10 @@ pub enum EncounterError {
     ///
     /// Player Core pg. 428, Areas.
     DuplicateAreaTarget,
+    /// A condition value or duration was rejected. Nothing is stored.
+    ///
+    /// Player Core pg. 442, Condition Values.
+    Condition(crate::conditions::ConditionError),
 }
 
 /// Where the round sits between turns.
