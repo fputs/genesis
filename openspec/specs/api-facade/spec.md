@@ -7,7 +7,7 @@ Names the rules crate's public surface: encounter commands, the values they retu
 
 ### Requirement: Encounter commands stay public
 
-The crate root SHALL export `begin_encounter` and `Encounter`. Public methods SHALL stay public. `end_turn` and `ready` SHALL take the injected dice, because Ready ends the turn and the persistent-damage step must roll. `gain_persistent_damage` SHALL be public. `skill_check` and `recall_knowledge` SHALL stay public and return `SkillRoll`. No other method signature SHALL change.
+The crate root SHALL export begin_encounter and Encounter. Every Encounter method public before these changes SHALL stay public with the same signature, except end_turn and ready SHALL take the injected dice (Ready ends the turn; persistent step must roll). SHALL add exactly skill_check, recall_knowledge (both returning SkillRoll) and gain_persistent_damage, and SHALL NOT add any other method, event enum, or command enum. An existing command's result SHALL stay that method's current return type.
 
 **Source**: https://2e.aonprd.com/Rules.aspx?ID=2430 (Player Core pg. 436, End Your Turn)
 
