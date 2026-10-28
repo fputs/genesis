@@ -9,7 +9,8 @@
 //! ```
 //! use rules::{
 //!     begin_encounter, derive, new_combatant_state, BuildParts, CharacterBuild, CombatantId,
-//!     DieCount, Faces, MeleeStrike, Participant, ReachFeet, SeededDice, Side,
+//!     DamageDefenses, DamageType, DieCount, Faces, MeleeStrike, Participant, ReachFeet,
+//!     SeededDice, Side,
 //! };
 //!
 //! let build = CharacterBuild::try_new(BuildParts {
@@ -24,6 +25,7 @@
 //!         damage_bonus: 0,
 //!         reach_feet: ReachFeet::new(5).expect("reach"),
 //!         agile: false,
+//!         damage_type: DamageType::Slashing,
 //!     },
 //!     shield: None,
 //!     stealth_dc: None,
@@ -32,6 +34,7 @@
 //!     uses_dying_rules: None,
 //!     saves: None,
 //!     skills: None,
+//!     defenses: DamageDefenses::empty(),
 //! })
 //! .expect("build");
 //! let creature = derive(&build);
@@ -51,7 +54,7 @@
 //! assert_eq!(encounter.round(), 1);
 //! assert_eq!(encounter.order(), &[id]);
 //! assert_eq!(encounter.start_turn().expect("start"), id);
-//! encounter.end_turn().expect("end");
+//! encounter.end_turn(&mut dice).expect("end");
 //! ```
 //!
 //! The public names are this set.
@@ -78,6 +81,8 @@
 //!     ConditionSlot,
 //!     CoverBenefit,
 //!     Creature,
+//!     DamageDefenses,
+//!     DamageType,
 //!     Detection,
 //!     DetectionError,
 //!     Detections,
@@ -132,6 +137,7 @@
 //!     ReadySuccess,
 //!     ReadyTrigger,
 //!     Relation,
+//!     Resistance,
 //!     ResolvedReaction,
 //!     Save,
 //!     SaveRoll,
@@ -157,6 +163,7 @@
 //!     Terrain,
 //!     TurnSlot,
 //!     Vital,
+//!     Weakness,
 //!     begin_encounter,
 //!     derive,
 //!     new_combatant_state,
@@ -172,7 +179,9 @@
 //! let _ = rules::Encounter::state;
 //! let _ = rules::Encounter::creature;
 //! let _ = rules::Encounter::start_turn;
-//! let _ = rules::Encounter::end_turn;
+//! let _: fn(&mut rules::Encounter, &mut rules::SeededDice) -> Result<(), rules::EncounterError> =
+//!     rules::Encounter::end_turn;
+//! let _ = rules::Encounter::gain_persistent_damage;
 //! let _ = rules::Encounter::spend_actions;
 //! let _ = rules::Encounter::spend_free_action;
 //! let _ = rules::Encounter::spend_reaction;
@@ -230,7 +239,14 @@
 //! ) -> Result<rules::SaveRoll, rules::EncounterError> = rules::Encounter::basic_save;
 //! let _ = rules::Encounter::delay;
 //! let _ = rules::Encounter::return_from_delay;
-//! let _ = rules::Encounter::ready;
+//! let _: fn(
+//!     &mut rules::Encounter,
+//!     rules::CombatantId,
+//!     rules::ReadyTrigger,
+//!     rules::ActionCost,
+//!     rules::ReadyActivity,
+//!     &mut rules::SeededDice,
+//! ) -> Result<(), rules::ReadyError> = rules::Encounter::ready;
 //! let _ = rules::Encounter::readied_attack_penalty;
 //! let _: fn(
 //!     &mut rules::Encounter,
@@ -913,6 +929,7 @@
 mod aid;
 mod check;
 mod combatant;
+mod damage;
 mod detection;
 mod dice;
 mod dying;
@@ -933,6 +950,7 @@ pub use combatant::{
     DieCountError, DyingValue, DyingValueError, HpError, MeleeStrike, ReachError, ReachFeet,
     ShieldTemplate, TemplateError, Vital, derive, new_combatant_state,
 };
+pub use damage::{DamageDefenses, DamageType, Resistance, Weakness};
 pub use detection::{Concealment, Detection, DetectionError, Detections, Relation};
 pub use dice::{Dice, FaceCountError, Faces, SeededDice};
 pub use dying::InitiativeMove;

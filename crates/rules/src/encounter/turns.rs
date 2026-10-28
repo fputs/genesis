@@ -4,8 +4,12 @@
 //! Player Core, "Step 3: End Your Turn".
 
 use crate::aid::AidPreparation;
-use crate::combatant::{CombatantId, CombatantState, Creature, Vital};
+use crate::check::{DegreeOfSuccess, flat_check};
+use crate::combatant::{CombatantId, CombatantState, ConditionSlot, Creature, Vital};
+use crate::damage::{DamageType, adjust_damage};
 use crate::dice::Dice;
+use crate::dying::apply_resolved_blow;
+use crate::modifiers::ModifierError;
 use crate::shield::lower_raised_shield;
 
 use super::{Encounter, EncounterError, Member, Participant, Side, TurnSlot, TurnState};
@@ -219,24 +223,145 @@ impl Encounter {
         Ok(id)
     }
 
+    /// Stores one persistent damage entry. A higher amount of the same type replaces a lower one.
+    ///
+    /// The call spends no action and no reaction, and it does not roll. The caller of a critical
+    /// hit passes twice the listed amount. This function stores that amount and does not double it.
+    ///
+    /// Player Core pg. 445, Persistent Damage.
+    pub fn gain_persistent_damage(
+        &mut self,
+        id: CombatantId,
+        damage_type: DamageType,
+        amount: i32,
+    ) -> Result<(), EncounterError> {
+        if amount < 1 {
+            return Err(EncounterError::NonPositivePersistent);
+        }
+        let index = self.member_index(id)?;
+        let state = &mut self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?
+            .participant
+            .state;
+        if state.vital == Vital::Dead {
+            return Err(EncounterError::TargetDead);
+        }
+        if let Some(ConditionSlot::PersistentDamage { amount: stored, .. }) =
+            state.conditions.iter_mut().find(|slot| match slot {
+                ConditionSlot::PersistentDamage {
+                    damage_type: stored_type,
+                    ..
+                } => *stored_type == damage_type,
+            })
+        {
+            if amount > *stored {
+                *stored = amount;
+            }
+            return Ok(());
+        }
+        state.conditions.push(ConditionSlot::PersistentDamage {
+            damage_type,
+            amount,
+        });
+        Ok(())
+    }
+
     /// Closes the open turn and advances once.
     ///
-    /// The empty end step runs, actions drop to 0, and an unspent reaction stays available.
-    /// Aid preparation is left as it was. Moving past the last combatant wraps the cursor and
-    /// adds 1 to the round. [`EncounterError::RoundOverflow`] returns before that advance.
-    /// A second call is [`EncounterError::TurnNotOpen`] and does not advance again.
+    /// Persistent damage on the active creature is adjusted and, when the sum is positive,
+    /// applied as one ordinary blow before the flat checks. With no persistent damage, no die
+    /// is drawn and Hit Points stay as they were. Actions drop to 0, and an unspent reaction
+    /// stays available. Aid preparation is left as it was. Moving past the last combatant wraps
+    /// the cursor and adds 1 to the round. [`EncounterError::RoundOverflow`] returns before that
+    /// advance. A second call is [`EncounterError::TurnNotOpen`] and does not advance again.
+    /// An overflowing persistent sum leaves the turn open.
     ///
-    /// Player Core, "Step 3: End Your Turn". Player Core, Aid.
-    pub fn end_turn(&mut self) -> Result<(), EncounterError> {
+    /// Player Core pg. 436, Step 3: End Your Turn. Player Core pg. 445, Persistent Damage.
+    /// Player Core, Aid.
+    pub fn end_turn(&mut self, dice: &mut impl Dice) -> Result<(), EncounterError> {
         let Some(id) = self.open else {
             return Err(EncounterError::TurnNotOpen);
         };
+        self.resolve_persistent(id, dice)?;
         let advance = self.plan_advance(TurnAdvance::End)?;
         self.end_of_turn_step(id);
         self.close_actions(id);
         self.open = None;
         self.last_ended = Some(id);
         self.apply_advance(advance);
+        Ok(())
+    }
+
+    /// Adjusts the active creature's persistent damage, applies one ordinary blow, then rolls.
+    ///
+    /// Player Core pg. 436, Step 3: End Your Turn. Player Core pg. 445, Persistent Damage.
+    /// Player Core pg. 411, Taking Damage. Player Core pg. 411, Death.
+    fn resolve_persistent(
+        &mut self,
+        id: CombatantId,
+        dice: &mut impl Dice,
+    ) -> Result<(), EncounterError> {
+        let index = self.member_index(id)?;
+        let (vital, defenses, creature, mut entries) = {
+            let member = self
+                .members
+                .get(index)
+                .ok_or(EncounterError::UnknownCombatant)?;
+            (
+                member.participant.state.vital,
+                member.participant.creature.defenses.clone(),
+                member.participant.creature.clone(),
+                persistent_entries(&member.participant.state),
+            )
+        };
+        let state = &mut self
+            .members
+            .get_mut(index)
+            .ok_or(EncounterError::UnknownCombatant)?
+            .participant
+            .state;
+        if vital == Vital::Dead {
+            clear_persistent(state);
+            return Ok(());
+        }
+        entries.sort_by_key(|(damage_type, _)| *damage_type);
+        let mut adjusted = Vec::with_capacity(entries.len());
+        let mut sum = 0i64;
+        for (damage_type, amount) in entries {
+            let next = adjust_damage(amount, damage_type, &defenses)
+                .map_err(EncounterError::DamageOverflow)?;
+            sum = sum
+                .checked_add(i64::from(next))
+                .ok_or(EncounterError::DamageOverflow(ModifierError::Overflow))?;
+            adjusted.push((damage_type, amount));
+        }
+        let blow = i32::try_from(sum)
+            .map_err(|_| EncounterError::DamageOverflow(ModifierError::Overflow))?;
+        if blow > 0 {
+            apply_resolved_blow(state, &creature, blow, DegreeOfSuccess::Success)
+                .map_err(EncounterError::HitPoints)?;
+            state.initiative_move = None;
+        }
+        if state.vital == Vital::Dead {
+            clear_persistent(state);
+            return Ok(());
+        }
+        let mut kept = Vec::new();
+        for (damage_type, amount) in adjusted {
+            let roll = flat_check(dice, 15);
+            if !matches!(
+                roll.degree,
+                DegreeOfSuccess::Success | DegreeOfSuccess::CriticalSuccess
+            ) {
+                kept.push(ConditionSlot::PersistentDamage {
+                    damage_type,
+                    amount,
+                });
+            }
+        }
+        state.conditions = kept;
         Ok(())
     }
 
@@ -552,6 +677,23 @@ impl Encounter {
         }
         Err(EncounterError::NoLivingCombatant)
     }
+}
+
+fn persistent_entries(state: &CombatantState) -> Vec<(DamageType, i32)> {
+    state
+        .conditions
+        .iter()
+        .map(|slot| match slot {
+            ConditionSlot::PersistentDamage {
+                damage_type,
+                amount,
+            } => (*damage_type, *amount),
+        })
+        .collect()
+}
+
+fn clear_persistent(state: &mut CombatantState) {
+    state.conditions.clear();
 }
 
 pub(super) enum TurnAdvance {

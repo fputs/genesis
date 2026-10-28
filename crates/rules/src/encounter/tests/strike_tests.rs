@@ -55,9 +55,9 @@ fn a_not_alive_target_keeps_baked_armor_class() {
         .expect("knockout");
     assert_ne!(vital(&encounter, 2), Vital::Alive);
     assert_ne!(vital(&encounter, 2), Vital::Dead);
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(encounter.start_turn().expect("empty"), id(2));
-    encounter.end_turn().expect("close empty");
+    encounter.end_turn(&mut dice).expect("close empty");
     assert_eq!(encounter.start_turn().expect("again"), id(1));
     let outcome = rolled(
         encounter
@@ -1438,7 +1438,7 @@ fn a_reaction_after_two_strikes_keeps_penalty_0() {
             &mut dice,
         )
         .expect("second");
-    encounter.end_turn().expect("end");
+    encounter.end_turn(&mut dice).expect("end");
     assert_eq!(
         encounter
             .attack_trait_penalty(id(1), Agility::NotAgile)
@@ -1447,7 +1447,7 @@ fn a_reaction_after_two_strikes_keeps_penalty_0() {
     );
     assert_eq!(dice.remaining(), 1);
     encounter.start_turn().expect("other");
-    encounter.end_turn().expect("end other");
+    encounter.end_turn(&mut dice).expect("end other");
     assert_eq!(encounter.start_turn().expect("next"), id(1));
     assert_eq!(
         encounter

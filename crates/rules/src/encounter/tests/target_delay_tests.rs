@@ -6,7 +6,8 @@ fn open(encounter: &mut super::super::Encounter, value: u32) {
 }
 
 fn close(encounter: &mut super::super::Encounter) {
-    encounter.end_turn().expect("end");
+    let mut unused = crate::dice::ScriptedDice::new([]);
+    encounter.end_turn(&mut unused).expect("end");
 }
 
 fn slot(encounter: &super::super::Encounter, value: u32) -> TurnSlot {

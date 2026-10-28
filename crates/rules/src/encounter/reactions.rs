@@ -6,6 +6,7 @@
 use crate::aid::{AidOutcome, AidPreparation, FittingAidModifier, roll_aid};
 use crate::check::{DegreeOfSuccess, degree_of_success};
 use crate::combatant::{CombatantId, CombatantState, Vital, damage_dealt};
+use crate::damage::adjust_damage;
 use crate::detection::{Detections, resolve_targeting};
 use crate::dice::Dice;
 use crate::dying::apply_resolved_blow;
@@ -391,18 +392,25 @@ impl Encounter {
         let damage = if misses(degree) {
             0
         } else {
+            let defenses = self
+                .creature(actor)
+                .map_err(|_| ReactiveError::UnknownCombatant)?
+                .defenses
+                .clone();
             let rolled = roll_strike_damage(dice, profile).map_err(as_damage_overflow)?;
-            damage_dealt(
+            let dealt = damage_dealt(
                 rolled,
                 modifiers,
                 degree == DegreeOfSuccess::CriticalSuccess,
             )
-            .map_err(ReactiveError::DamageOverflow)?
+            .map_err(ReactiveError::DamageOverflow)?;
+            adjust_damage(dealt, profile.damage_type, &defenses)
+                .map_err(ReactiveError::DamageOverflow)?
         };
         let actor_delay = self
             .delayed_target(actor)
             .map_err(|_| ReactiveError::UnknownCombatant)?;
-        if !misses(degree) {
+        if !misses(degree) && damage > 0 {
             let mut updated = self
                 .state(actor)
                 .map_err(|_| ReactiveError::UnknownCombatant)?
@@ -588,6 +596,7 @@ pub(super) fn from_spend(error: EncounterError) -> ReactiveError {
         EncounterError::NoSkills => ReactiveError::NoReaction,
         EncounterError::SkillOverflow(_) => ReactiveError::NoReaction,
         EncounterError::CannotTarget => ReactiveError::CannotTarget,
+        EncounterError::NonPositivePersistent => ReactiveError::NoReaction,
     }
 }
 
@@ -659,5 +668,8 @@ pub(super) fn as_damage_overflow(error: EncounterError) -> ReactiveError {
         EncounterError::NoSkills => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::SkillOverflow(_) => ReactiveError::DamageOverflow(ModifierError::Overflow),
         EncounterError::CannotTarget => ReactiveError::DamageOverflow(ModifierError::Overflow),
+        EncounterError::NonPositivePersistent => {
+            ReactiveError::DamageOverflow(ModifierError::Overflow)
+        }
     }
 }

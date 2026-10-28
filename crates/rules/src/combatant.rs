@@ -129,6 +129,8 @@ pub struct MeleeStrike {
     pub reach_feet: ReachFeet,
     /// Agile lowers the multiple attack penalty for this weapon. Player Core, "Multiple Attack Penalty".
     pub agile: bool,
+    /// The type of this strike's damage. Player Core pg. 407, Damage Types.
+    pub damage_type: crate::damage::DamageType,
 }
 
 /// Shield numbers stored on the build. The AC bonus is this shield's own value.
@@ -177,6 +179,8 @@ pub struct BuildParts {
     ///
     /// Player Core pg. 405, Skill Checks.
     pub skills: Option<crate::skill::Skills>,
+    /// Immunities, weaknesses, and resistances. Player Core pg. 408, Immunity, Weakness, and Resistance.
+    pub defenses: crate::damage::DamageDefenses,
 }
 
 /// Immutable inputs for one character. No setters, and no combatant id.
@@ -202,6 +206,8 @@ pub enum TemplateError {
     ///
     /// Player Core, "Shield Statistics".
     InvalidShield,
+    /// A weakness or resistance value is below 1. Player Core pg. 408, Weakness. Player Core pg. 408, Resistance.
+    InvalidDefenses,
 }
 
 impl CharacterBuild {
@@ -215,6 +221,7 @@ impl CharacterBuild {
     pub fn try_new(parts: BuildParts) -> Result<Self, TemplateError> {
         check_statistics(parts.hit_points, parts.speed_feet)?;
         check_shield(parts.shield.as_ref())?;
+        check_defenses(&parts.defenses)?;
         Ok(Self { parts })
     }
 }
@@ -247,6 +254,15 @@ fn check_shield(shield: Option<&ShieldTemplate>) -> Result<(), TemplateError> {
         || shield.broken_threshold >= shield.hit_points;
     if invalid {
         return Err(TemplateError::InvalidShield);
+    }
+    Ok(())
+}
+
+fn check_defenses(defenses: &crate::damage::DamageDefenses) -> Result<(), TemplateError> {
+    let weakness = defenses.weaknesses.iter().any(|entry| entry.value < 1);
+    let resistance = defenses.resistances.iter().any(|entry| entry.value < 1);
+    if weakness || resistance {
+        return Err(TemplateError::InvalidDefenses);
     }
     Ok(())
 }
@@ -288,6 +304,10 @@ pub(crate) struct Contribution {
     pub saves: Option<crate::save::SavingThrows>,
     /// Replaces skill training when `Some`. Player Core pg. 405, Skill Checks.
     pub skills: Option<crate::skill::Skills>,
+    /// Replaces the strike damage type when `Some`. Player Core pg. 407, Damage Types.
+    pub damage_type: Option<crate::damage::DamageType>,
+    /// Replaces defenses when `Some`. Player Core pg. 408, Immunity, Weakness, and Resistance.
+    pub defenses: Option<crate::damage::DamageDefenses>,
 }
 
 /// Copies the authored numbers as the first layer.
@@ -313,6 +333,8 @@ pub(crate) fn base_contribution(build: &CharacterBuild) -> Contribution {
         uses_dying_rules: parts.uses_dying_rules,
         saves: parts.saves,
         skills: parts.skills,
+        damage_type: Some(parts.strike.damage_type),
+        defenses: Some(parts.defenses.clone()),
     }
 }
 
@@ -354,6 +376,8 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
     let mut uses_dying_rules = None;
     let mut saves = None;
     let mut skills = None;
+    let mut damage_type = None;
+    let mut defenses = None;
 
     for layer in ordered {
         hit_points = hit_points
@@ -407,6 +431,12 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
         if let Some(value) = layer.skills {
             skills = Some(value);
         }
+        if let Some(value) = layer.damage_type {
+            damage_type = Some(value);
+        }
+        if layer.defenses.is_some() {
+            defenses.clone_from(&layer.defenses);
+        }
     }
 
     let damage_dice = DieCount::new(damage_dice).map_err(|_| FoldError::DamageDie)?;
@@ -427,6 +457,7 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
             damage_bonus,
             reach_feet,
             agile: agile.unwrap_or(false),
+            damage_type: damage_type.unwrap_or(crate::damage::DamageType::Slashing),
         },
         shield,
         stealth_dc,
@@ -435,6 +466,7 @@ pub(crate) fn fold_contributions(ordered: &[Contribution]) -> Result<Creature, F
         uses_dying_rules: uses_dying_rules.unwrap_or(false),
         saves,
         skills,
+        defenses: defenses.unwrap_or_else(crate::damage::DamageDefenses::empty),
     })
 }
 
@@ -453,6 +485,7 @@ fn creature_from_validated(build: &CharacterBuild) -> Creature {
         uses_dying_rules: parts.uses_dying_rules.unwrap_or(false),
         saves: parts.saves,
         skills: parts.skills,
+        defenses: parts.defenses.clone(),
     }
 }
 
@@ -496,6 +529,8 @@ pub struct Creature {
     ///
     /// Player Core pg. 405, Skill Checks.
     pub skills: Option<crate::skill::Skills>,
+    /// Immunities, weaknesses, and resistances. Player Core pg. 408, Immunity, Weakness, and Resistance.
+    pub defenses: crate::damage::DamageDefenses,
 }
 
 /// A dying value of 1, 2, or 3. Dying 4 or higher is death and is not stored.
@@ -549,11 +584,21 @@ pub enum Vital {
     Dead,
 }
 
-/// Empty in Phase 1. The vec is the slot later conditions will fill.
+/// One condition entry. This change owns the container.
 ///
-/// Player Core, Encounter Mode.
+/// Player Core pg. 445, Persistent Damage.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ConditionSlot;
+pub enum ConditionSlot {
+    /// Flat persistent damage of one type. It does not end by counting rounds.
+    ///
+    /// Player Core pg. 445, Persistent Damage.
+    PersistentDamage {
+        /// The type taken at the end of the creature's turn. Player Core pg. 445, Persistent Damage.
+        damage_type: crate::damage::DamageType,
+        /// The positive amount stored for that type. Player Core pg. 445, Persistent Damage.
+        amount: i32,
+    },
+}
 
 /// Runtime combat data, keyed by [`CombatantId`]. Never written back onto the build or the creature.
 ///
@@ -662,7 +707,7 @@ pub enum HpError {
 /// with penalties is 0 or below (Rules 2302). That 1 is chosen before critical doubling, so
 /// the smallest critical hit the floor produced deals 2 (DEV-14; Rules 2307). Any other
 /// non-positive total is clamped to 0 before doubling, so a critical hit of `i32::MIN` is 0
-/// and not an overflow. Resistance is not an argument; its floor of 0 stays out of scope.
+/// and not an overflow. Resistance is applied after this roll and may reduce the result to 0.
 ///
 /// Player Core, "Damage Rolls" and "Doubling and Halving".
 pub(crate) fn damage_dealt(
@@ -824,6 +869,7 @@ mod tests {
             damage_bonus: bonus,
             reach_feet: ReachFeet::new(i32::try_from(reach).expect("reach")).expect("reach"),
             agile,
+            damage_type: crate::damage::DamageType::Slashing,
         }
     }
 
@@ -841,6 +887,7 @@ mod tests {
             uses_dying_rules: None,
             saves: None,
             skills: None,
+            defenses: crate::damage::DamageDefenses::empty(),
         }
     }
 
@@ -1344,6 +1391,7 @@ mod tests {
         assert_eq!(strike.damage_bonus, 4);
         assert_eq!(strike.reach_feet.get(), 5);
         assert!(!strike.agile);
+        assert_eq!(strike.damage_type, crate::damage::DamageType::Slashing);
         assert_eq!(dice.remaining(), 1);
     }
 
@@ -1353,8 +1401,10 @@ mod tests {
         let dice = ScriptedDice::new([8]);
         let mut parts = fighter_parts();
         parts.strike = strike(6, 1, 6, 2, 5, true);
+        parts.strike.damage_type = crate::damage::DamageType::Piercing;
         let kept = derive(&build(parts)).strike;
         assert!(kept.agile);
+        assert_eq!(kept.damage_type, crate::damage::DamageType::Piercing);
         assert_eq!(kept.attack_bonus, 6);
         assert_eq!(kept.damage_dice.get(), 1);
         assert_eq!(kept.damage_faces.get(), 6);

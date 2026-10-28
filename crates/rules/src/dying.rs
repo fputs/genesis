@@ -13,7 +13,10 @@
 )]
 
 use crate::check::{DegreeOfSuccess, FlatRoll, flat_check};
-use crate::combatant::{CombatantId, CombatantState, Creature, DyingValue, HpError, Vital};
+use crate::combatant::{
+    CombatantId, CombatantState, ConditionSlot, Creature, DyingValue, HpError, Vital,
+};
+use crate::damage::DamageType;
 use crate::dice::Dice;
 use crate::encounter::Side;
 
@@ -179,6 +182,13 @@ pub(crate) fn apply_healing(
     state.wounded = wounded;
     state.vital = Vital::Alive;
     state.initiative_move = None;
+    if hit_points == maximum {
+        state.conditions.retain(|slot| match slot {
+            ConditionSlot::PersistentDamage { damage_type, .. } => {
+                *damage_type != DamageType::Bleed
+            }
+        });
+    }
     Ok(())
 }
 
@@ -296,6 +306,7 @@ fn die(state: &mut CombatantState) {
     state.temp_rounds = 0;
     state.vital = Vital::Dead;
     state.initiative_move = None;
+    state.conditions.clear();
 }
 
 fn spend(state: &mut CombatantState, amount: i32) {
@@ -431,6 +442,7 @@ mod tests {
                 damage_bonus: 0,
                 reach_feet: ReachFeet::new(5).expect("reach"),
                 agile: false,
+                damage_type: crate::damage::DamageType::Slashing,
             },
             shield: None,
             stealth_dc: None,
@@ -439,6 +451,7 @@ mod tests {
             uses_dying_rules: Some(rules),
             saves: None,
             skills: None,
+            defenses: crate::damage::DamageDefenses::empty(),
         };
         derive(&CharacterBuild::try_new(parts).expect("build"))
     }

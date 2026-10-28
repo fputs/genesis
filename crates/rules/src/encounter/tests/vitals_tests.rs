@@ -294,6 +294,21 @@ fn skill_overflow_keeps_its_own_arms() {
     );
 }
 
+/// Player Core pg. 445, Persistent Damage.
+#[test]
+fn non_positive_persistent_keeps_its_own_arms() {
+    let error = EncounterError::NonPositivePersistent;
+    assert_eq!(
+        ready_from_encounter(error),
+        ReadyError::Encounter(ReadyEncounter::NonPositivePersistent)
+    );
+    assert_eq!(from_spend(error), ReactiveError::NoReaction);
+    assert_eq!(
+        as_damage_overflow(error),
+        ReactiveError::DamageOverflow(ModifierError::Overflow)
+    );
+}
+
 /// Player Core pg. 404, Saving Throws.
 #[test]
 fn save_overflow_keeps_its_own_arms() {

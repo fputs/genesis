@@ -377,6 +377,8 @@ pub enum ReadyEncounter {
     NoSkills,
     /// The skill modifier does not fit a check modifier. Player Core pg. 405, Skill Checks.
     SkillOverflow(ArithmeticOverflow),
+    /// Persistent damage was gained with an amount below 1. Player Core pg. 445, Persistent Damage.
+    NonPositivePersistent,
 }
 
 /// Which stored action a fire check is comparing.
