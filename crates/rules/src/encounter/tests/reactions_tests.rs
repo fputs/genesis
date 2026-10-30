@@ -1432,6 +1432,7 @@ fn a_reaction_spent_by_shield_block_still_reports_aidoverflow() {
         saves: None,
         skills: None,
         defenses: crate::damage::DamageDefenses::empty(),
+        spellcasting: None,
     };
     let aider = participant(
         1,

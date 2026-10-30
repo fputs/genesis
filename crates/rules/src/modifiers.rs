@@ -146,6 +146,10 @@ pub enum Statistic {
     ///
     /// Player Core pg. 404, Saving Throws.
     Will,
+    /// A spell attack roll and the spell DC. It does not share a stack with Attack.
+    ///
+    /// Player Core pg. 403, Spell Attack Rolls.
+    SpellAttack,
     /// Acrobatics. Player Core pg. 233, Acrobatics.
     Acrobatics,
     /// Arcana. Player Core pg. 234, Arcana.
@@ -801,6 +805,7 @@ struct ByStatistic {
     reflex: Buckets,
     fortitude: Buckets,
     will: Buckets,
+    spell_attack: Buckets,
     skills: [Buckets; SKILL_STATISTIC_COUNT],
 }
 
@@ -813,6 +818,7 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         reflex: Buckets::new(),
         fortitude: Buckets::new(),
         will: Buckets::new(),
+        spell_attack: Buckets::new(),
         skills: std::array::from_fn(|_| Buckets::new()),
     };
     for modifier in modifiers.iter().copied() {
@@ -827,6 +833,7 @@ fn stack_types(modifiers: &[Modifier]) -> Vec<Modifier> {
         grouped.reflex,
         grouped.fortitude,
         grouped.will,
+        grouped.spell_attack,
     ] {
         applied.extend(applied_from(buckets));
     }
@@ -845,6 +852,7 @@ fn buckets_for(grouped: &mut ByStatistic, statistic: Statistic) -> &mut Buckets 
         Statistic::Reflex => &mut grouped.reflex,
         Statistic::Fortitude => &mut grouped.fortitude,
         Statistic::Will => &mut grouped.will,
+        Statistic::SpellAttack => &mut grouped.spell_attack,
         skill => &mut grouped.skills[skill_offset(skill)],
     }
 }
@@ -941,6 +949,7 @@ struct StatisticTotals {
     reflex: i32,
     fortitude: i32,
     will: i32,
+    spell_attack: i32,
     skills: [i32; SKILL_STATISTIC_COUNT],
 }
 
@@ -954,6 +963,7 @@ impl StatisticTotals {
             Statistic::Reflex => self.reflex,
             Statistic::Fortitude => self.fortitude,
             Statistic::Will => self.will,
+            Statistic::SpellAttack => self.spell_attack,
             skill => self.skills[skill_offset(skill)],
         }
     }
@@ -967,6 +977,7 @@ struct StatisticWide {
     reflex: i64,
     fortitude: i64,
     will: i64,
+    spell_attack: i64,
     skills: [i64; SKILL_STATISTIC_COUNT],
 }
 
@@ -984,6 +995,7 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         reflex: 0,
         fortitude: 0,
         will: 0,
+        spell_attack: 0,
         skills: [0; SKILL_STATISTIC_COUNT],
     };
     for modifier in &applied {
@@ -1001,6 +1013,7 @@ fn finish(mut applied: Vec<Modifier>) -> Result<ModifierTotal, ModifierError> {
         reflex: i32::try_from(wide.reflex).map_err(|_| ModifierError::Overflow)?,
         fortitude: i32::try_from(wide.fortitude).map_err(|_| ModifierError::Overflow)?,
         will: i32::try_from(wide.will).map_err(|_| ModifierError::Overflow)?,
+        spell_attack: i32::try_from(wide.spell_attack).map_err(|_| ModifierError::Overflow)?,
         skills,
     };
     Ok(ModifierTotal { totals, applied })
@@ -1019,6 +1032,7 @@ fn add_statistic(
         Statistic::Reflex => &mut wide.reflex,
         Statistic::Fortitude => &mut wide.fortitude,
         Statistic::Will => &mut wide.will,
+        Statistic::SpellAttack => &mut wide.spell_attack,
         skill => &mut wide.skills[skill_offset(skill)],
     };
     *slot = slot
@@ -1136,14 +1150,20 @@ fn skill_offset(statistic: Statistic) -> usize {
         Statistic::Stealth => 13,
         Statistic::Survival => 14,
         Statistic::Thievery => 15,
+        // SpellAttack is matched before every call, so it never indexes the skill array.
         Statistic::Attack
         | Statistic::ArmorClass
         | Statistic::Perception
         | Statistic::Damage
         | Statistic::Reflex
         | Statistic::Fortitude
-        | Statistic::Will => 0,
+        | Statistic::Will
+        | Statistic::SpellAttack => 0,
     }
+}
+
+fn spell_attack_ord() -> u8 {
+    7 + u8::try_from(SKILL_STATISTIC_COUNT).unwrap_or(u8::MAX)
 }
 
 fn statistic_ord(statistic: Statistic) -> u8 {
@@ -1155,6 +1175,7 @@ fn statistic_ord(statistic: Statistic) -> u8 {
         Statistic::Reflex => 4,
         Statistic::Fortitude => 5,
         Statistic::Will => 6,
+        Statistic::SpellAttack => spell_attack_ord(),
         skill => 7 + u8::try_from(skill_offset(skill)).unwrap_or(0),
     }
 }
@@ -3783,6 +3804,7 @@ mod tests {
                     Statistic::Reflex,
                     Statistic::Fortitude,
                     Statistic::Will,
+                    Statistic::SpellAttack,
                 ]
                 .into_iter()
                 .chain(SKILL_STATISTICS)
@@ -3802,6 +3824,7 @@ mod tests {
         let mut reflex = 0usize;
         let mut fortitude = 0usize;
         let mut will = 0usize;
+        let mut spell_attack = 0usize;
         let mut skills = [0usize; SKILL_STATISTIC_COUNT];
         for modifier in set.iter().copied() {
             if !matches(modifier) {
@@ -3815,6 +3838,7 @@ mod tests {
                 Statistic::Reflex => &mut reflex,
                 Statistic::Fortitude => &mut fortitude,
                 Statistic::Will => &mut will,
+                Statistic::SpellAttack => &mut spell_attack,
                 skill => &mut skills[skill_offset(skill)],
             };
             *count += 1;
@@ -4253,6 +4277,7 @@ mod tests {
             Statistic::Reflex,
             Statistic::Fortitude,
             Statistic::Will,
+            Statistic::SpellAttack,
         ]
         .into_iter()
         .chain(SKILL_STATISTICS)
@@ -4609,6 +4634,45 @@ mod tests {
                 .iter()
                 .all(|modifier| modifier.penalty_type() != Some(PenaltyType::Status))
         );
+    }
+
+    /// Player Core pg. 403, Spell Attack Rolls. Player Core pg. 400, Bonuses.
+    #[test]
+    fn spellattack_and_attack_do_not_share_a_stack() {
+        let spell_attack = bonus(
+            BonusType::Circumstance,
+            2,
+            1,
+            1,
+            None,
+            Statistic::SpellAttack,
+        );
+        let attack = bonus(BonusType::Circumstance, 1, 2, 1, None, Statistic::Attack);
+        let stacked = summed(&[spell_attack, attack]);
+        assert_eq!(stacked.get(Statistic::SpellAttack), 2);
+        assert_eq!(stacked.get(Statistic::Attack), 1);
+    }
+
+    /// Player Core pg. 403, Spell Attack Rolls. Player Core pg. 446, Unconscious.
+    #[test]
+    fn unconscious_adds_nothing_to_spellattack() {
+        let spell_attack = bonus(
+            BonusType::Circumstance,
+            1,
+            1,
+            1,
+            None,
+            Statistic::SpellAttack,
+        );
+        let reflex = reflex_modifiers(true).expect("unconscious");
+        let mut modifiers = vec![spell_attack];
+        modifiers.extend(reflex);
+        let stacked = summed(&modifiers);
+        assert_eq!(stacked.get(Statistic::SpellAttack), 1);
+        assert!(stacked.applied().iter().all(|modifier| {
+            modifier.statistic() != Statistic::SpellAttack
+                || modifier.penalty_type() != Some(PenaltyType::Status)
+        }));
     }
 
     /// Player Core pg. 404, Saving Throws. Player Core pg. 446, Unconscious.

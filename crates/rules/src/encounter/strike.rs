@@ -245,7 +245,7 @@ impl Encounter {
     }
 }
 
-pub(super) enum FlatGate {
+pub(crate) enum FlatGate {
     Roll,
     Lost(LostStrike),
     CannotTarget,
@@ -253,7 +253,7 @@ pub(super) enum FlatGate {
 
 /// A lost flat check needs the face, the DC, and the degree. Anything else that does not
 /// affect the target spends nothing: today's DCs do not produce that result.
-pub(super) fn flat_gate(result: Result<TargetingResult, DetectionError>) -> FlatGate {
+pub(crate) fn flat_gate(result: Result<TargetingResult, DetectionError>) -> FlatGate {
     let result = match result {
         Ok(result) => result,
         Err(
@@ -283,7 +283,7 @@ pub(super) fn flat_gate(result: Result<TargetingResult, DetectionError>) -> Flat
     }
 }
 
-pub(super) fn misses(degree: DegreeOfSuccess) -> bool {
+pub(crate) fn misses(degree: DegreeOfSuccess) -> bool {
     matches!(
         degree,
         DegreeOfSuccess::Failure | DegreeOfSuccess::CriticalFailure

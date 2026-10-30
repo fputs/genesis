@@ -222,6 +222,7 @@ fn empty_parts() -> BuildParts {
         saves: None,
         skills: None,
         defenses: DamageDefenses::empty(),
+        spellcasting: None,
     }
 }
 

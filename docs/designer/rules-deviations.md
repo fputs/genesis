@@ -1,7 +1,7 @@
 # Genesis — Rules Deviations Log (intentional departures from RAW)
 
 Owner: Designer (rules lawyer). Baseline: PF2e Remaster Player Core (PC), verified on AoN 2026-10-20. Designer rulings of 2026-10-20 are applied. **FINAL.**
-Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills, 16 add-resistances-weaknesses-persistent, 17 add-conditions-with-durations.
+Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-core, 6 add-modifiers, 7 shields, 8 reactive-strike, 9 positioning, 10 seek-and-hidden, 11 delay, 12 ready, 13 aid, 14 add-saving-throws, 15 add-skills, 16 add-resistances-weaknesses-persistent, 17 add-spells-and-areas, 17 add-conditions-with-durations.
 
 ## Deviations
 
@@ -64,9 +64,18 @@ Changes: 2 dice-and-checks, 3 creature-template, 4 grid-movement, 5 encounter-co
 | DEV-61 | The key attribute is the table attribute | https://2e.aonprd.com/Rules.aspx?ID=2134 (PC 225). The GM may call for a different attribute | `Skill::attribute` is fixed | No GM | 15 |
 | DEV-62 | Two weaknesses of one type | https://2e.aonprd.com/Rules.aspx?ID=2317 (PC 408, Weakness) | Highest once, not the sum | The book adds each weakness once and does not say two values of one type stack | 16 |
 | DEV-63 | "Usually the highest" resistance | https://2e.aonprd.com/Rules.aspx?ID=2318 (PC 408, Resistance) | Always the highest | No GM choice | 16 |
+| DEV-64 | No slot on Breathe Fire | https://2e.aonprd.com/Actions.aspx?ID=2734 (PC 299) | The cast spends actions and does not remove a slot | No slot pool in this slice | 17 |
+| DEV-65 | Attack stack | https://2e.aonprd.com/Rules.aspx?ID=2292 (PC 403) | Only `SpellAttack` modifiers apply | No "all attacks" statistic | 17 |
+| DEV-66 | Untyped damage | https://2e.aonprd.com/Spells.aspx?ID=1457 (PC 319); https://2e.aonprd.com/Spells.aspx?ID=1718 (PC 363) | Fire, and bludgeoning, piercing, or slashing, are a bare 2d6. The cost still names fire | Types belong to the resistance change | 17 |
+| DEV-67 | Shield Block | https://2e.aonprd.com/Feats.aspx?ID=5212 (PC 262) | The projectile takes no shield argument | Shield Block stays on Strike | 17 |
+| DEV-68 | One source | https://2e.aonprd.com/Rules.aspx?ID=2292 (PC 403) | One entry, attribute is a modifier, no tradition | No class list | 17 |
+| DEV-69 | Cover on areas | https://2e.aonprd.com/Rules.aspx?ID=2384 (PC 428) | No cover bonus on the Reflex save. Standard or greater would apply; lesser would not | Cover stays an Armor Class bonus | 17 |
+| DEV-70 | Disruption | https://2e.aonprd.com/Actions.aspx?ID=2256 (PC 138) | The cast does not call `resolve_reactions` and is not voided | Reactions stay the caller's existing call | 17 |
+| DEV-71 | Rank 1 only | https://2e.aonprd.com/Spells.aspx?ID=1457 (PC 319); https://2e.aonprd.com/Spells.aspx?ID=1718 (PC 363) | Both spells deal 2d6. Breathe Fire does not add 2d6 per rank. The cantrip does not heighten to half level rounded up | No rank argument in this slice | 17 |
+| DEV-72 | Line of effect | https://2e.aonprd.com/Rules.aspx?ID=2384 (PC 428) | No line-of-effect test on the cone or the projectile | No walls in this slice | 17 |
 | DEV-73 | Prone restricts movement and grants greater cover | Prone, PC 445, https://2e.aonprd.com/Conditions.aspx?ID=88 | The condition applies its penalties. It does not change Stride, Step, Drop Prone, Stand, or Take Cover, and it does not grant cover | No Crawl in Phase 1. Posture stays caller-held | 17 |
 
-Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49. DEV-64 through DEV-72 are reserved by `add-spells-and-areas` (pull request 92). DEV-74 and later stay unused.
+Unused numbers (reserved, never written; do not reuse): DEV-33 to DEV-35, DEV-47 to DEV-49. DEV-74 and later stay unused.
 
 ## v1 errors corrected (NOT deviations — v2 follows RAW)
 

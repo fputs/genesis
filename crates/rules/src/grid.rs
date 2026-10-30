@@ -470,9 +470,9 @@ struct Measured {
 }
 
 #[derive(Clone, Copy)]
-struct AbsDelta {
-    ax: i32,
-    ay: i32,
+pub(crate) struct AbsDelta {
+    pub(crate) ax: i32,
+    pub(crate) ay: i32,
 }
 
 fn resolve(input: MoveInput<'_>, action: Action) -> Result<MoveOutcome, GridError> {
@@ -744,7 +744,7 @@ fn absolute_delta(from: Square, to: Square) -> Result<AbsDelta, GridError> {
     Ok(AbsDelta { ax, ay })
 }
 
-fn grid_feet(delta: AbsDelta) -> Result<u32, GridError> {
+pub(crate) fn grid_feet(delta: AbsDelta) -> Result<u32, GridError> {
     let diagonals = delta.ax.min(delta.ay);
     let orthogonals = delta
         .ax
@@ -833,6 +833,7 @@ mod tests {
             saves: None,
             skills: None,
             defenses: crate::damage::DamageDefenses::empty(),
+            spellcasting: None,
         };
         derive(&CharacterBuild::try_new(parts).expect("valid build"))
     }

@@ -379,6 +379,14 @@ pub enum ReadyEncounter {
     SkillOverflow(ArithmeticOverflow),
     /// Persistent damage was gained with an amount below 1. Player Core pg. 445, Persistent Damage.
     NonPositivePersistent,
+    /// The creature has no spellcasting entry. Player Core pg. 403, Spell Attack Rolls.
+    NoSpellcasting,
+    /// The target is farther than the spell's range. Player Core pg. 363, Telekinetic Projectile.
+    OutOfSpellRange,
+    /// The cone length is not the 15-foot template. Player Core pg. 428, Cone.
+    UnsupportedCone,
+    /// The same creature was listed twice. Player Core pg. 428, Areas.
+    DuplicateAreaTarget,
     /// A condition value or duration was rejected. Player Core pg. 442, Condition Values.
     Condition(crate::conditions::ConditionError),
 }

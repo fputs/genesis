@@ -135,6 +135,12 @@ pub enum ActionTrait {
     Ranged,
     /// The concentrate trait. Player Core, "Ready".
     Concentrate,
+    /// The attack trait. Player Core pg. 402, Multiple Attack Penalty.
+    Attack,
+    /// The cantrip trait. Player Core pg. 363, Telekinetic Projectile.
+    Cantrip,
+    /// The fire trait. Player Core pg. 319, Breathe Fire.
+    Fire,
 }
 
 /// What an action costs. Positioning reports the cost and does not spend it.
@@ -891,6 +897,7 @@ mod tests {
             saves: None,
             skills: None,
             defenses: crate::damage::DamageDefenses::empty(),
+            spellcasting: None,
         };
         let creature = derive(&CharacterBuild::try_new(parts).expect("valid build"));
         let mut state = new_combatant_state(CombatantId(1), &creature);

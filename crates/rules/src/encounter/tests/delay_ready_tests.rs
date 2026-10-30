@@ -233,6 +233,7 @@ fn slow(value: u32) -> crate::encounter::Participant {
         saves: None,
         skills: None,
         defenses: crate::damage::DamageDefenses::empty(),
+        spellcasting: None,
     };
     participant(
         value,

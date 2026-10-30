@@ -1021,6 +1021,12 @@ pub(super) fn ready_from_encounter(error: EncounterError) -> ReadyError {
         EncounterError::NonPositivePersistent => {
             ReadyError::Encounter(ReadyEncounter::NonPositivePersistent)
         }
+        EncounterError::NoSpellcasting => ReadyError::Encounter(ReadyEncounter::NoSpellcasting),
+        EncounterError::OutOfSpellRange => ReadyError::Encounter(ReadyEncounter::OutOfSpellRange),
+        EncounterError::UnsupportedCone => ReadyError::Encounter(ReadyEncounter::UnsupportedCone),
+        EncounterError::DuplicateAreaTarget => {
+            ReadyError::Encounter(ReadyEncounter::DuplicateAreaTarget)
+        }
         EncounterError::Condition(error) => ReadyError::Encounter(ReadyEncounter::Condition(error)),
     }
 }
